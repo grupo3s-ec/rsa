@@ -1,0 +1,12 @@
+{
+  // Nombre del Worker en Cloudflare — aparece en el dashboard.
+  "name": "rsa-frontend",
+  "main": ".open-next/worker.js",
+  // Ajusta esta fecha si hay compatibilidad nueva disponible.
+  "compatibility_date": "2026-06-10",
+  "compatibility_flags": ["nodejs_compat"],
+  "assets": {
+    "directory": ".open-next/assets",
+    "binding": "ASSETS"
+  }
+}

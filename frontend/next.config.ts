@@ -1,7 +1,8 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  /* config options here */
+  // Todo el fetching de datos es client-side (Mapbox + Laravel API).
+  // No usamos Node.js APIs en el servidor → compatible con el edge runtime de Cloudflare Workers.
 };
 
 export default nextConfig;
