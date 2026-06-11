@@ -1,31 +1,27 @@
 import { Badge } from "@/components/ui/badge";
+import { severityMeta } from "@/lib/incidents/format";
+import { cn } from "@/lib/utils";
 import type { IncidentSeverity } from "@/types/incident";
 
 interface SeverityBadgeProps {
   severity: IncidentSeverity;
+  className?: string;
 }
 
-const severityLabels: Record<IncidentSeverity, string> = {
-  low: "Baja",
-  medium: "Media",
-  high: "Alta",
-  critical: "Crítica",
-};
+/**
+ * Chip minimalista de severidad: punto de color + etiqueta corta.
+ * Consume `severityMeta` como única fuente de colores.
+ */
+export function SeverityBadge({ severity, className }: SeverityBadgeProps) {
+  const meta = severityMeta[severity];
 
-const severityClassNames: Record<IncidentSeverity, string> = {
-  low: "border-emerald-200 bg-emerald-50 text-emerald-700",
-  medium: "border-amber-200 bg-amber-50 text-amber-700",
-  high: "border-orange-200 bg-orange-50 text-orange-700",
-  critical: "border-red-200 bg-red-50 text-red-700",
-};
-
-export function SeverityBadge({ severity }: SeverityBadgeProps) {
   return (
     <Badge
       variant="outline"
-      className={severityClassNames[severity]}
+      className={cn("gap-1.5 bg-background/70", meta.textClass, className)}
     >
-      {severityLabels[severity]}
+      <span className={cn("size-1.5 rounded-full", meta.dotClass)} />
+      {meta.label}
     </Badge>
   );
 }

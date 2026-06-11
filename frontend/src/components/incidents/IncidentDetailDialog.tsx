@@ -6,8 +6,17 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Separator } from "@/components/ui/separator";
-import type { Incident } from "@/types/incident";
+import { Button } from "@/components/ui/button";
+import { ExternalLink, MapPin, VideoOff } from "lucide-react";
 import { SeverityBadge } from "@/components/incidents/SeverityBadge";
+import {
+  formatDateEs,
+  severityMeta,
+  statusMeta,
+  toEmbedUrl,
+  typeMeta,
+} from "@/lib/incidents/format";
+import type { Incident, IncidentSource } from "@/types/incident";
 
 interface IncidentDetailDialogProps {
   incident: Incident | null;
@@ -15,25 +24,58 @@ interface IncidentDetailDialogProps {
   onOpenChange: (open: boolean) => void;
 }
 
-function formatValue(value: string | number | null): string {
-  if (value === null || value === "") {
-    return "No disponible";
+const sourceLabels: Record<IncidentSource, string> = {
+  manual: "Reporte manual",
+  google_drive: "Google Drive",
+  geotab: "Geotab",
+};
+
+/** Sección de video: iframe de Drive, link externo o placeholder sutil. */
+function VideoSection({ videoUrl, title }: { videoUrl: string | null; title: string }) {
+  const embed = toEmbedUrl(videoUrl);
+
+  if (embed.kind === "drive" && embed.url) {
+    return (
+      <iframe
+        src={embed.url}
+        title={`Video: ${title}`}
+        allow="autoplay; encrypted-media"
+        allowFullScreen
+        className="aspect-video w-full rounded-xl border border-border/60 bg-muted"
+      />
+    );
   }
 
-  return String(value);
-}
-
-function formatDate(value: string | null): string {
-  if (!value) {
-    return "No disponible";
+  if (embed.kind === "external" && embed.url) {
+    return (
+      <Button
+        variant="outline"
+        className="w-full"
+        nativeButton={false}
+        render={
+          <a href={embed.url} target="_blank" rel="noreferrer" />
+        }
+      >
+        <ExternalLink data-icon="inline-start" />
+        Ver referencia externa
+      </Button>
+    );
   }
 
-  return new Intl.DateTimeFormat("es-EC", {
-    dateStyle: "medium",
-    timeStyle: "short",
-  }).format(new Date(value));
+  return (
+    <div className="flex aspect-video w-full items-center justify-center rounded-xl border border-dashed border-border/60 bg-muted/40 text-muted-foreground">
+      <span className="flex items-center gap-2 text-xs">
+        <VideoOff className="size-4" />
+        Sin video
+      </span>
+    </div>
+  );
 }
 
+/**
+ * Detalle de incidente: jerarquía visual fuerte (icono + color de severidad)
+ * y datos mínimos, con video embebido cuando existe.
+ */
 export function IncidentDetailDialog({
   incident,
   open,
@@ -43,77 +85,64 @@ export function IncidentDetailDialog({
     return null;
   }
 
+  const severity = severityMeta[incident.severity];
+  const type = typeMeta[incident.type];
+  const TypeIcon = type.icon;
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
+      <DialogContent className="max-h-[90vh] gap-4 overflow-y-auto sm:max-w-lg">
         <DialogHeader>
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-            <div>
-              <DialogTitle>{incident.title}</DialogTitle>
-              <DialogDescription>
-                Detalle operativo del evento reportado.
+          <div className="flex items-start gap-3 pr-8">
+            {/* Icono del tipo en círculo con el color de la severidad. */}
+            <span
+              className="flex size-10 shrink-0 items-center justify-center rounded-full text-white shadow-md"
+              style={{ backgroundColor: severity.hex }}
+            >
+              <TypeIcon className="size-5" />
+            </span>
+            <div className="min-w-0 flex-1 space-y-1.5">
+              <DialogTitle className="leading-snug">{incident.title}</DialogTitle>
+              <DialogDescription className="flex flex-wrap items-center gap-2">
+                <SeverityBadge severity={incident.severity} />
+                <span className="text-xs">{type.label}</span>
               </DialogDescription>
             </div>
-            <SeverityBadge severity={incident.severity} />
           </div>
         </DialogHeader>
 
+        <VideoSection videoUrl={incident.video_url} title={incident.title} />
+
+        {incident.description ? (
+          <p className="text-sm leading-relaxed text-foreground/90">
+            {incident.description}
+          </p>
+        ) : null}
+
         <Separator />
 
-        <dl className="grid gap-4 text-sm sm:grid-cols-2">
-          <div>
-            <dt className="text-muted-foreground">Tipo</dt>
-            <dd className="font-medium">{incident.type}</dd>
-          </div>
+        {/* Meta mínima: estado por color, fuente, fecha y coordenadas. */}
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-xs text-muted-foreground">
+          <span className="flex items-center gap-1.5">
+            <span
+              className={
+                incident.status === "resolved" || incident.status === "archived"
+                  ? "size-1.5 rounded-full bg-muted-foreground/50"
+                  : "size-1.5 rounded-full bg-emerald-500"
+              }
+            />
+            {statusMeta[incident.status].label}
+          </span>
 
-          <div>
-            <dt className="text-muted-foreground">Estado</dt>
-            <dd className="font-medium">{incident.status}</dd>
-          </div>
+          <span>{sourceLabels[incident.source]}</span>
 
-          <div>
-            <dt className="text-muted-foreground">Latitud</dt>
-            <dd className="font-medium">{incident.latitude}</dd>
-          </div>
+          <span>{formatDateEs(incident.occurred_at)}</span>
 
-          <div>
-            <dt className="text-muted-foreground">Longitud</dt>
-            <dd className="font-medium">{incident.longitude}</dd>
-          </div>
-
-          <div>
-            <dt className="text-muted-foreground">Fuente</dt>
-            <dd className="font-medium">{incident.source}</dd>
-          </div>
-
-          <div>
-            <dt className="text-muted-foreground">Fecha</dt>
-            <dd className="font-medium">{formatDate(incident.occurred_at)}</dd>
-          </div>
-
-          <div className="sm:col-span-2">
-            <dt className="text-muted-foreground">Descripción</dt>
-            <dd className="font-medium">{formatValue(incident.description)}</dd>
-          </div>
-
-          <div className="sm:col-span-2">
-            <dt className="text-muted-foreground">Video / referencia externa</dt>
-            <dd className="break-all font-medium">
-              {incident.video_url ? (
-                <a
-                  href={incident.video_url}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="underline underline-offset-4"
-                >
-                  {incident.video_url}
-                </a>
-              ) : (
-                "No disponible"
-              )}
-            </dd>
-          </div>
-        </dl>
+          <span className="flex items-center gap-1 font-mono">
+            <MapPin className="size-3" />
+            {incident.latitude.toFixed(5)}, {incident.longitude.toFixed(5)}
+          </span>
+        </div>
       </DialogContent>
     </Dialog>
   );

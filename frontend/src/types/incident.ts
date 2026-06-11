@@ -78,3 +78,17 @@ export interface RouteIncidentQuery {
   destination_lat: number;
   destination_lng: number;
 }
+
+/** Payload para POST /incidents — refleja las reglas de StoreIncidentRequest del backend. */
+export interface CreateIncidentPayload {
+  title: string;
+  type: IncidentType;
+  severity: IncidentSeverity;
+  description: string | null;
+  latitude: number;
+  longitude: number;
+  source: IncidentSource;
+  video_url: string | null;
+  occurred_at: string | null;
+  status?: IncidentStatus;
+}
