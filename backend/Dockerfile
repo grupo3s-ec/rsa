@@ -1,4 +1,4 @@
-FROM php:8.3-fpm-alpine
+FROM php:8.4-fpm-alpine
 
 # curl-dev = ext-curl (requerido por Laravel 13, no viene en la imagen base)
 RUN apk add --no-cache \
