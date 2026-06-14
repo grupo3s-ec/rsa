@@ -1,11 +1,14 @@
 FROM php:8.3-fpm-alpine
 
-# Solo lo necesario para Laravel API + PostgreSQL
+# curl-dev = ext-curl (requerido por Laravel 13, no viene en la imagen base)
 RUN apk add --no-cache \
+        curl-dev \
         postgresql-dev \
         oniguruma-dev \
         libxml2-dev \
     && docker-php-ext-install \
+        curl \
+        dom \
         pdo \
         pdo_pgsql \
         mbstring \
@@ -16,17 +19,16 @@ RUN apk add --no-cache \
 
 WORKDIR /var/www/html
 
-# Capa de dependencias cacheable
 COPY composer.json composer.lock ./
-RUN composer install --no-dev --no-scripts --no-autoloader --prefer-dist
+RUN COMPOSER_MEMORY_LIMIT=-1 composer install \
+    --no-dev --no-scripts --no-autoloader --prefer-dist
 
-# Código fuente
 COPY . .
-RUN composer install --no-dev --optimize-autoloader \
+RUN COMPOSER_MEMORY_LIMIT=-1 composer install \
+    --no-dev --optimize-autoloader \
     && chmod -R 775 storage bootstrap/cache \
     && chown -R www-data:www-data storage bootstrap/cache
 
 EXPOSE 10000
 
-# php artisan serve es suficiente para free tier / demo
 CMD ["sh", "-c", "php artisan serve --host=0.0.0.0 --port=${PORT:-10000}"]
