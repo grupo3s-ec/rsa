@@ -93,7 +93,7 @@ export function RoutePlanner() {
   const [reportPickActive, setReportPickActive] = useState(false);
   const [pickedReportCoords, setPickedReportCoords] = useState<LngLat | null>(null);
   const [helpOpen,     setHelpOpen]     = useState(false);
-  const [layoutMode,   setLayoutMode]   = useState<LayoutMode>("full");
+  const [layoutMode,   setLayoutMode]   = useState<LayoutMode>("panel");
 
   const originName      = useMemo(() => resolvePointName(origin),      [origin]);
   const destinationName = useMemo(() => resolvePointName(destination), [destination]);
@@ -593,8 +593,25 @@ export function RoutePlanner() {
       {pickModeIndicator}
 
       {/* Overlay planificador — superior izquierda */}
-      <aside className="absolute left-4 top-4 z-10 w-[min(20rem,calc(100vw-2rem))] rounded-2xl border border-border/60 bg-background/80 p-4 shadow-lg backdrop-blur">
-        {renderPlannerForm()}
+      <aside className="absolute left-4 top-4 z-10 w-[min(20rem,calc(100vw-2rem))] rounded-2xl border border-border/60 bg-background/80 shadow-lg backdrop-blur">
+        {/* Header con toggle de layout */}
+        <div className="flex items-center justify-between border-b border-border/50 px-4 py-2.5">
+          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+            Planificador
+          </p>
+          <Button
+            variant="ghost"
+            size="icon"
+            aria-label="Cambiar a modo panel"
+            onClick={() => setLayoutMode("panel")}
+            className="size-7 rounded-lg text-muted-foreground hover:text-foreground"
+          >
+            <PanelLeft className="size-4" />
+          </Button>
+        </div>
+        <div className="p-4">
+          {renderPlannerForm()}
+        </div>
       </aside>
 
       {/* Controles superior derecha */}
@@ -628,16 +645,6 @@ export function RoutePlanner() {
           className="rounded-full border-border/60 bg-background/80 shadow-lg backdrop-blur"
         >
           <HelpCircle className="size-4" />
-        </Button>
-
-        <Button
-          variant="outline"
-          size="icon-lg"
-          aria-label="Cambiar a modo panel"
-          onClick={() => setLayoutMode("panel")}
-          className="rounded-full border-border/60 bg-background/80 shadow-lg backdrop-blur"
-        >
-          <PanelLeft className="size-4" />
         </Button>
       </div>
 
