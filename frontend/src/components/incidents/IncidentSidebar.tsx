@@ -1,3 +1,4 @@
+import { Route } from "lucide-react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
@@ -8,18 +9,16 @@ interface IncidentSidebarProps {
   incidents: Incident[];
   loading: boolean;
   error: string | null;
+  hasSearched: boolean;
   selectedIncidentId: number | null;
   onSelectIncident: (incident: Incident) => void;
 }
 
-/**
- * Panel flotante de alertas: lista limpia donde la severidad se lee
- * por color y el tipo por icono — sin texto redundante.
- */
 export function IncidentSidebar({
   incidents,
   loading,
   error,
+  hasSearched,
   selectedIncidentId,
   onSelectIncident,
 }: IncidentSidebarProps) {
@@ -29,7 +28,7 @@ export function IncidentSidebar({
 
   return (
     <div className="flex max-h-full flex-col overflow-hidden rounded-2xl border border-border/60 bg-background/80 shadow-lg backdrop-blur">
-      {/* Encabezado minimal: título, conteo y aviso crítico por color. */}
+      {/* Encabezado: título, conteo y punto de alerta crítica. */}
       <div className="flex items-center justify-between gap-2 border-b border-border/60 px-4 py-3">
         <div className="flex items-center gap-2">
           <h2 className="text-sm font-semibold">Alertas en ruta</h2>
@@ -40,7 +39,7 @@ export function IncidentSidebar({
             />
           ) : null}
         </div>
-        {!loading && !error ? (
+        {!loading && !error && hasSearched ? (
           <span className="rounded-full bg-muted px-2 py-0.5 text-xs font-medium tabular-nums text-muted-foreground">
             {incidents.length}
           </span>
@@ -63,10 +62,38 @@ export function IncidentSidebar({
           </Alert>
         ) : null}
 
-        {!loading && !error && incidents.length === 0 ? (
-          <p className="px-3 py-8 text-center text-sm text-muted-foreground">
-            Sin novedades en este trayecto.
-          </p>
+        {/* Estado inicial: guía para el usuario antes de buscar ruta. */}
+        {!loading && !error && !hasSearched ? (
+          <div className="flex flex-col items-center gap-3 px-3 py-10 text-center">
+            <span className="flex size-12 items-center justify-center rounded-2xl bg-muted text-muted-foreground/50">
+              <Route className="size-6" />
+            </span>
+            <div className="space-y-1">
+              <p className="text-sm font-medium text-foreground/80">
+                ¿A dónde vas hoy?
+              </p>
+              <p className="text-xs leading-relaxed text-muted-foreground">
+                Elige tu punto de salida y destino, luego presiona{" "}
+                <span className="font-medium text-foreground/70">
+                  «Ver ruta y alertas»
+                </span>{" "}
+                para ver los incidentes en tu camino.
+              </p>
+            </div>
+          </div>
+        ) : null}
+
+        {/* Sin resultados después de buscar. */}
+        {!loading && !error && hasSearched && incidents.length === 0 ? (
+          <div className="flex flex-col items-center gap-2 px-3 py-10 text-center">
+            <span className="text-2xl">✅</span>
+            <p className="text-sm font-medium text-foreground/80">
+              Ruta despejada
+            </p>
+            <p className="text-xs text-muted-foreground">
+              No hay incidentes reportados en este trayecto.
+            </p>
+          </div>
         ) : null}
 
         {!loading && !error
@@ -86,7 +113,7 @@ export function IncidentSidebar({
                     isSelected && cn("bg-muted/70 ring-2", severity.ring),
                   )}
                 >
-                  {/* Icono de tipo teñido con el color de severidad. */}
+                  {/* Icono del tipo teñido con el color de severidad. */}
                   <span
                     className="flex size-8 shrink-0 items-center justify-center rounded-full text-white shadow-sm"
                     style={{ backgroundColor: severity.hex }}
@@ -105,14 +132,19 @@ export function IncidentSidebar({
                     </span>
                   </span>
 
-                  {/* Punto de severidad: la lectura rápida del riesgo. */}
+                  {/* Badge de severidad: legible de un vistazo. */}
                   <span
                     className={cn(
-                      "size-2 shrink-0 rounded-full",
-                      severity.dotClass,
+                      "shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide",
+                      severity.textClass,
+                      incident.severity === "critical" && "bg-red-500/10",
+                      incident.severity === "high" && "bg-orange-500/10",
+                      incident.severity === "medium" && "bg-amber-500/10",
+                      incident.severity === "low" && "bg-emerald-500/10",
                     )}
-                    aria-label={`Severidad ${severity.label}`}
-                  />
+                  >
+                    {severity.label}
+                  </span>
                 </button>
               );
             })

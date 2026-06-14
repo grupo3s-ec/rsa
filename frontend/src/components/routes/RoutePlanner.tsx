@@ -6,12 +6,13 @@
  */
 
 import dynamic from "next/dynamic";
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Bell,
   ChevronRight,
   Crosshair,
   Flag,
+  HelpCircle,
   LoaderCircle,
   Navigation,
   Route as RouteIcon,
@@ -26,6 +27,7 @@ import { Separator } from "@/components/ui/separator";
 import { IncidentDetailDialog } from "@/components/incidents/IncidentDetailDialog";
 import { IncidentSidebar } from "@/components/incidents/IncidentSidebar";
 import { ReportDrawer } from "@/components/incidents/ReportDrawer";
+import { MapHelpDialog } from "@/components/map/MapHelpDialog";
 import { cn } from "@/lib/utils";
 import { IS_MAPBOX_CONFIGURED, MAPBOX_TOKEN } from "@/lib/config";
 import { formatDistance, formatDuration } from "@/lib/incidents/format";
@@ -34,10 +36,10 @@ import {
   type LngLat,
   type RouteLineString,
 } from "@/lib/mapbox/directions";
+import { filterIncidentsByRoute } from "@/lib/mapbox/route-filter";
 import { getRouteIncidents } from "@/services/routes.service";
 import type { Incident } from "@/types/incident";
 
-// El mapa solo vive en el cliente (mapbox-gl usa window).
 const RouteMap = dynamic(() => import("@/components/map/RouteMap"), {
   ssr: false,
   loading: () => (
@@ -47,7 +49,6 @@ const RouteMap = dynamic(() => import("@/components/map/RouteMap"), {
   ),
 });
 
-/** Lugares frecuentes de Quito para fijar origen/destino sin lat/lng crudas. */
 interface LocationPreset {
   name: string;
   coords: LngLat;
@@ -56,12 +57,12 @@ interface LocationPreset {
 const LOCATION_PRESETS: LocationPreset[] = [
   { name: "Quito Centro", coords: [-78.5125, -0.22] },
   { name: "Cumbayá", coords: [-78.428, -0.205] },
-  { name: "Aeropuerto (Tababela)", coords: [-78.3575, -0.1252] },
+  { name: "Aeropuerto", coords: [-78.3575, -0.1252] },
   { name: "Quito Norte", coords: [-78.485, -0.11] },
 ];
 
-const DEFAULT_ORIGIN: LngLat = [-78.485, -0.11]; // Quito Norte
-const DEFAULT_DESTINATION: LngLat = [-78.428, -0.205]; // Cumbayá
+const DEFAULT_ORIGIN: LngLat = [-78.485, -0.11];
+const DEFAULT_DESTINATION: LngLat = [-78.428, -0.205];
 
 type PickMode = "origin" | "destination" | null;
 
@@ -70,7 +71,6 @@ interface RouteInfo {
   durationSeconds: number;
 }
 
-/** Nombre del preset si las coordenadas coinciden, o "Punto en el mapa". */
 function resolvePointName(point: LngLat): string {
   const match = LOCATION_PRESETS.find(
     (preset) =>
@@ -94,26 +94,21 @@ export function RoutePlanner() {
   const [pickMode, setPickMode] = useState<PickMode>(null);
   const [panelOpen, setPanelOpen] = useState(true);
   const [searched, setSearched] = useState(false);
-  // Reporte de novedades: drawer + modo "fijar ubicación" sobre el mapa.
   const [reportOpen, setReportOpen] = useState(false);
   const [reportPickActive, setReportPickActive] = useState(false);
   const [pickedReportCoords, setPickedReportCoords] = useState<LngLat | null>(null);
+  const [helpOpen, setHelpOpen] = useState(false);
 
   const originName = useMemo(() => resolvePointName(origin), [origin]);
-  const destinationName = useMemo(
-    () => resolvePointName(destination),
-    [destination],
-  );
+  const destinationName = useMemo(() => resolvePointName(destination), [destination]);
 
   const criticalCount = useMemo(
-    () => incidents.filter((incident) => incident.severity === "critical").length,
+    () => incidents.filter((i) => i.severity === "critical").length,
     [incidents],
   );
 
-  /** Fija el punto activo al hacer click en el mapa (modo selección). */
   const handleMapClick = useCallback(
     (lngLat: LngLat) => {
-      // Modo reporte: la coordenada es para la novedad, no para la ruta.
       if (reportPickActive) {
         setPickedReportCoords(lngLat);
         setReportPickActive(false);
@@ -133,7 +128,6 @@ export function RoutePlanner() {
     [pickMode, reportPickActive],
   );
 
-  /** Cancela el modo selección; si venía del reporte, reabre el drawer. */
   const cancelPickMode = useCallback(() => {
     setPickMode(null);
 
@@ -143,7 +137,6 @@ export function RoutePlanner() {
     }
   }, [reportPickActive]);
 
-  /** Consulta incidentes y ruta en paralelo, con fallback de línea recta. */
   async function handleSearch(): Promise<void> {
     setLoading(true);
     setError(null);
@@ -162,8 +155,27 @@ export function RoutePlanner() {
         : Promise.reject(new Error("Mapbox no configurado.")),
     ]);
 
+    let resolvedCoords: LngLat[] | null = null;
+
+    if (directionsResult.status === "fulfilled") {
+      const geometry = directionsResult.value.geometry;
+      resolvedCoords = geometry.coordinates;
+      setRouteGeometry(geometry);
+      setRouteInfo({
+        distanceMeters: directionsResult.value.distanceMeters,
+        durationSeconds: directionsResult.value.durationSeconds,
+      });
+    } else {
+      setRouteGeometry({ type: "LineString", coordinates: [origin, destination] });
+      setRouteInfo(null);
+    }
+
     if (incidentsResult.status === "fulfilled") {
-      setIncidents(incidentsResult.value.data);
+      const raw = incidentsResult.value.data;
+      const filtered = resolvedCoords
+        ? filterIncidentsByRoute(raw, resolvedCoords)
+        : raw;
+      setIncidents(filtered);
     } else {
       const reason: unknown = incidentsResult.reason;
       setError(
@@ -174,18 +186,6 @@ export function RoutePlanner() {
       setIncidents([]);
     }
 
-    if (directionsResult.status === "fulfilled") {
-      setRouteGeometry(directionsResult.value.geometry);
-      setRouteInfo({
-        distanceMeters: directionsResult.value.distanceMeters,
-        durationSeconds: directionsResult.value.durationSeconds,
-      });
-    } else {
-      // Fallback elegante: línea recta entre los puntos, sin ETA.
-      setRouteGeometry({ type: "LineString", coordinates: [origin, destination] });
-      setRouteInfo(null);
-    }
-
     setLoading(false);
   }
 
@@ -194,7 +194,6 @@ export function RoutePlanner() {
     setDetailOpen(true);
   }
 
-  /** Desde la lista: primero selecciona y centra; un segundo toque abre el detalle. */
   function handleSelectFromList(incident: Incident): void {
     if (selectedIncident?.id === incident.id) {
       setDetailOpen(true);
@@ -204,7 +203,6 @@ export function RoutePlanner() {
     setSelectedIncident(incident);
   }
 
-  /** Actualiza una coordenada desde los inputs avanzados. */
   function updateCoordinate(
     target: "origin" | "destination",
     axis: "lat" | "lng",
@@ -212,9 +210,7 @@ export function RoutePlanner() {
   ): void {
     const value = Number(rawValue);
 
-    if (Number.isNaN(value)) {
-      return;
-    }
+    if (Number.isNaN(value)) return;
 
     const apply = (current: LngLat): LngLat =>
       axis === "lng" ? [value, current[1]] : [current[0], value];
@@ -226,13 +222,83 @@ export function RoutePlanner() {
     }
   }
 
+  // Atajos de teclado — ref para evitar closures obsoletas.
+  const kbHandlerRef = useRef<((e: KeyboardEvent) => void) | null>(null);
+
+  kbHandlerRef.current = (event: KeyboardEvent) => {
+    const target = event.target as HTMLElement;
+    const isTyping =
+      target.tagName === "INPUT" ||
+      target.tagName === "TEXTAREA" ||
+      target.isContentEditable;
+
+    if (isTyping) return;
+
+    switch (event.key) {
+      case "Enter":
+        if (!loading && !reportOpen && !detailOpen && !helpOpen) {
+          event.preventDefault();
+          void handleSearch();
+        }
+        break;
+      case "Escape":
+        if (pickMode !== null) {
+          event.preventDefault();
+          cancelPickMode();
+        }
+        break;
+      case "r":
+      case "R":
+        if (pickMode === null && !reportOpen && !detailOpen && !helpOpen) {
+          event.preventDefault();
+          setReportOpen(true);
+        }
+        break;
+      case "a":
+      case "A":
+        if (!reportOpen && !detailOpen && !helpOpen) {
+          event.preventDefault();
+          setPanelOpen((open) => !open);
+        }
+        break;
+      case "?":
+        event.preventDefault();
+        setHelpOpen((open) => !open);
+        break;
+      case "ArrowLeft":
+        if (incidents.length > 0 && !detailOpen) {
+          event.preventDefault();
+          const currentIdx = incidents.findIndex((i) => i.id === selectedIncident?.id);
+          const prevIdx = currentIdx <= 0 ? incidents.length - 1 : currentIdx - 1;
+          setSelectedIncident(incidents[prevIdx]);
+        }
+        break;
+      case "ArrowRight":
+        if (incidents.length > 0 && !detailOpen) {
+          event.preventDefault();
+          const currentIdx = incidents.findIndex((i) => i.id === selectedIncident?.id);
+          const nextIdx = currentIdx >= incidents.length - 1 ? 0 : currentIdx + 1;
+          setSelectedIncident(incidents[nextIdx]);
+        }
+        break;
+    }
+  };
+
+  useEffect(() => {
+    function onKeyDown(event: KeyboardEvent) {
+      kbHandlerRef.current?.(event);
+    }
+
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, []);
+
   return (
     <div className="relative h-full w-full overflow-hidden bg-muted/30">
       {/* Mapa héroe a pantalla completa. */}
       <div
         className={cn(
           "absolute inset-0",
-          // Fuerza el cursor de selección sobre el canvas de Mapbox.
           pickMode !== null &&
             "cursor-crosshair [&_.mapboxgl-canvas-container]:cursor-crosshair!",
         )}
@@ -254,12 +320,12 @@ export function RoutePlanner() {
           <div className="pointer-events-auto flex items-center gap-2 rounded-full border border-border/60 bg-background/85 px-4 py-2 text-sm shadow-lg backdrop-blur">
             <Crosshair className="size-4 text-primary" />
             <span>
-              Toca el mapa para fijar{" "}
+              Toca el mapa para marcar{" "}
               <span className="font-semibold">
                 {reportPickActive
-                  ? "la ubicación de la novedad"
+                  ? "la ubicación del incidente"
                   : pickMode === "origin"
-                    ? "el origen"
+                    ? "el punto de salida"
                     : "el destino"}
               </span>
             </span>
@@ -267,7 +333,7 @@ export function RoutePlanner() {
               type="button"
               onClick={cancelPickMode}
               className="ml-1 rounded-full p-0.5 text-muted-foreground transition-colors hover:text-foreground"
-              aria-label="Cancelar selección"
+              aria-label="Cancelar"
             >
               <X className="size-3.5" />
             </button>
@@ -278,7 +344,6 @@ export function RoutePlanner() {
       {/* Planificador de ruta: overlay superior-izquierda glassy. */}
       <aside className="absolute left-4 top-4 z-10 w-[min(20rem,calc(100vw-2rem))] rounded-2xl border border-border/60 bg-background/80 p-4 shadow-lg backdrop-blur">
         <div className="space-y-3">
-          {/* Origen y destino con su guía visual (verde → bandera). */}
           <RoutePointRow
             kind="origin"
             name={originName}
@@ -298,40 +363,58 @@ export function RoutePlanner() {
             }
           />
 
-          {/* Presets rápidos: el camino feliz para usuarios novatos. */}
-          <div className="space-y-1.5">
-            <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-              Lugares rápidos
-            </p>
-            <div className="flex flex-wrap gap-1.5">
-              {LOCATION_PRESETS.map((preset) => (
-                <div
-                  key={preset.name}
-                  className="flex items-center overflow-hidden rounded-full border border-border/70 bg-background/60 text-xs"
-                >
-                  <button
-                    type="button"
-                    title={`Usar ${preset.name} como origen`}
-                    onClick={() => setOrigin(preset.coords)}
-                    className="px-2 py-1 transition-colors hover:bg-emerald-500/10 hover:text-emerald-600"
-                  >
-                    {preset.name}
-                  </button>
-                  <button
-                    type="button"
-                    title={`Usar ${preset.name} como destino`}
-                    onClick={() => setDestination(preset.coords)}
-                    className="border-l border-border/70 px-1.5 py-1 text-muted-foreground transition-colors hover:bg-primary/10 hover:text-primary"
-                    aria-label={`Usar ${preset.name} como destino`}
-                  >
-                    <Flag className="size-3" />
-                  </button>
-                </div>
-              ))}
+          {/* Presets: ícono de salida y llegada explícitos por lugar. */}
+          <div className="space-y-1">
+            <div className="flex items-center justify-between">
+              <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                Lugares frecuentes
+              </p>
+              <div className="flex gap-3 pr-0.5 text-[10px] font-medium text-muted-foreground/60">
+                <span>Salida</span>
+                <span>Llegada</span>
+              </div>
             </div>
+
+            {LOCATION_PRESETS.map((preset) => (
+              <div key={preset.name} className="flex items-center gap-2">
+                <span className="min-w-0 flex-1 truncate text-xs font-medium">
+                  {preset.name}
+                </span>
+                <button
+                  type="button"
+                  title={`Ir desde ${preset.name}`}
+                  onClick={() => setOrigin(preset.coords)}
+                  className={cn(
+                    "flex size-7 shrink-0 items-center justify-center rounded-full border border-border/70 transition-colors hover:border-emerald-400 hover:bg-emerald-500/10",
+                    origin[0] === preset.coords[0] &&
+                      origin[1] === preset.coords[1]
+                      ? "border-emerald-500 bg-emerald-500/10"
+                      : "bg-background/60",
+                  )}
+                  aria-label={`Salida: ${preset.name}`}
+                >
+                  <span className="size-2.5 rounded-full border-2 border-emerald-500" />
+                </button>
+                <button
+                  type="button"
+                  title={`Ir hasta ${preset.name}`}
+                  onClick={() => setDestination(preset.coords)}
+                  className={cn(
+                    "flex size-7 shrink-0 items-center justify-center rounded-full border border-border/70 transition-colors hover:border-slate-500 hover:bg-slate-500/10",
+                    destination[0] === preset.coords[0] &&
+                      destination[1] === preset.coords[1]
+                      ? "border-slate-700 bg-slate-500/10 dark:border-slate-300"
+                      : "bg-background/60",
+                  )}
+                  aria-label={`Llegada: ${preset.name}`}
+                >
+                  <Flag className="size-3 text-slate-600 dark:text-slate-400" />
+                </button>
+              </div>
+            ))}
           </div>
 
-          {/* Coordenadas exactas: disponibles pero discretas. */}
+          {/* Coordenadas exactas: opción avanzada, discreta. */}
           <details className="group rounded-xl border border-border/50 bg-muted/30">
             <summary className="flex cursor-pointer select-none items-center gap-1.5 px-3 py-2 text-xs text-muted-foreground transition-colors hover:text-foreground">
               <ChevronRight className="size-3.5 transition-transform group-open:rotate-90" />
@@ -354,13 +437,17 @@ export function RoutePlanner() {
                 id="destination-lat"
                 label="Destino lat"
                 value={destination[1]}
-                onChange={(value) => updateCoordinate("destination", "lat", value)}
+                onChange={(value) =>
+                  updateCoordinate("destination", "lat", value)
+                }
               />
               <CoordinateInput
                 id="destination-lng"
                 label="Destino lng"
                 value={destination[0]}
-                onChange={(value) => updateCoordinate("destination", "lng", value)}
+                onChange={(value) =>
+                  updateCoordinate("destination", "lng", value)
+                }
               />
             </div>
           </details>
@@ -371,11 +458,11 @@ export function RoutePlanner() {
             ) : (
               <Navigation data-icon="inline-start" />
             )}
-            {loading ? "Analizando ruta…" : "Ver ruta y alertas"}
+            {loading ? "Calculando ruta…" : "Ver ruta y alertas"}
           </Button>
         </div>
 
-        {/* Resumen de ruta: ETA, distancia y conteo de alertas en una línea. */}
+        {/* Resumen de ruta: ETA, distancia y conteo de alertas. */}
         {routeInfo || (searched && !loading) ? (
           <>
             <Separator className="my-3" />
@@ -412,8 +499,8 @@ export function RoutePlanner() {
         ) : null}
       </aside>
 
-      {/* Botón para mostrar/ocultar el panel de alertas. */}
-      <div className="absolute right-4 top-4 z-10">
+      {/* Controles top-right: botón alertas y botón de ayuda. */}
+      <div className="absolute right-4 top-4 z-10 flex flex-col gap-2">
         <Button
           variant="outline"
           size="icon-lg"
@@ -434,12 +521,22 @@ export function RoutePlanner() {
             </span>
           ) : null}
         </Button>
+
+        <Button
+          variant="outline"
+          size="icon-lg"
+          aria-label="Abrir guía de uso"
+          onClick={() => setHelpOpen(true)}
+          className="rounded-full border-border/60 bg-background/80 shadow-lg backdrop-blur"
+        >
+          <HelpCircle className="size-4" />
+        </Button>
       </div>
 
-      {/* Panel de alertas flotante, colapsable y con scroll interno. */}
+      {/* Panel de alertas flotante. */}
       <div
         className={cn(
-          "absolute bottom-4 right-4 top-16 z-10 w-[min(20rem,calc(100vw-2rem))] transition-all duration-300 ease-out",
+          "absolute bottom-4 right-4 top-20 z-10 w-[min(20rem,calc(100vw-2rem))] transition-all duration-300 ease-out",
           panelOpen
             ? "translate-x-0 opacity-100"
             : "pointer-events-none translate-x-6 opacity-0",
@@ -449,16 +546,38 @@ export function RoutePlanner() {
           incidents={incidents}
           loading={loading}
           error={error}
+          hasSearched={searched}
           selectedIncidentId={selectedIncident?.id ?? null}
           onSelectIncident={handleSelectFromList}
         />
       </div>
 
-      {/* Botón flotante para reportar una novedad (oculto en modo selección). */}
+      {/* Leyenda de controles del mapa — pill bottom-center. */}
+      <div className="pointer-events-none absolute bottom-6 left-1/2 z-10 -translate-x-1/2">
+        <div className="flex items-center gap-3 rounded-full border border-border/50 bg-background/70 px-4 py-1.5 text-[11px] text-muted-foreground shadow backdrop-blur">
+          <span className="flex items-center gap-1">
+            <kbd className="rounded border border-border/60 bg-muted px-1 font-mono text-[10px]">
+              scroll
+            </kbd>
+            zoom
+          </span>
+          <span className="text-border/80">·</span>
+          <span>arrastrar para mover</span>
+          <span className="text-border/80">·</span>
+          <span>
+            <kbd className="rounded border border-border/60 bg-muted px-1 font-mono text-[10px]">
+              ?
+            </kbd>{" "}
+            ayuda
+          </span>
+        </div>
+      </div>
+
+      {/* Botón flotante para reportar un incidente. */}
       {pickMode === null ? (
         <div className="absolute bottom-6 left-4 z-10">
           <Button
-            aria-label="Reportar novedad"
+            aria-label="Reportar incidente"
             onClick={() => setReportOpen(true)}
             className="size-12 rounded-full shadow-xl"
           >
@@ -487,6 +606,8 @@ export function RoutePlanner() {
         open={detailOpen}
         onOpenChange={setDetailOpen}
       />
+
+      <MapHelpDialog open={helpOpen} onOpenChange={setHelpOpen} />
     </div>
   );
 }
@@ -498,7 +619,6 @@ interface RoutePointRowProps {
   onPick: () => void;
 }
 
-/** Fila de punto de ruta: señal visual (verde/bandera) + nombre + fijar en mapa. */
 function RoutePointRow({ kind, name, picking, onPick }: RoutePointRowProps) {
   return (
     <div className="flex items-center gap-2.5">
@@ -523,7 +643,7 @@ function RoutePointRow({ kind, name, picking, onPick }: RoutePointRowProps) {
         className={cn("shrink-0", picking && "text-primary")}
       >
         <Crosshair data-icon="inline-start" />
-        {picking ? "Eligiendo…" : "Fijar en el mapa"}
+        {picking ? "Eligiendo…" : "Tocar mapa"}
       </Button>
     </div>
   );
@@ -536,7 +656,6 @@ interface CoordinateInputProps {
   onChange: (value: string) => void;
 }
 
-/** Input numérico compacto para coordenadas avanzadas. */
 function CoordinateInput({ id, label, value, onChange }: CoordinateInputProps) {
   return (
     <div className="space-y-1">

@@ -1,0 +1,38 @@
+services:
+  - type: web
+    name: rsa-backend
+    runtime: docker
+    dockerfilePath: ./backend/Dockerfile
+    dockerContext: ./backend
+    plan: free
+    healthCheckPath: /up
+    envVars:
+      - key: APP_ENV
+        value: production
+      - key: APP_DEBUG
+        value: false
+      - key: APP_KEY
+        generateValue: true
+      - key: APP_URL
+        fromService:
+          type: web
+          name: rsa-backend
+          property: host
+      - key: DB_CONNECTION
+        value: pgsql
+      - key: DB_PORT
+        value: 5432
+      - key: DB_DATABASE
+        value: postgres
+      - key: DB_SSLMODE
+        value: require
+      # Completar manualmente en el dashboard de Render después del deploy:
+      # DB_HOST, DB_USERNAME, DB_PASSWORD, FRONTEND_URL
+      - key: LOG_CHANNEL
+        value: stderr
+      - key: CACHE_STORE
+        value: array
+      - key: SESSION_DRIVER
+        value: array
+      - key: QUEUE_CONNECTION
+        value: sync
