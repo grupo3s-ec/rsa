@@ -14,6 +14,7 @@ CREATE TABLE IF NOT EXISTS users (
     name              VARCHAR(255) NOT NULL,
     email             VARCHAR(255) NOT NULL UNIQUE,
     email_verified_at TIMESTAMP    NULL,
+    role              VARCHAR(20)  NOT NULL DEFAULT 'driver',
     password          VARCHAR(255) NOT NULL,
     remember_token    VARCHAR(100) NULL,
     created_at        TIMESTAMP    NULL,
@@ -149,5 +150,6 @@ INSERT INTO migrations (migration, batch) VALUES
     ('2026_06_09_012731_create_personal_access_tokens_table',        1),
     ('2026_06_09_012753_create_incidents_table',                     1),
     ('2026_06_14_000001_add_geotab_fields_to_incidents_table',       1),
-    ('2026_06_14_000002_create_incident_media_table',                1)
+    ('2026_06_14_000002_create_incident_media_table',                1),
+    ('2026_06_14_000003_add_role_to_users_table',                    2)
 ON CONFLICT DO NOTHING;
