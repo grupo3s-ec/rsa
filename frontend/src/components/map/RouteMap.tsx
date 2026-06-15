@@ -9,6 +9,7 @@
 
 import "mapbox-gl/dist/mapbox-gl.css";
 import { useEffect, useRef, useState } from "react";
+import { useTheme } from "next-themes";
 import Map, {
   Layer,
   Marker,
@@ -77,6 +78,8 @@ export default function RouteMap({
 }: RouteMapProps) {
   const mapRef = useRef<MapRef | null>(null);
   const [mapLoaded, setMapLoaded] = useState(false);
+  const { resolvedTheme } = useTheme();
+  const isDark = resolvedTheme === "dark";
 
   // Encuadra el mapa cubriendo origen, destino y ruta cuando cambian.
   useEffect(() => {
@@ -142,6 +145,13 @@ export default function RouteMap({
     }
   }, [selectedIncidentId, incidents, mapLoaded]);
 
+  // Sincroniza el preset día/noche del Standard style con el tema de la app.
+  useEffect(() => {
+    const map = mapRef.current?.getMap();
+    if (!map || !mapLoaded) return;
+    map.setConfigProperty("basemap", "lightPreset", isDark ? "night" : "day");
+  }, [isDark, mapLoaded]);
+
   if (!IS_MAPBOX_CONFIGURED) {
     return <MapNotConfigured />;
   }
@@ -157,7 +167,10 @@ export default function RouteMap({
       mapStyle={MAP_STYLE}
       initialViewState={{ longitude: -78.4678, latitude: -0.1807, zoom: 11 }}
       style={{ width: "100%", height: "100%" }}
-      onLoad={() => setMapLoaded(true)}
+      onLoad={() => {
+        setMapLoaded(true);
+        mapRef.current?.getMap().setConfigProperty("basemap", "lightPreset", isDark ? "night" : "day");
+      }}
       onClick={(event) => {
         onMapClick?.([event.lngLat.lng, event.lngLat.lat]);
       }}
