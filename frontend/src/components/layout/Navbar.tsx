@@ -2,33 +2,20 @@
 
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { Shield, Map, List, LogOut, ChevronDown } from 'lucide-react';
+import { Shield, Map, List, LogOut } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/lib/auth/context';
 import { Button } from '@/components/ui/button';
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu';
 
 const NAV_LINKS = [
-  { href: '/mapa',      label: 'Mapa',       icon: Map  },
-  { href: '/incidents', label: 'Incidentes',  icon: List },
+  { href: '/mapa',      label: 'Mapa',      icon: Map  },
+  { href: '/incidents', label: 'Incidentes', icon: List },
 ] as const;
 
-const ROLE_LABEL: Record<string, string> = {
-  admin:    'Administrador',
-  operator: 'Operador',
-  driver:   'Conductor',
-};
-
 export function Navbar() {
-  const pathname      = usePathname();
-  const { user, logout } = useAuth();
-  const router        = useRouter();
+  const pathname          = usePathname();
+  const { user, logout }  = useAuth();
+  const router            = useRouter();
 
   async function handleLogout() {
     await logout();
@@ -72,37 +59,26 @@ export function Navbar() {
         })}
       </nav>
 
-      {/* Usuario — empujado a la derecha */}
+      {/* Usuario + logout — empujado a la derecha */}
       {user ? (
-        <div className="ml-auto">
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="ghost" size="sm" className="gap-1.5 text-sm">
-                <span className="flex size-6 items-center justify-center rounded-full bg-primary/10 text-xs font-semibold text-primary">
-                  {user.name.charAt(0).toUpperCase()}
-                </span>
-                <span className="hidden max-w-[140px] truncate sm:block">{user.name}</span>
-                <ChevronDown className="size-3.5 text-muted-foreground" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-52">
-              <div className="px-2 py-1.5">
-                <p className="truncate text-sm font-medium">{user.name}</p>
-                <p className="truncate text-xs text-muted-foreground">{user.email}</p>
-                <p className="mt-0.5 text-[11px] text-muted-foreground/70">
-                  {ROLE_LABEL[user.role] ?? user.role}
-                </p>
-              </div>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem
-                onClick={handleLogout}
-                className="gap-2 text-destructive focus:text-destructive"
-              >
-                <LogOut className="size-3.5" />
-                Cerrar sesión
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
+        <div className="ml-auto flex items-center gap-2">
+          <div className="flex items-center gap-2">
+            <span className="flex size-6 items-center justify-center rounded-full bg-primary/10 text-xs font-semibold text-primary">
+              {user.name.charAt(0).toUpperCase()}
+            </span>
+            <span className="hidden max-w-[140px] truncate text-sm text-muted-foreground sm:block">
+              {user.name}
+            </span>
+          </div>
+          <Button
+            variant="ghost"
+            size="icon"
+            aria-label="Cerrar sesión"
+            onClick={handleLogout}
+            className="size-7 text-muted-foreground hover:text-destructive"
+          >
+            <LogOut className="size-3.5" />
+          </Button>
         </div>
       ) : null}
     </header>
