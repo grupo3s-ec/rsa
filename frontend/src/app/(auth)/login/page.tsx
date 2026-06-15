@@ -1,8 +1,9 @@
 'use client';
 
+import Image from 'next/image';
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Shield, LoaderCircle } from 'lucide-react';
+import { LoaderCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -17,7 +18,6 @@ export default function LoginPage() {
   const [error,    setError]    = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
-  // Si ya está autenticado, redirigir al mapa.
   useEffect(() => {
     if (!loading && user) router.replace('/mapa');
   }, [loading, user, router]);
@@ -46,15 +46,17 @@ export default function LoginPage() {
 
   return (
     <div className="w-full max-w-sm">
-      {/* Logo */}
-      <div className="mb-8 flex flex-col items-center gap-3 text-center">
-        <span className="flex size-12 items-center justify-center rounded-2xl bg-primary text-primary-foreground shadow-lg">
-          <Shield className="size-6" />
-        </span>
-        <div>
-          <h1 className="text-xl font-semibold tracking-tight">RSA</h1>
-          <p className="text-sm text-muted-foreground">Route Safety Analysis</p>
-        </div>
+      {/* Logo RSA */}
+      <div className="mb-8 flex flex-col items-center gap-2 text-center">
+        <Image
+          src="/rsa-logo.jpeg"
+          alt="RSA — Route Safety Analysis by Grupo3S"
+          width={220}
+          height={66}
+          priority
+          className="h-auto w-[200px]"
+        />
+        <p className="text-xs text-muted-foreground">Plataforma interna · Grupo3S</p>
       </div>
 
       {/* Formulario */}

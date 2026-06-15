@@ -2,13 +2,14 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { Users, Truck, Route } from 'lucide-react';
+import { Users, Truck, Route, Database } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 const ADMIN_LINKS = [
   { href: '/admin/users',    label: 'Usuarios',  icon: Users },
   { href: '/admin/vehicles', label: 'Vehículos', icon: Truck },
   { href: '/admin/routes',   label: 'Rutas',     icon: Route },
+  { href: '/admin/geotab',   label: 'Geotab',    icon: Database },
 ] as const;
 
 export function AdminNav() {

@@ -45,6 +45,10 @@ export interface Incident {
   video_url: string | null;
   occurred_at: string | null;
   status: IncidentStatus;
+  geotab_exception_event_id: string | null;
+  geotab_device_id: string | null;
+  geotab_rule_id: string | null;
+  altitude_meters: number | null;
   created_at: string | null;
   updated_at: string | null;
 }

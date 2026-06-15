@@ -35,4 +35,11 @@ return [
         ],
     ],
 
+    'geotab' => [
+        'server'   => env('GEOTAB_SERVER', 'my.geotab.com'),
+        'username' => env('GEOTAB_USERNAME', ''),
+        'password' => env('GEOTAB_PASSWORD', ''),
+        'database' => env('GEOTAB_DATABASE', ''),
+    ],
+
 ];

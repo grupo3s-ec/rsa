@@ -2,10 +2,12 @@
 
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { Shield, Map, List, Settings2, LogOut, type LucideIcon } from 'lucide-react';
+import { Map, List, Settings2, LogOut, type LucideIcon } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/lib/auth/context';
 import { Button } from '@/components/ui/button';
+import { RsaIcon } from '@/components/ui/RsaIcon';
+import { ThemeToggle } from '@/components/layout/ThemeToggle';
 import type { UserRole } from '@/types/auth';
 
 const NAV_LINKS: Array<{
@@ -36,10 +38,8 @@ export function Navbar() {
         href="/mapa"
         className="flex items-center gap-2 text-sm font-semibold tracking-tight text-foreground transition-opacity hover:opacity-70"
       >
-        <span className="flex size-6 items-center justify-center rounded-lg bg-primary text-primary-foreground">
-          <Shield className="size-3.5" />
-        </span>
-        RSA
+        <RsaIcon size={22} />
+        <span className="font-bold" style={{ color: '#1A3562' }}>RSA</span>
       </Link>
 
       <span className="h-4 w-px bg-border/60" />
@@ -66,28 +66,33 @@ export function Navbar() {
         })}
       </nav>
 
-      {/* Usuario + logout — empujado a la derecha */}
-      {user ? (
-        <div className="ml-auto flex items-center gap-2">
-          <div className="flex items-center gap-2">
-            <span className="flex size-6 items-center justify-center rounded-full bg-primary/10 text-xs font-semibold text-primary">
-              {user.name.charAt(0).toUpperCase()}
-            </span>
-            <span className="hidden max-w-[140px] truncate text-sm text-muted-foreground sm:block">
-              {user.name}
-            </span>
-          </div>
-          <Button
-            variant="ghost"
-            size="icon"
-            aria-label="Cerrar sesión"
-            onClick={handleLogout}
-            className="size-7 text-muted-foreground hover:text-destructive"
-          >
-            <LogOut className="size-3.5" />
-          </Button>
-        </div>
-      ) : null}
+      {/* Toggle de tema + usuario + logout — empujados a la derecha */}
+      <div className="ml-auto flex items-center gap-2">
+        <ThemeToggle />
+
+        {user ? (
+          <>
+            <span className="h-4 w-px bg-border/60" />
+            <div className="flex items-center gap-2">
+              <span className="flex size-6 items-center justify-center rounded-full bg-primary/10 text-xs font-semibold text-primary">
+                {user.name.charAt(0).toUpperCase()}
+              </span>
+              <span className="hidden max-w-[140px] truncate text-sm text-muted-foreground sm:block">
+                {user.name}
+              </span>
+            </div>
+            <Button
+              variant="ghost"
+              size="icon"
+              aria-label="Cerrar sesión"
+              onClick={handleLogout}
+              className="size-7 text-muted-foreground hover:text-destructive"
+            >
+              <LogOut className="size-3.5" />
+            </Button>
+          </>
+        ) : null}
+      </div>
     </header>
   );
 }

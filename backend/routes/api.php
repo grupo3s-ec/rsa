@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\Api\Admin\GeotabController;
 use App\Http\Controllers\Api\Admin\PredefinedRouteController as AdminRouteController;
 use App\Http\Controllers\Api\Admin\UserController as AdminUserController;
 use App\Http\Controllers\Api\Admin\VehicleController as AdminVehicleController;
@@ -47,5 +48,10 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('/routes',                         [AdminRouteController::class, 'store']);
         Route::patch('/routes/{predefinedRoute}',      [AdminRouteController::class, 'update']);
         Route::delete('/routes/{predefinedRoute}',     [AdminRouteController::class, 'destroy']);
+
+        // Integración Geotab
+        Route::get('/geotab/status',  [GeotabController::class, 'status']);
+        Route::get('/geotab/devices', [GeotabController::class, 'devices']);
+        Route::post('/geotab/sync',   [GeotabController::class, 'sync']);
     });
 });

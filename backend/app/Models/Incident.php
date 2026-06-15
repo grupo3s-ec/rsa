@@ -21,6 +21,10 @@ class Incident extends Model
         'video_url',
         'occurred_at',
         'status',
+        'geotab_exception_event_id',
+        'geotab_device_id',
+        'geotab_rule_id',
+        'altitude_meters',
     ];
 
     protected function casts(): array
