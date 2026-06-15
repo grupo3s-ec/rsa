@@ -2,15 +2,22 @@
 
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { Shield, Map, List, LogOut } from 'lucide-react';
+import { Shield, Map, List, Settings2, LogOut, type LucideIcon } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/lib/auth/context';
 import { Button } from '@/components/ui/button';
+import type { UserRole } from '@/types/auth';
 
-const NAV_LINKS = [
-  { href: '/mapa',      label: 'Mapa',      icon: Map  },
-  { href: '/incidents', label: 'Incidentes', icon: List },
-] as const;
+const NAV_LINKS: Array<{
+  href: string;
+  label: string;
+  icon: LucideIcon;
+  roles: UserRole[] | null;
+}> = [
+  { href: '/mapa',      label: 'Mapa',      icon: Map,       roles: null },
+  { href: '/incidents', label: 'Incidentes', icon: List,      roles: null },
+  { href: '/admin',     label: 'Admin',      icon: Settings2, roles: ['admin'] },
+];
 
 export function Navbar() {
   const pathname          = usePathname();
@@ -39,7 +46,7 @@ export function Navbar() {
 
       {/* Nav links */}
       <nav className="flex items-center gap-1">
-        {NAV_LINKS.map(({ href, label, icon: Icon }) => {
+        {NAV_LINKS.filter(({ roles }) => !roles || (user && roles.includes(user.role))).map(({ href, label, icon: Icon }) => {
           const active = pathname === href || (href !== '/mapa' && pathname.startsWith(href));
           return (
             <Link
