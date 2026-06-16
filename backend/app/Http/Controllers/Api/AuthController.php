@@ -16,6 +16,7 @@ class AuthController extends Controller
         $request->validate([
             'email'    => ['required', 'email'],
             'password' => ['required', 'string'],
+            'remember' => ['boolean'],
         ]);
 
         $user = User::where('email', $request->string('email'))->first();
@@ -29,11 +30,16 @@ class AuthController extends Controller
         // Revoca tokens anteriores del mismo dispositivo para evitar acumulación.
         $user->tokens()->where('name', 'web')->delete();
 
-        $token = $user->createToken('web')->plainTextToken;
+        $expiresAt = $request->boolean('remember')
+            ? now()->addDays(30)
+            : now()->addHours(6);
+
+        $token = $user->createToken('web', ['*'], $expiresAt)->plainTextToken;
 
         return response()->json([
-            'user'  => $user,
-            'token' => $token,
+            'user'       => $user,
+            'token'      => $token,
+            'expires_at' => $expiresAt->toIso8601String(),
         ]);
     }
 

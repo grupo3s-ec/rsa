@@ -13,9 +13,10 @@ export default function LoginPage() {
   const { user, loading, login } = useAuth();
   const router = useRouter();
 
-  const [email,    setEmail]    = useState('');
-  const [password, setPassword] = useState('');
-  const [error,    setError]    = useState<string | null>(null);
+  const [email,      setEmail]      = useState('');
+  const [password,   setPassword]   = useState('');
+  const [remember,   setRemember]   = useState(false);
+  const [error,      setError]      = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
@@ -27,7 +28,7 @@ export default function LoginPage() {
     setError(null);
     setSubmitting(true);
     try {
-      await login(email, password);
+      await login(email, password, remember);
       router.replace('/mapa');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Error al iniciar sesión.');
@@ -89,6 +90,17 @@ export default function LoginPage() {
               disabled={submitting}
             />
           </div>
+
+          <label className="flex cursor-pointer items-center gap-2 select-none">
+            <input
+              type="checkbox"
+              checked={remember}
+              onChange={(e) => setRemember(e.target.checked)}
+              disabled={submitting}
+              className="size-4 rounded border-border accent-primary"
+            />
+            <span className="text-sm text-muted-foreground">Recuérdame por 30 días</span>
+          </label>
 
           {error ? (
             <p className="rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive">
