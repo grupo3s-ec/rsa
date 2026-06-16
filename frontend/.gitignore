@@ -33,8 +33,10 @@ yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
 
-# env files (can opt-in for committing if needed)
-.env*
+# env files — .local contiene secretos y nunca se commitea
+.env*.local
+.env.local
+# .env.production se commitea porque solo tiene vars NEXT_PUBLIC_ (sin secretos)
 
 # vercel
 .vercel
