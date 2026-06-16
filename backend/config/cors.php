@@ -11,9 +11,10 @@ return [
      * Para permitir múltiples orígenes separa con coma:
      * FRONTEND_URL=https://rsa-frontend.pages.dev,http://localhost:3000
      */
-    'allowed_origins' => array_filter(
-        array_map('trim', explode(',', env('FRONTEND_URL', 'http://localhost:3000')))
-    ),
+    'allowed_origins' => array_unique(array_filter(array_merge(
+        array_map('trim', explode(',', env('FRONTEND_URL', 'http://localhost:3000'))),
+        ['http://localhost:3000', 'http://127.0.0.1:3000']
+    ))),
 
     'allowed_origins_patterns' => [],
 
