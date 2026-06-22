@@ -7,6 +7,7 @@ use App\Http\Controllers\Api\Admin\UserController as AdminUserController;
 use App\Http\Controllers\Api\Admin\VehicleController as AdminVehicleController;
 use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\IncidentController;
+use App\Http\Controllers\Api\IncidentMediaController;
 use App\Http\Controllers\Api\RouteIncidentController;
 use Illuminate\Support\Facades\Route;
 
@@ -21,10 +22,16 @@ Route::middleware('auth:sanctum')->group(function () {
 
     // Incidentes
     Route::get('/incidents',              [IncidentController::class, 'index']);
-    Route::get('/incidents/{incident}',   [IncidentController::class, 'show']);
     Route::post('/incidents',             [IncidentController::class, 'store']);
+    Route::get('/incidents/{incident}',   [IncidentController::class, 'show']);
     Route::patch('/incidents/{incident}', [IncidentController::class, 'update']);
     Route::delete('/incidents/{incident}',[IncidentController::class, 'destroy']);
+    Route::get('/incidents/{incident}/history', [IncidentController::class, 'history']);
+
+    // Evidencias de incidentes
+    Route::get('/incidents/{incident}/media',          [IncidentMediaController::class, 'index']);
+    Route::post('/incidents/{incident}/media',         [IncidentMediaController::class, 'store']);
+    Route::delete('/incidents/{incident}/media/{media}', [IncidentMediaController::class, 'destroy']);
 
     // Incidentes por ruta
     Route::get('/routes/incidents', RouteIncidentController::class);

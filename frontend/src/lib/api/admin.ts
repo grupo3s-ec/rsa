@@ -1,5 +1,12 @@
 import { apiClient } from './client';
 import type { AdminUser, PredefinedRoute, UserRole, Vehicle } from '@/lib/types/admin';
+import type { DashboardStats } from '@/types/dashboard';
+
+// ── Dashboard ─────────────────────────────────────────────────────────────────
+
+export function getDashboardStats(): Promise<DashboardStats> {
+  return apiClient.get<DashboardStats>('/admin/dashboard');
+}
 
 // ── Usuarios ──────────────────────────────────────────────────────────────────
 

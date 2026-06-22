@@ -6,6 +6,8 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\StoreIncidentRequest;
 use App\Http\Resources\IncidentResource;
 use App\Models\Incident;
+use App\Models\IncidentHistory;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 
 class IncidentController extends Controller
@@ -23,6 +25,14 @@ class IncidentController extends Controller
     {
         $incident = Incident::query()->create($request->validated());
 
+        // Registrar creación en historial
+        IncidentHistory::query()->create([
+            'incident_id' => $incident->id,
+            'user_id'     => $request->user()?->id,
+            'from_status' => null,
+            'to_status'   => $incident->status ?? 'open',
+        ]);
+
         return IncidentResource::make($incident);
     }
 
@@ -33,9 +43,33 @@ class IncidentController extends Controller
 
     public function update(StoreIncidentRequest $request, Incident $incident): IncidentResource
     {
+        $previousStatus = $incident->status;
+
         $incident->update($request->validated());
 
+        $newStatus = $incident->fresh()->status;
+
+        if ($previousStatus !== $newStatus) {
+            IncidentHistory::query()->create([
+                'incident_id' => $incident->id,
+                'user_id'     => $request->user()?->id,
+                'from_status' => $previousStatus,
+                'to_status'   => $newStatus,
+                'note'        => $request->input('note'),
+            ]);
+        }
+
         return IncidentResource::make($incident->refresh());
+    }
+
+    public function history(Incident $incident): JsonResponse
+    {
+        $history = $incident->history()
+            ->with('user:id,name')
+            ->orderByDesc('created_at')
+            ->get(['id', 'incident_id', 'user_id', 'from_status', 'to_status', 'note', 'created_at']);
+
+        return response()->json($history);
     }
 
     public function destroy(Incident $incident): never

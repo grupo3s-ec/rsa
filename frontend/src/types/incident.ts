@@ -84,6 +84,30 @@ export interface RouteIncidentQuery {
 }
 
 /** Payload para POST /incidents — refleja las reglas de StoreIncidentRequest del backend. */
+export interface IncidentMedia {
+  id: number;
+  incident_id: number;
+  media_type: 'photo' | 'video';
+  url: string | null;
+  thumbnail_url: string | null;
+  file_name: string | null;
+  file_size: number | null;
+  geotab_media_file_id: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface IncidentHistoryEntry {
+  id: number;
+  incident_id: number;
+  user_id: number | null;
+  user: { id: number; name: string } | null;
+  from_status: IncidentStatus | null;
+  to_status: IncidentStatus;
+  note: string | null;
+  created_at: string;
+}
+
 export interface CreateIncidentPayload {
   title: string;
   type: IncidentType;

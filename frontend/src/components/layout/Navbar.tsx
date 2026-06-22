@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { Map, List, Settings2, LogOut, type LucideIcon } from 'lucide-react';
+import { Map, List, Settings2, LogOut, LayoutDashboard, type LucideIcon } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/lib/auth/context';
 import { Button } from '@/components/ui/button';
@@ -16,9 +16,10 @@ const NAV_LINKS: Array<{
   icon: LucideIcon;
   roles: UserRole[] | null;
 }> = [
-  { href: '/mapa',      label: 'Mapa',      icon: Map,       roles: null },
-  { href: '/incidents', label: 'Incidentes', icon: List,      roles: null },
-  { href: '/admin',     label: 'Admin',      icon: Settings2, roles: ['admin'] },
+  { href: '/mapa',       label: 'Mapa',       icon: Map,             roles: null },
+  { href: '/incidents',  label: 'Incidentes', icon: List,            roles: null },
+  { href: '/dashboard',  label: 'Dashboard',  icon: LayoutDashboard, roles: ['admin', 'operator'] },
+  { href: '/admin',      label: 'Admin',      icon: Settings2,       roles: ['admin'] },
 ];
 
 export function Navbar() {
