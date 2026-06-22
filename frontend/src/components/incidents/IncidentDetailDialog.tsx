@@ -21,6 +21,7 @@ import {
   toEmbedUrl,
   typeMeta,
 } from '@/lib/incidents/format';
+import { toast } from 'sonner';
 import {
   addIncidentMedia,
   deleteIncidentMedia,
@@ -213,6 +214,9 @@ export function IncidentDetailDialog({
       setLocal(updated);
       onStatusChanged?.(updated);
       getIncidentHistory(inc.id).then(setHistory).catch(() => {});
+      toast.success(`Estado: ${statusMeta[to].label}`);
+    } catch {
+      toast.error('No se pudo actualizar el estado');
     } finally {
       setChangingTo(null);
     }
@@ -227,6 +231,9 @@ export function IncidentDetailDialog({
       setMedia(prev => [...prev, created]);
       setNewUrl('');
       setShowAddMedia(false);
+      toast.success('Evidencia añadida');
+    } catch {
+      toast.error('No se pudo añadir la evidencia');
     } finally {
       setSavingMedia(false);
     }
@@ -236,8 +243,10 @@ export function IncidentDetailDialog({
     setMedia(prev => prev.filter(m => m.id !== mediaId));
     try {
       await deleteIncidentMedia(inc.id, mediaId);
+      toast.success('Evidencia eliminada');
     } catch {
       getIncidentMedia(inc.id).then(setMedia).catch(() => {});
+      toast.error('No se pudo eliminar');
     }
   }
 

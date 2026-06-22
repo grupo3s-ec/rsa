@@ -12,11 +12,13 @@ import {
   Tooltip,
   ResponsiveContainer,
 } from 'recharts';
-import { AlertTriangle, CheckCircle2, Route, Truck, Users } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, RefreshCw, Route, Truck, Users } from 'lucide-react';
 import { getDashboardStats } from '@/lib/api/admin';
 import { severityMeta, typeMeta, statusMeta } from '@/lib/incidents/format';
 import { Skeleton } from '@/components/ui/skeleton';
 import { SeverityBadge } from '@/components/incidents/SeverityBadge';
+import { useCountUp } from '@/lib/ui/use-count-up';
+import { relativeTime } from '@/lib/ui/relative-time';
 import type { DashboardStats } from '@/types/dashboard';
 import type { IncidentSeverity, IncidentStatus, IncidentType } from '@/types/incident';
 
@@ -43,7 +45,7 @@ function ChartTooltip({ active, payload }: { active?: boolean; payload?: Tooltip
   );
 }
 
-// ── Stat card ─────────────────────────────────────────────────────────────────
+// ── Stat card con count-up ────────────────────────────────────────────────────
 
 interface StatCardProps {
   label: string;
@@ -54,6 +56,7 @@ interface StatCardProps {
 }
 
 function StatCard({ label, value, sub, icon, valueClass = 'text-foreground' }: StatCardProps) {
+  const animated = useCountUp(value);
   return (
     <div className="flex items-center gap-4 rounded-xl border border-border/60 bg-card px-5 py-4">
       <div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground">
@@ -61,7 +64,7 @@ function StatCard({ label, value, sub, icon, valueClass = 'text-foreground' }: S
       </div>
       <div className="min-w-0">
         <p className="text-xs text-muted-foreground">{label}</p>
-        <p className={`text-2xl font-bold leading-tight ${valueClass}`}>{value}</p>
+        <p className={`text-2xl font-bold leading-tight tabular-nums ${valueClass}`}>{animated}</p>
         {sub && <p className="text-xs text-muted-foreground">{sub}</p>}
       </div>
     </div>
@@ -71,12 +74,31 @@ function StatCard({ label, value, sub, icon, valueClass = 'text-foreground' }: S
 // ── Página ────────────────────────────────────────────────────────────────────
 
 export default function DashboardPage() {
-  const [stats, setStats]   = useState<DashboardStats | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [stats, setStats]       = useState<DashboardStats | null>(null);
+  const [loading, setLoading]   = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+
+  async function fetchStats(silent = false) {
+    if (silent) setRefreshing(true);
+    try {
+      const data = await getDashboardStats();
+      setStats(data);
+    } catch {}
+    finally {
+      setLoading(false);
+      if (silent) setRefreshing(false);
+    }
+  }
 
   useEffect(() => {
-    getDashboardStats().then(setStats).finally(() => setLoading(false));
+    fetchStats();
   }, []);
+
+  useEffect(() => {
+    if (loading) return;
+    const id = setInterval(() => fetchStats(true), 60_000);
+    return () => clearInterval(id);
+  }, [loading]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (loading) return <DashboardSkeleton />;
   if (!stats)  return (
@@ -85,7 +107,6 @@ export default function DashboardPage() {
     </div>
   );
 
-  // Datos para gráficas — usando metadatos existentes como fuente de verdad
   const severityData = (Object.keys(severityMeta) as IncidentSeverity[])
     .map(key => ({ key, name: severityMeta[key].label, value: stats.incidents.by_severity[key] ?? 0, hex: severityMeta[key].hex }))
     .filter(d => d.value > 0);
@@ -98,13 +119,23 @@ export default function DashboardPage() {
     .map(key => ({ name: typeMeta[key].label, value: stats.incidents.by_type[key] ?? 0 }))
     .filter(d => d.value > 0);
 
-  const openCount = stats.incidents.by_status['open'] ?? 0;
-  const resolvedCount = stats.incidents.by_status['resolved'] ?? 0;
+  const openCount       = stats.incidents.by_status['open'] ?? 0;
+  const resolvedCount   = stats.incidents.by_status['resolved'] ?? 0;
   const inProgressCount = stats.incidents.by_status['in_progress'] ?? 0;
 
   return (
     <div className="flex-1 overflow-y-auto">
       <div className="mx-auto max-w-6xl space-y-6 px-6 py-6">
+
+        {/* Indicador de actualización silenciosa */}
+        <div className="flex items-center justify-end gap-1.5 text-[11px] text-muted-foreground/50">
+          {refreshing && (
+            <>
+              <RefreshCw className="size-2.5 animate-spin" />
+              <span>Actualizando…</span>
+            </>
+          )}
+        </div>
 
         {/* KPI principales */}
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
@@ -221,9 +252,7 @@ export default function DashboardPage() {
                     <SeverityBadge severity={inc.severity} />
                     <span className="min-w-0 flex-1 truncate text-sm">{inc.title}</span>
                     <span className="shrink-0 text-xs text-muted-foreground">
-                      {(inc.occurred_at ?? inc.created_at)
-                        ? new Date(inc.occurred_at ?? inc.created_at!).toLocaleDateString('es-EC', { day: '2-digit', month: 'short' })
-                        : '—'}
+                      {relativeTime(inc.occurred_at ?? inc.created_at)}
                     </span>
                   </li>
                 ))}
