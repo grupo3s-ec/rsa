@@ -48,6 +48,25 @@ async function request<TResponse>(path: string, options: ApiRequestOptions = {})
   return response.json() as Promise<TResponse>;
 }
 
+async function requestForm<TResponse>(path: string, formData: FormData): Promise<TResponse> {
+  const token = getToken();
+  const authHeader: Record<string, string> = token ? { Authorization: `Bearer ${token}` } : {};
+
+  const response = await fetch(buildUrl(path), {
+    method: 'POST',
+    body: formData,
+    // Sin Content-Type: el browser lo pone con el multipart boundary correcto
+    headers: { Accept: 'application/json', ...authHeader },
+  });
+
+  if (!response.ok) {
+    const body = await response.json().catch(() => ({})) as { message?: string };
+    throw new Error(body.message ?? `API error ${response.status}`);
+  }
+
+  return response.json() as Promise<TResponse>;
+}
+
 export const apiClient = {
   get: <TResponse>(path: string, options?: Omit<ApiRequestOptions, 'method' | 'body'>): Promise<TResponse> =>
     request<TResponse>(path, { ...options, method: 'GET' }),
@@ -68,6 +87,9 @@ export const apiClient = {
 
   delete: <TResponse>(path: string, options?: Omit<ApiRequestOptions, 'method' | 'body'>): Promise<TResponse> =>
     request<TResponse>(path, { ...options, method: 'DELETE' }),
+
+  form: <TResponse>(path: string, formData: FormData): Promise<TResponse> =>
+    requestForm<TResponse>(path, formData),
 };
 
 export type { QueryParams };

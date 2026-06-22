@@ -7,9 +7,42 @@ use App\Models\Incident;
 use App\Models\IncidentMedia;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Str;
 
 class IncidentMediaController extends Controller
 {
+    public function upload(Request $request, Incident $incident): JsonResponse
+    {
+        $data = $request->validate([
+            'file'       => ['required', 'file', 'mimes:jpeg,jpg,png,gif,webp', 'max:5120'],
+            'media_type' => ['sometimes', 'string', 'in:photo,video'],
+        ]);
+
+        /** @var \Illuminate\Http\UploadedFile $file */
+        $file = $data['file'];
+        $ext  = strtolower($file->getClientOriginalExtension() ?: 'jpg');
+        $key  = "incidents/{$incident->id}/" . Str::uuid() . ".{$ext}";
+
+        try {
+            Storage::disk('r2')->put($key, $file->get());
+        } catch (\Throwable) {
+            return response()->json(['message' => 'No se pudo subir el archivo.'], 500);
+        }
+
+        $baseUrl   = rtrim(env('R2_PUBLIC_URL', ''), '/');
+        $publicUrl = $baseUrl ? "{$baseUrl}/{$key}" : $key;
+
+        $media = $incident->media()->create([
+            'url'        => $publicUrl,
+            'media_type' => $data['media_type'] ?? 'photo',
+            'file_name'  => $file->getClientOriginalName(),
+            'file_size'  => $file->getSize(),
+        ]);
+
+        return response()->json($media, 201);
+    }
+
     public function index(Incident $incident): JsonResponse
     {
         return response()->json(

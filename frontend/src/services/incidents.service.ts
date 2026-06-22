@@ -55,3 +55,14 @@ export function addIncidentMedia(
 export function deleteIncidentMedia(incidentId: number, mediaId: number): Promise<void> {
   return apiClient.delete<void>(`/incidents/${incidentId}/media/${mediaId}`);
 }
+
+export function uploadIncidentPhoto(
+  id: number,
+  file: File,
+  mediaType: 'photo' | 'video' = 'photo',
+): Promise<IncidentMedia> {
+  const form = new FormData();
+  form.append('file', file);
+  form.append('media_type', mediaType);
+  return apiClient.form<IncidentMedia>(`/incidents/${id}/media/upload`, form);
+}

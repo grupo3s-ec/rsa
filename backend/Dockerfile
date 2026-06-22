@@ -14,6 +14,7 @@ RUN apk add --no-cache \
         mbstring \
         xml \
         pcntl \
+    && printf "upload_max_filesize=8M\npost_max_size=10M\n" > /usr/local/etc/php/conf.d/rsa.ini \
     && curl -sS https://getcomposer.org/installer \
        | php -- --install-dir=/usr/local/bin --filename=composer
 

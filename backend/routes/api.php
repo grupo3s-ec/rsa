@@ -29,9 +29,10 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/incidents/{incident}/history', [IncidentController::class, 'history']);
 
     // Evidencias de incidentes
-    Route::get('/incidents/{incident}/media',          [IncidentMediaController::class, 'index']);
-    Route::post('/incidents/{incident}/media',         [IncidentMediaController::class, 'store']);
-    Route::delete('/incidents/{incident}/media/{media}', [IncidentMediaController::class, 'destroy']);
+    Route::get('/incidents/{incident}/media',               [IncidentMediaController::class, 'index']);
+    Route::post('/incidents/{incident}/media',              [IncidentMediaController::class, 'store']);
+    Route::post('/incidents/{incident}/media/upload',       [IncidentMediaController::class, 'upload']);
+    Route::delete('/incidents/{incident}/media/{media}',    [IncidentMediaController::class, 'destroy']);
 
     // Incidentes por ruta
     Route::get('/routes/incidents', RouteIncidentController::class);

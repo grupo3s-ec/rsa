@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useId, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import {
   Dialog,
   DialogContent,
@@ -12,7 +12,7 @@ import { Separator } from '@/components/ui/separator';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
-import { ExternalLink, Film, ImageOff, MapPin, Plus, VideoOff, X } from 'lucide-react';
+import { ExternalLink, Film, ImageOff, MapPin, Plus, Upload, VideoOff, X } from 'lucide-react';
 import { SeverityBadge } from '@/components/incidents/SeverityBadge';
 import {
   formatDateEs,
@@ -28,6 +28,7 @@ import {
   getIncidentHistory,
   getIncidentMedia,
   updateIncidentStatus,
+  uploadIncidentPhoto,
 } from '@/services/incidents.service';
 import type {
   Incident,
@@ -179,6 +180,10 @@ export function IncidentDetailDialog({
   const [newType,      setNewType]      = useState<'photo' | 'video'>('photo');
   const [savingMedia,  setSavingMedia]  = useState(false);
 
+  // Upload de archivo
+  const fileInputRef               = useRef<HTMLInputElement>(null);
+  const [uploading, setUploading]  = useState(false);
+
   // Cargar historial + media cada vez que se abre el dialog (o cambia el incidente)
   useEffect(() => {
     if (!open || !incident) return;
@@ -247,6 +252,19 @@ export function IncidentDetailDialog({
     } catch {
       getIncidentMedia(inc.id).then(setMedia).catch(() => {});
       toast.error('No se pudo eliminar');
+    }
+  }
+
+  async function handleUploadFile(file: File): Promise<void> {
+    setUploading(true);
+    try {
+      const created = await uploadIncidentPhoto(inc.id, file);
+      setMedia(prev => [...prev, created]);
+      toast.success('Foto subida');
+    } catch {
+      toast.error('No se pudo subir la foto');
+    } finally {
+      setUploading(false);
     }
   }
 
@@ -333,16 +351,42 @@ export function IncidentDetailDialog({
         <div className="space-y-3">
           <div className="flex items-center justify-between">
             <p className="text-xs font-medium text-foreground/80">Evidencias</p>
-            <Button
-              variant="ghost"
-              size="sm"
-              className="h-6 gap-1 px-2 text-xs"
-              onClick={() => setShowAddMedia(v => !v)}
-            >
-              <Plus className="size-3" />
-              Añadir URL
-            </Button>
+            <div className="flex items-center gap-1">
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-6 gap-1 px-2 text-xs"
+                disabled={uploading}
+                onClick={() => fileInputRef.current?.click()}
+              >
+                {uploading
+                  ? <span className="size-3 animate-spin rounded-full border-2 border-current border-t-transparent" />
+                  : <Upload className="size-3" />
+                }
+                Foto
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-6 gap-1 px-2 text-xs"
+                onClick={() => setShowAddMedia(v => !v)}
+              >
+                <Plus className="size-3" />
+                URL
+              </Button>
+            </div>
           </div>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/*"
+            className="hidden"
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              if (file) void handleUploadFile(file);
+              e.target.value = '';
+            }}
+          />
 
           {showAddMedia && (
             <form onSubmit={(e) => { void handleAddMedia(e); }} className="flex gap-2">
