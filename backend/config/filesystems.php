@@ -60,6 +60,20 @@ return [
             'report' => false,
         ],
 
+        // Cloudflare R2 — compatible con S3 API.
+        // El bucket debe tener acceso público habilitado (subdominio r2.dev o dominio propio).
+        'r2' => [
+            'driver'                  => 's3',
+            'key'                     => env('R2_ACCESS_KEY_ID'),
+            'secret'                  => env('R2_SECRET_ACCESS_KEY'),
+            'region'                  => 'auto',
+            'bucket'                  => env('R2_BUCKET', 'rsa-evidencias'),
+            'endpoint'                => env('R2_ENDPOINT'), // https://<account_id>.r2.cloudflarestorage.com
+            'use_path_style_endpoint' => true,
+            'throw'                   => true,
+            'report'                  => false,
+        ],
+
     ],
 
     /*
