@@ -487,6 +487,10 @@ export function RoutePlanner() {
         incident={selectedIncident}
         open={detailOpen}
         onOpenChange={setDetailOpen}
+        onStatusChanged={(updated) => {
+          setIncidents(prev => prev.map(i => i.id === updated.id ? updated : i));
+          setSelectedIncident(prev => prev?.id === updated.id ? updated : prev);
+        }}
       />
       <MapHelpDialog open={helpOpen} onOpenChange={setHelpOpen} />
     </>

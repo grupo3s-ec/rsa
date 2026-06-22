@@ -218,6 +218,10 @@ export default function IncidentsPage() {
         incident={selectedIncident}
         open={detailOpen}
         onOpenChange={setDetailOpen}
+        onStatusChanged={(updated) => {
+          setIncidents(prev => prev.map(i => i.id === updated.id ? updated : i));
+          setSelectedIncident(prev => prev?.id === updated.id ? updated : prev);
+        }}
       />
     </div>
   );
