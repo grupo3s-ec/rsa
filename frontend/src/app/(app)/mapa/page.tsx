@@ -1,5 +1,11 @@
-import { RoutePlanner } from "@/components/routes/RoutePlanner";
+import { RoutePlanner } from '@/components/routes/RoutePlanner';
+import { IncidentFab } from '@/components/incidents/IncidentFab';
 
-export default function RouteDemoPage() {
-  return <RoutePlanner />;
+export default function MapaPage() {
+  return (
+    <>
+      <RoutePlanner />
+      <IncidentFab />
+    </>
+  );
 }

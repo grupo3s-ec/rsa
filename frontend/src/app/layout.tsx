@@ -1,17 +1,34 @@
-import type { Metadata } from 'next';
+import type { Metadata, Viewport } from 'next';
 import { Geist, Geist_Mono, Inter } from 'next/font/google';
 import './globals.css';
 import { cn } from '@/lib/utils';
 import { AuthProvider } from '@/lib/auth/context';
 import { ThemeProvider } from '@/components/layout/ThemeProvider';
+import { ServiceWorkerRegistration } from '@/components/pwa/ServiceWorkerRegistration';
 
 const inter      = Inter({ subsets: ['latin'], variable: '--font-sans' });
 const geistSans  = Geist({ variable: '--font-geist-sans', subsets: ['latin'] });
 const geistMono  = Geist_Mono({ variable: '--font-geist-mono', subsets: ['latin'] });
 
 export const metadata: Metadata = {
-  title: 'RSA — Route Safety Analysis by Grupo3S',
-  description: 'Sistema privado para reportar y visualizar siniestros y novedades en ruta.',
+  title: 'RSA — Rutas Seguras',
+  description: 'Sistema de análisis y reporte de incidentes en ruta para transporte pesado.',
+  manifest: '/manifest.json',
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: 'default',
+    title: 'RSA',
+  },
+  icons: {
+    icon: '/icon.svg',
+    apple: '/rsa-logo.jpeg',
+  },
+};
+
+export const viewport: Viewport = {
+  themeColor: '#1A3562',
+  width: 'device-width',
+  initialScale: 1,
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
@@ -23,7 +40,10 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     >
       <body className="flex min-h-full flex-col">
         <ThemeProvider>
-          <AuthProvider>{children}</AuthProvider>
+          <AuthProvider>
+            {children}
+            <ServiceWorkerRegistration />
+          </AuthProvider>
         </ThemeProvider>
       </body>
     </html>

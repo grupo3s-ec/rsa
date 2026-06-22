@@ -1,0 +1,27 @@
+{
+  "name": "RSA — Rutas Seguras",
+  "short_name": "RSA",
+  "description": "Sistema de análisis y reporte de incidentes en ruta para transporte pesado.",
+  "start_url": "/mapa",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#ffffff",
+  "theme_color": "#1A3562",
+  "lang": "es",
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "/rsa-logo.jpeg",
+      "sizes": "192x192",
+      "type": "image/jpeg",
+      "purpose": "any"
+    }
+  ],
+  "categories": ["productivity", "utilities"]
+}
