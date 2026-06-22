@@ -36,6 +36,15 @@ Route::middleware('auth:sanctum')->group(function () {
     // Incidentes por ruta
     Route::get('/routes/incidents', RouteIncidentController::class);
 
+    // ── Dashboard y Geotab (admin + operator) ────────────────────────────────
+    Route::middleware('operator')->prefix('admin')->group(function () {
+        Route::get('/dashboard', [DashboardController::class, 'index']);
+
+        Route::get('/geotab/status',  [GeotabController::class, 'status']);
+        Route::get('/geotab/devices', [GeotabController::class, 'devices']);
+        Route::post('/geotab/sync',   [GeotabController::class, 'sync']);
+    });
+
     // ── Administración (solo admin) ───────────────────────────────────────────
     Route::middleware('admin')->prefix('admin')->group(function () {
 
@@ -56,13 +65,5 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('/routes',                         [AdminRouteController::class, 'store']);
         Route::patch('/routes/{predefinedRoute}',      [AdminRouteController::class, 'update']);
         Route::delete('/routes/{predefinedRoute}',     [AdminRouteController::class, 'destroy']);
-
-        // Dashboard y KPIs
-        Route::get('/dashboard', [DashboardController::class, 'index']);
-
-        // Integración Geotab
-        Route::get('/geotab/status',  [GeotabController::class, 'status']);
-        Route::get('/geotab/devices', [GeotabController::class, 'devices']);
-        Route::post('/geotab/sync',   [GeotabController::class, 'sync']);
     });
 });
