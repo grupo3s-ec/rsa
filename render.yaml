@@ -27,7 +27,7 @@ services:
       - key: DB_SSLMODE
         value: require
       - key: FRONTEND_URL
-        value: https://rsa-frontend.1fbb00279eab473f8f023d08ef15bdc7.workers.dev
+        value: https://rsa-frontend.servicioalcliente-1fb.workers.dev
       # Completar manualmente en el dashboard de Render después del deploy:
       # DB_HOST, DB_USERNAME, DB_PASSWORD
       - key: LOG_CHANNEL
