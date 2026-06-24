@@ -60,7 +60,7 @@ export default function LoginPage() {
           const retryMsg = retryErr instanceof Error ? retryErr.message : String(retryErr);
           setError(
             isNetworkError(retryErr)
-              ? `No se pudo conectar. [1:${msg}] [2:${retryMsg}]`
+              ? 'No se pudo conectar al servidor. Inténtalo en unos segundos.'
               : retryMsg,
           );
         }
