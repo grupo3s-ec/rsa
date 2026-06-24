@@ -11,6 +11,9 @@ use App\Http\Controllers\Api\IncidentMediaController;
 use App\Http\Controllers\Api\RouteIncidentController;
 use Illuminate\Support\Facades\Route;
 
+// ── Ping público (warmup para Render free tier) ──────────────────────────────
+Route::get('/ping', fn () => response()->json(['ok' => true]));
+
 // ── Autenticación (pública) ───────────────────────────────────────────────────
 Route::post('/auth/login', [AuthController::class, 'login']);
 

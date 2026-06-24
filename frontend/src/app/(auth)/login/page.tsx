@@ -30,7 +30,7 @@ export default function LoginPage() {
   useEffect(() => {
     let cancelled = false;
     setWarming(true);
-    fetch(`${API_BASE}/up`, { method: 'GET', signal: AbortSignal.timeout(45_000) })
+    fetch(`${API_BASE}/ping`, { method: 'GET', signal: AbortSignal.timeout(45_000) })
       .catch(() => { /* silencioso — solo warmup */ })
       .finally(() => { if (!cancelled) setWarming(false); });
     return () => { cancelled = true; };
