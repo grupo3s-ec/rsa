@@ -35,3 +35,41 @@ export const ROLE_LABELS: Record<UserRole, string> = {
   operator: 'Operador',
   driver:   'Conductor',
 };
+
+// ── Reportería ────────────────────────────────────────────────────────────────
+
+export interface ReportPeriodPoint {
+  date: string;
+  total: number;
+}
+
+export interface IncidentReport {
+  period: { from: string; to: string };
+  totals: { all: number; open: number; in_period: number };
+  by_period: ReportPeriodPoint[];
+  by_type:     { type: string; total: number }[];
+  by_severity: { severity: string; total: number }[];
+  by_source:   { source: string; total: number }[];
+}
+
+// ── Auditoría ─────────────────────────────────────────────────────────────────
+
+export interface AuditLogEntry {
+  id: number;
+  user_id: number | null;
+  user: { id: number; name: string; email: string } | null;
+  action: string;
+  entity_type: string | null;
+  entity_id: number | null;
+  entity_label: string | null;
+  ip_address: string | null;
+  created_at: string;
+}
+
+export interface AuditLogPage {
+  data: AuditLogEntry[];
+  current_page: number;
+  last_page: number;
+  total: number;
+  per_page: number;
+}

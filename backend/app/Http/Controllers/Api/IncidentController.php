@@ -7,6 +7,7 @@ use App\Http\Requests\StoreIncidentRequest;
 use App\Http\Resources\IncidentResource;
 use App\Models\Incident;
 use App\Models\IncidentHistory;
+use App\Services\Audit;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 use Illuminate\Support\Facades\DB;
@@ -37,6 +38,8 @@ class IncidentController extends Controller
             return $incident;
         });
 
+        Audit::log('incident.create', 'incident', $incident->id, $incident->title);
+
         return IncidentResource::make($incident);
     }
 
@@ -62,6 +65,7 @@ class IncidentController extends Controller
                     'to_status'   => $newStatus,
                     'note'        => $request->input('note'),
                 ]);
+                Audit::log('incident.status_change', 'incident', $incident->id, "{$incident->title}: {$previousStatus} → {$newStatus}");
             }
 
             return $incident->refresh();

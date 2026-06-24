@@ -1,8 +1,10 @@
 <?php
 
+use App\Http\Controllers\Api\Admin\AuditController;
 use App\Http\Controllers\Api\Admin\DashboardController;
 use App\Http\Controllers\Api\Admin\GeotabController;
 use App\Http\Controllers\Api\Admin\PredefinedRouteController as AdminRouteController;
+use App\Http\Controllers\Api\Admin\ReportController;
 use App\Http\Controllers\Api\Admin\UserController as AdminUserController;
 use App\Http\Controllers\Api\Admin\VehicleController as AdminVehicleController;
 use App\Http\Controllers\Api\AuthController;
@@ -51,6 +53,13 @@ Route::middleware('auth:sanctum')->group(function () {
 
     // ── Administración (solo admin) ───────────────────────────────────────────
     Route::middleware('admin')->prefix('admin')->group(function () {
+
+        // Reportería
+        Route::get('/reports/incidents',        [ReportController::class, 'incidents']);
+        Route::get('/reports/incidents/export', [ReportController::class, 'export']);
+
+        // Auditoría
+        Route::get('/audit', [AuditController::class, 'index']);
 
         // Usuarios
         Route::get('/users',         [AdminUserController::class, 'index']);

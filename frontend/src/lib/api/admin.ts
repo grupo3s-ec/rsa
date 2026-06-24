@@ -1,5 +1,5 @@
 import { apiClient } from './client';
-import type { AdminUser, PredefinedRoute, UserRole, Vehicle } from '@/lib/types/admin';
+import type { AdminUser, AuditLogPage, IncidentReport, PredefinedRoute, UserRole, Vehicle } from '@/lib/types/admin';
 import type { DashboardStats } from '@/types/dashboard';
 
 // ── Dashboard ─────────────────────────────────────────────────────────────────
@@ -92,4 +92,32 @@ export function updatePredefinedRoute(
 
 export function deletePredefinedRoute(id: number): Promise<void> {
   return apiClient.delete<void>(`/admin/routes/${id}`);
+}
+
+// ── Reportería ────────────────────────────────────────────────────────────────
+
+export function getIncidentReport(from?: string, to?: string): Promise<IncidentReport> {
+  return apiClient.get<IncidentReport>('/admin/reports/incidents', {
+    query: { ...(from ? { from } : {}), ...(to ? { to } : {}) },
+  });
+}
+
+export function getReportExportUrl(from?: string, to?: string): string {
+  const base = (process.env.NEXT_PUBLIC_API_BASE_URL ?? '').replace(/\/$/, '');
+  const params = new URLSearchParams();
+  if (from) params.set('from', from);
+  if (to)   params.set('to', to);
+  const qs = params.toString();
+  return `${base}/admin/reports/incidents/export${qs ? `?${qs}` : ''}`;
+}
+
+// ── Auditoría ─────────────────────────────────────────────────────────────────
+
+export function getAuditLog(params?: {
+  page?: number;
+  action?: string;
+  user_id?: number;
+  entity_type?: string;
+}): Promise<AuditLogPage> {
+  return apiClient.get<AuditLogPage>('/admin/audit', { query: params as Record<string, string | number | boolean | null | undefined> });
 }

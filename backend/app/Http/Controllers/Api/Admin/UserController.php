@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api\Admin;
 
 use App\Http\Controllers\Controller;
 use App\Models\User;
+use App\Services\Audit;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
@@ -30,6 +31,8 @@ class UserController extends Controller
 
         $user = User::query()->create($data);
 
+        Audit::log('user.create', 'user', $user->id, $user->email);
+
         return response()->json($user->only(['id', 'name', 'email', 'role', 'created_at']), 201);
     }
 
@@ -49,6 +52,8 @@ class UserController extends Controller
 
         $user->update($data);
 
+        Audit::log('user.update', 'user', $user->id, $user->email);
+
         return response()->json($user->fresh(['id', 'name', 'email', 'role', 'created_at']));
     }
 
@@ -57,6 +62,8 @@ class UserController extends Controller
         if ($user->id === $request->user()->id) {
             abort(422, 'No puedes eliminar tu propia cuenta.');
         }
+
+        Audit::log('user.delete', 'user', $user->id, $user->email);
 
         $user->tokens()->delete();
         $user->delete();
