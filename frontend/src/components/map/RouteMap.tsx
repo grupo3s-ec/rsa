@@ -27,8 +27,7 @@ import type { Incident } from "@/types/incident";
 const MAP_STYLE = "mapbox://styles/mapbox/standard";
 
 interface RouteMapProps {
-  origin: LngLat | null;
-  destination: LngLat | null;
+  waypoints: (LngLat | null)[];
   routeGeometry: RouteLineString | null;
   incidents: Incident[];
   selectedIncidentId: number | null;
@@ -68,8 +67,7 @@ function MapNotConfigured() {
 }
 
 export default function RouteMap({
-  origin,
-  destination,
+  waypoints,
   routeGeometry,
   incidents,
   selectedIncidentId,
@@ -81,7 +79,7 @@ export default function RouteMap({
   const { resolvedTheme } = useTheme();
   const isDark = resolvedTheme === "dark";
 
-  // Encuadra el mapa cubriendo origen, destino y ruta cuando cambian.
+  // Encuadra el mapa cubriendo todos los waypoints y la ruta cuando cambian.
   useEffect(() => {
     const map = mapRef.current;
 
@@ -91,8 +89,9 @@ export default function RouteMap({
 
     const points: LngLat[] = [];
 
-    if (origin) points.push(origin);
-    if (destination) points.push(destination);
+    for (const wp of waypoints) {
+      if (wp) points.push(wp);
+    }
     if (routeGeometry) points.push(...routeGeometry.coordinates);
 
     if (points.length === 0) {
@@ -123,7 +122,7 @@ export default function RouteMap({
       ],
       { padding: 90, duration: 800, maxZoom: 15 },
     );
-  }, [origin, destination, routeGeometry, mapLoaded]);
+  }, [waypoints, routeGeometry, mapLoaded]);
 
   // Centra suavemente el incidente seleccionado (desde la lista o el marcador).
   useEffect(() => {
@@ -199,23 +198,29 @@ export default function RouteMap({
         </Source>
       ) : null}
 
-      {/* Origen: anillo verde con punto central. */}
-      {origin ? (
-        <Marker longitude={origin[0]} latitude={origin[1]} anchor="center">
-          <span className="flex size-5 items-center justify-center rounded-full border-2 border-white bg-emerald-500 shadow-md">
-            <span className="size-1.5 rounded-full bg-white" />
-          </span>
-        </Marker>
-      ) : null}
-
-      {/* Destino: bandera sobre pin oscuro. */}
-      {destination ? (
-        <Marker longitude={destination[0]} latitude={destination[1]} anchor="bottom">
-          <span className="flex size-8 items-center justify-center rounded-full border-2 border-white bg-slate-900 text-white shadow-lg">
-            <Flag className="size-3.5" />
-          </span>
-        </Marker>
-      ) : null}
+      {/* Waypoints: origen (verde), intermedios (azul con número), destino (bandera). */}
+      {waypoints.map((wp, idx) => {
+        if (!wp) return null;
+        const isFirst = idx === 0;
+        const isLast = idx === waypoints.length - 1;
+        return (
+          <Marker key={idx} longitude={wp[0]} latitude={wp[1]} anchor={isLast ? "bottom" : "center"}>
+            {isFirst ? (
+              <span className="flex size-5 items-center justify-center rounded-full border-2 border-white bg-emerald-500 shadow-md">
+                <span className="size-1.5 rounded-full bg-white" />
+              </span>
+            ) : isLast ? (
+              <span className="flex size-8 items-center justify-center rounded-full border-2 border-white bg-slate-900 text-white shadow-lg">
+                <Flag className="size-3.5" />
+              </span>
+            ) : (
+              <span className="flex size-6 items-center justify-center rounded-full border-2 border-white bg-primary text-[10px] font-bold text-white shadow-md">
+                {idx}
+              </span>
+            )}
+          </Marker>
+        );
+      })}
 
       {/* Incidentes: círculo con icono del tipo y color de severidad. */}
       {incidents.map((incident) => {

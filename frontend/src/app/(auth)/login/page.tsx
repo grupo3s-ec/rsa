@@ -9,6 +9,12 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useAuth } from '@/lib/auth/context';
 
+const API_BASE = (process.env.NEXT_PUBLIC_API_BASE_URL ?? '').replace(/\/$/, '');
+
+function isNetworkError(err: unknown): boolean {
+  return err instanceof TypeError && /fetch|network|failed/i.test((err as Error).message);
+}
+
 export default function LoginPage() {
   const { user, loading, login } = useAuth();
   const router = useRouter();
@@ -18,6 +24,17 @@ export default function LoginPage() {
   const [remember,   setRemember]   = useState(false);
   const [error,      setError]      = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [warming,    setWarming]    = useState(false);
+
+  // Despierta el backend de Render (free tier duerme a los 15 min)
+  useEffect(() => {
+    let cancelled = false;
+    setWarming(true);
+    fetch(`${API_BASE}/up`, { method: 'GET', signal: AbortSignal.timeout(45_000) })
+      .catch(() => { /* silencioso — solo warmup */ })
+      .finally(() => { if (!cancelled) setWarming(false); });
+    return () => { cancelled = true; };
+  }, []);
 
   useEffect(() => {
     if (!loading && user) router.replace('/mapa');
@@ -31,7 +48,23 @@ export default function LoginPage() {
       await login(email, password, remember);
       router.replace('/mapa');
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Error al iniciar sesión.');
+      if (isNetworkError(err)) {
+        // Reintenta una vez si fue error de red (ej. Render despertando)
+        try {
+          await new Promise(r => setTimeout(r, 3000));
+          await login(email, password, remember);
+          router.replace('/mapa');
+          return;
+        } catch (retryErr) {
+          setError(
+            isNetworkError(retryErr)
+              ? 'No se pudo conectar al servidor. Inténtalo en unos segundos.'
+              : (retryErr instanceof Error ? retryErr.message : 'Error al iniciar sesión.'),
+          );
+        }
+      } else {
+        setError(err instanceof Error ? err.message : 'Error al iniciar sesión.');
+      }
     } finally {
       setSubmitting(false);
     }
@@ -108,11 +141,11 @@ export default function LoginPage() {
             </p>
           ) : null}
 
-          <Button type="submit" className="w-full" disabled={submitting}>
-            {submitting ? (
+          <Button type="submit" className="w-full" disabled={submitting || warming}>
+            {(submitting || warming) ? (
               <LoaderCircle data-icon="inline-start" className="animate-spin" />
             ) : null}
-            {submitting ? 'Ingresando…' : 'Ingresar'}
+            {submitting ? 'Ingresando…' : warming ? 'Conectando…' : 'Ingresar'}
           </Button>
         </form>
       </div>
