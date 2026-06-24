@@ -9,6 +9,7 @@ use App\Models\Incident;
 use App\Models\IncidentHistory;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
+use Illuminate\Support\Facades\DB;
 
 class IncidentController extends Controller
 {
@@ -23,15 +24,18 @@ class IncidentController extends Controller
 
     public function store(StoreIncidentRequest $request): IncidentResource
     {
-        $incident = Incident::query()->create($request->validated());
+        $incident = DB::transaction(function () use ($request): Incident {
+            $incident = Incident::query()->create($request->validated());
 
-        // Registrar creación en historial
-        IncidentHistory::query()->create([
-            'incident_id' => $incident->id,
-            'user_id'     => $request->user()?->id,
-            'from_status' => null,
-            'to_status'   => $incident->status ?? 'open',
-        ]);
+            IncidentHistory::query()->create([
+                'incident_id' => $incident->id,
+                'user_id'     => $request->user()?->id,
+                'from_status' => null,
+                'to_status'   => $incident->status ?? 'open',
+            ]);
+
+            return $incident;
+        });
 
         return IncidentResource::make($incident);
     }
@@ -43,23 +47,27 @@ class IncidentController extends Controller
 
     public function update(StoreIncidentRequest $request, Incident $incident): IncidentResource
     {
-        $previousStatus = $incident->status;
+        $incident = DB::transaction(function () use ($request, $incident): Incident {
+            $previousStatus = $incident->status;
 
-        $incident->update($request->validated());
+            $incident->update($request->validated());
 
-        $newStatus = $incident->fresh()->status;
+            $newStatus = $incident->fresh()->status;
 
-        if ($previousStatus !== $newStatus) {
-            IncidentHistory::query()->create([
-                'incident_id' => $incident->id,
-                'user_id'     => $request->user()?->id,
-                'from_status' => $previousStatus,
-                'to_status'   => $newStatus,
-                'note'        => $request->input('note'),
-            ]);
-        }
+            if ($previousStatus !== $newStatus) {
+                IncidentHistory::query()->create([
+                    'incident_id' => $incident->id,
+                    'user_id'     => $request->user()?->id,
+                    'from_status' => $previousStatus,
+                    'to_status'   => $newStatus,
+                    'note'        => $request->input('note'),
+                ]);
+            }
 
-        return IncidentResource::make($incident->refresh());
+            return $incident->refresh();
+        });
+
+        return IncidentResource::make($incident);
     }
 
     public function history(Incident $incident): JsonResponse
