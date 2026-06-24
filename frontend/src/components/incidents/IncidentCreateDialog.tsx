@@ -50,8 +50,13 @@ export function IncidentCreateDialog({ open, onOpenChange, onCreated }: Incident
         setCoords({ lat: pos.coords.latitude, lng: pos.coords.longitude });
         setLocating(false);
       },
-      () => {
-        toast.error('No se pudo obtener la ubicación');
+      (err) => {
+        const msg = err.code === 1
+          ? 'Permiso de ubicación denegado. Revisa la configuración del navegador.'
+          : err.code === 3
+          ? 'Tiempo de espera agotado. Intenta en una zona con mejor señal.'
+          : 'No se pudo obtener la ubicación.';
+        toast.error(msg);
         setLocating(false);
       },
       { enableHighAccuracy: true, timeout: 10_000 },

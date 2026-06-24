@@ -29,8 +29,9 @@ self.addEventListener('fetch', (event) => {
   if (url.pathname.startsWith('/_next/static/')) {
     event.respondWith(
       caches.match(request).then(cached =>
-        cached || fetch(request).then(res => {
-          caches.open(CACHE).then(c => c.put(request, res.clone()));
+        cached || fetch(request).then(async res => {
+          const cache = await caches.open(CACHE);
+          await cache.put(request, res.clone());
           return res;
         })
       )
@@ -42,8 +43,9 @@ self.addEventListener('fetch', (event) => {
   if (request.mode === 'navigate') {
     event.respondWith(
       fetch(request)
-        .then(res => {
-          caches.open(CACHE).then(c => c.put(request, res.clone()));
+        .then(async res => {
+          const cache = await caches.open(CACHE);
+          await cache.put(request, res.clone());
           return res;
         })
         .catch(() =>

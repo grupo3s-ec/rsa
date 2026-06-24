@@ -12,7 +12,7 @@ import { useAuth } from '@/lib/auth/context';
 const API_BASE = (process.env.NEXT_PUBLIC_API_BASE_URL ?? '').replace(/\/$/, '');
 
 function isNetworkError(err: unknown): boolean {
-  return err instanceof TypeError && /fetch|network|failed/i.test((err as Error).message);
+  return err instanceof TypeError;
 }
 
 export default function LoginPage() {
@@ -48,22 +48,24 @@ export default function LoginPage() {
       await login(email, password, remember);
       router.replace('/mapa');
     } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
       if (isNetworkError(err)) {
         // Reintenta una vez si fue error de red (ej. Render despertando)
         try {
-          await new Promise(r => setTimeout(r, 3000));
+          await new Promise(r => setTimeout(r, 8000));
           await login(email, password, remember);
           router.replace('/mapa');
           return;
         } catch (retryErr) {
+          const retryMsg = retryErr instanceof Error ? retryErr.message : String(retryErr);
           setError(
             isNetworkError(retryErr)
               ? 'No se pudo conectar al servidor. Inténtalo en unos segundos.'
-              : (retryErr instanceof Error ? retryErr.message : 'Error al iniciar sesión.'),
+              : retryMsg,
           );
         }
       } else {
-        setError(err instanceof Error ? err.message : 'Error al iniciar sesión.');
+        setError(msg || 'Error al iniciar sesión.');
       }
     } finally {
       setSubmitting(false);

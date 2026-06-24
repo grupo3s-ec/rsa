@@ -16,7 +16,10 @@ return [
         ['http://localhost:3000', 'http://127.0.0.1:3000']
     ))),
 
-    'allowed_origins_patterns' => [],
+    // Permite cualquier subdominio de workers.dev (Cloudflare Workers)
+    'allowed_origins_patterns' => [
+        '#^https://[a-z0-9-]+\.workers\.dev$#',
+    ],
 
     'allowed_headers' => ['*'],
 

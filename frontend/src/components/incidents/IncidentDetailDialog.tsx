@@ -384,7 +384,7 @@ export function IncidentDetailDialog({
             className="hidden"
             onChange={(e) => {
               const file = e.target.files?.[0];
-              if (file) void handleUploadFile(file);
+              if (file && !uploading) void handleUploadFile(file);
               e.target.value = '';
             }}
           />

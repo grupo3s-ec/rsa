@@ -69,6 +69,7 @@ return [
             'region'                  => 'auto',
             'bucket'                  => env('R2_BUCKET', 'rsa-evidencias'),
             'endpoint'                => env('R2_ENDPOINT'), // https://<account_id>.r2.cloudflarestorage.com
+            'url'                     => env('R2_PUBLIC_URL'),
             'use_path_style_endpoint' => true,
             'throw'                   => true,
             'report'                  => false,

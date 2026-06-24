@@ -55,6 +55,7 @@ async function requestForm<TResponse>(path: string, formData: FormData): Promise
   const response = await fetch(buildUrl(path), {
     method: 'POST',
     body: formData,
+    signal: AbortSignal.timeout(60_000),
     // Sin Content-Type: el browser lo pone con el multipart boundary correcto
     headers: { Accept: 'application/json', ...authHeader },
   });

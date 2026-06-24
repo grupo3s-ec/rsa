@@ -137,12 +137,15 @@ export function RoutePlanner() {
   }
 
   function updateWaypointCoord(idx: number, axis: "lat" | "lng", rawValue: string) {
+    if (rawValue.trim() === '') return;
     const value = Number(rawValue);
-    if (Number.isNaN(value)) return;
+    if (!Number.isFinite(value)) return;
     setWaypoints((prev) => {
       const next = [...prev];
       const base = next[idx] ?? [0, 0];
-      next[idx] = axis === "lng" ? [value, base[1]] : [base[0], value];
+      const axisIdx = axis === 'lng' ? 0 : 1;
+      if (base[axisIdx] === value) return prev;
+      next[idx] = axis === 'lng' ? [value, base[1]] : [base[0], value];
       return next;
     });
   }

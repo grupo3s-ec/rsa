@@ -20,27 +20,37 @@ class IncidentMediaController extends Controller
         ]);
 
         /** @var \Illuminate\Http\UploadedFile $file */
-        $file = $data['file'];
-        $ext  = strtolower($file->getClientOriginalExtension() ?: 'jpg');
-        $key  = "incidents/{$incident->id}/" . Str::uuid() . ".{$ext}";
+        $file     = $data['file'];
+        $ext      = strtolower($file->getClientOriginalExtension() ?: 'jpg');
+        $key      = "incidents/{$incident->id}/" . Str::uuid() . ".{$ext}";
+        $uploaded = false;
 
         try {
-            Storage::disk('r2')->put($key, $file->get());
+            $path   = $file->getRealPath();
+            if ($path === false) {
+                throw new \RuntimeException('No se pudo acceder al archivo temporal.');
+            }
+            $stream = fopen($path, 'r');
+            Storage::disk('r2')->put($key, $stream);
+            $uploaded = true;
+
+            $baseUrl   = rtrim((string) config('filesystems.disks.r2.url', ''), '/');
+            $publicUrl = $baseUrl ? "{$baseUrl}/{$key}" : $key;
+
+            $media = $incident->media()->create([
+                'url'        => $publicUrl,
+                'media_type' => $data['media_type'] ?? 'photo',
+                'file_name'  => $file->getClientOriginalName(),
+                'file_size'  => $file->getSize(),
+            ]);
+
+            return response()->json($media, 201);
         } catch (\Throwable) {
+            if ($uploaded) {
+                Storage::disk('r2')->delete($key);
+            }
             return response()->json(['message' => 'No se pudo subir el archivo.'], 500);
         }
-
-        $baseUrl   = rtrim(env('R2_PUBLIC_URL', ''), '/');
-        $publicUrl = $baseUrl ? "{$baseUrl}/{$key}" : $key;
-
-        $media = $incident->media()->create([
-            'url'        => $publicUrl,
-            'media_type' => $data['media_type'] ?? 'photo',
-            'file_name'  => $file->getClientOriginalName(),
-            'file_size'  => $file->getSize(),
-        ]);
-
-        return response()->json($media, 201);
     }
 
     public function index(Incident $incident): JsonResponse

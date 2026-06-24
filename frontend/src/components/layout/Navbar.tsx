@@ -46,7 +46,7 @@ export function Navbar() {
     fetchCount();
     const id = setInterval(fetchCount, 60_000);
     return () => { active = false; clearInterval(id); };
-  }, [user?.role]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [user]); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function handleLogout() {
     await logout();
