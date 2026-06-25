@@ -1,6 +1,7 @@
 "use client";
 
 import dynamic from "next/dynamic";
+import { APIProvider, useMapsLibrary } from "@vis.gl/react-google-maps";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Bell,
@@ -27,10 +28,9 @@ import { IncidentSidebar } from "@/components/incidents/IncidentSidebar";
 import { ReportDrawer } from "@/components/incidents/ReportDrawer";
 import { MapHelpDialog } from "@/components/map/MapHelpDialog";
 import { cn } from "@/lib/utils";
-import { IS_MAPBOX_CONFIGURED, MAPBOX_TOKEN } from "@/lib/config";
+import { GOOGLE_MAPS_API_KEY } from "@/lib/config";
 import { formatDistance, formatDuration } from "@/lib/incidents/format";
 import {
-  fetchDirectionsRoute,
   type LngLat,
   type RouteLineString,
 } from "@/lib/mapbox/directions";
@@ -69,22 +69,47 @@ interface RouteInfo {
   durationSeconds: number;
 }
 
-function resolvePointName(point: LngLat | null): string {
-  if (!point) return "Sin seleccionar";
-  const match = LOCATION_PRESETS.find(
-    (p) =>
-      Math.abs(p.coords[0] - point[0]) < 1e-6 &&
-      Math.abs(p.coords[1] - point[1]) < 1e-6,
-  );
-  return match ? match.name : "Punto en el mapa";
-}
+// ─── Componente público (envuelve todo en APIProvider) ────────────────────────
 
 export function RoutePlanner() {
-  // Los dos primeros slots son origen y destino; slots intermedios son paradas.
-  const [waypoints, setWaypoints] = useState<(LngLat | null)[]>([null, null]);
+  return (
+    <APIProvider apiKey={GOOGLE_MAPS_API_KEY} libraries={["places", "routes", "geocoding"]}>
+      <RoutePlannerContent />
+    </APIProvider>
+  );
+}
 
-  const [routeGeometry, setRouteGeometry] = useState<RouteLineString | null>(null);
-  const [routeInfo,     setRouteInfo]     = useState<RouteInfo | null>(null);
+// ─── Contenido real (dentro del contexto de Google Maps) ─────────────────────
+
+function RoutePlannerContent() {
+  const routesLib    = useMapsLibrary("routes");
+  const placesLib    = useMapsLibrary("places");
+  const geocodingLib = useMapsLibrary("geocoding");
+
+  const [directionsService, setDirectionsService] =
+    useState<google.maps.DirectionsService | null>(null);
+  const [geocoder, setGeocoder] =
+    useState<google.maps.Geocoder | null>(null);
+
+  useEffect(() => {
+    if (routesLib)    setDirectionsService(new routesLib.DirectionsService());
+  }, [routesLib]);
+  useEffect(() => {
+    if (geocodingLib) setGeocoder(new geocodingLib.Geocoder());
+  }, [geocodingLib]);
+
+  const [waypoints, setWaypoints] = useState<(LngLat | null)[]>([null, null]);
+  const [addresses, setAddresses] = useState<(string | null)[]>([null, null]);
+
+  /** Todas las rutas calculadas (índice 0 = primera / seleccionada). */
+  const [routes,           setRoutes]           = useState<LngLat[][]>([]);
+  const [selectedRouteIdx, setSelectedRouteIdx] = useState(0);
+  const [routeInfo,        setRouteInfo]        = useState<RouteInfo | null>(null);
+
+  // La ruta activa como RouteLineString (para filterIncidentsByRoute)
+  const routeGeometry: RouteLineString | null = routes[selectedRouteIdx]
+    ? { type: "LineString", coordinates: routes[selectedRouteIdx]! }
+    : null;
   const [incidents,     setIncidents]     = useState<Incident[]>([]);
   const [selectedIncident, setSelectedIncident] = useState<Incident | null>(null);
   const [detailOpen,    setDetailOpen]    = useState(false);
@@ -102,7 +127,8 @@ export function RoutePlanner() {
   const origin      = waypoints[0];
   const destination = waypoints[waypoints.length - 1];
 
-  const canSearch = waypoints.every((w) => w !== null) && waypoints.length >= 2 && !loading;
+  const canSearch =
+    waypoints.every((w) => w !== null) && waypoints.length >= 2 && !loading;
 
   const criticalCount = useMemo(
     () => incidents.filter((i) => i.severity === "critical").length,
@@ -111,20 +137,24 @@ export function RoutePlanner() {
 
   const activePickMode = reportPickActive || pickingIndex !== null;
 
-  function setWaypoint(idx: number, lngLat: LngLat) {
-    setWaypoints((prev) => {
-      const next = [...prev];
-      next[idx] = lngLat;
-      return next;
-    });
+  // ─── Mutaciones de waypoints ──────────────────────────────────────────────
+
+  function setWaypointAt(idx: number, lngLat: LngLat, address: string | null = null) {
+    setWaypoints((prev) => { const n = [...prev]; n[idx] = lngLat; return n; });
+    setAddresses((prev) => { const n = [...prev]; n[idx] = address; return n; });
   }
 
   function addWaypoint() {
     setWaypoints((prev) => {
       if (prev.length >= MAX_WAYPOINTS) return prev;
-      const next = [...prev];
-      next.splice(prev.length - 1, 0, null);
-      return next;
+      const n = [...prev];
+      n.splice(prev.length - 1, 0, null);
+      return n;
+    });
+    setAddresses((prev) => {
+      const n = [...prev];
+      n.splice(prev.length - 1, 0, null);
+      return n;
     });
   }
 
@@ -133,25 +163,29 @@ export function RoutePlanner() {
       if (prev.length <= 2) return prev;
       return prev.filter((_, i) => i !== idx);
     });
+    setAddresses((prev) => prev.filter((_, i) => i !== idx));
     if (pickingIndex === idx) setPickingIndex(null);
   }
 
   function updateWaypointCoord(idx: number, axis: "lat" | "lng", rawValue: string) {
-    if (rawValue.trim() === '') return;
+    if (rawValue.trim() === "") return;
     const value = Number(rawValue);
     if (!Number.isFinite(value)) return;
     setWaypoints((prev) => {
-      const next = [...prev];
-      const base = next[idx] ?? [0, 0];
-      const axisIdx = axis === 'lng' ? 0 : 1;
-      if (base[axisIdx] === value) return prev;
-      next[idx] = axis === 'lng' ? [value, base[1]] : [base[0], value];
-      return next;
+      const n    = [...prev];
+      const base = n[idx] ?? [0, 0];
+      const ai   = axis === "lng" ? 0 : 1;
+      if (base[ai] === value) return prev;
+      n[idx] = axis === "lng" ? [value, base[1]] : [base[0], value];
+      return n;
     });
+    setAddresses((prev) => { const n = [...prev]; n[idx] = null; return n; });
   }
 
+  // ─── Click en el mapa (picking o reporte) ────────────────────────────────
+
   const handleMapClick = useCallback(
-    (lngLat: LngLat) => {
+    async (lngLat: LngLat) => {
       if (reportPickActive) {
         setPickedReportCoords(lngLat);
         setReportPickActive(false);
@@ -160,31 +194,59 @@ export function RoutePlanner() {
         return;
       }
       if (pickingIndex !== null) {
-        setWaypoint(pickingIndex, lngLat);
+        const idx = pickingIndex;
+        setWaypoints((prev) => { const n = [...prev]; n[idx] = lngLat; return n; });
         setPickingIndex(null);
+
+        if (geocoder) {
+          try {
+            const res = await geocoder.geocode({
+              location: { lat: lngLat[1], lng: lngLat[0] },
+            });
+            const addr = res.results[0]?.formatted_address ?? null;
+            setAddresses((prev) => { const n = [...prev]; n[idx] = addr; return n; });
+          } catch {
+            // ignorar — las coordenadas ya están guardadas
+          }
+        }
       }
     },
-    [pickingIndex, reportPickActive],
+    [pickingIndex, reportPickActive, geocoder],
   );
 
   const cancelPickMode = useCallback(() => {
     setPickingIndex(null);
-    if (reportPickActive) {
-      setReportPickActive(false);
-      setReportOpen(true);
-    }
+    if (reportPickActive) { setReportPickActive(false); setReportOpen(true); }
   }, [reportPickActive]);
 
+  // ─── Calcular ruta con Google Directions ─────────────────────────────────
+
   async function handleSearch(): Promise<void> {
-    const definedWaypoints = waypoints.filter((w): w is LngLat => w !== null);
-    if (definedWaypoints.length < 2) return;
+    const defined = waypoints.filter((w): w is LngLat => w !== null);
+    if (defined.length < 2) return;
+
     setLoading(true);
     setError(null);
     setSearched(true);
     setPanelOpen(true);
 
-    const first = definedWaypoints[0];
-    const last  = definedWaypoints[definedWaypoints.length - 1];
+    const first  = defined[0]!;
+    const last   = defined[defined.length - 1]!;
+    const middle = defined.slice(1, -1);
+
+    const directionsPromise: Promise<google.maps.DirectionsResult> =
+      directionsService
+        ? directionsService.route({
+            origin:      { lat: first[1], lng: first[0] },
+            destination: { lat: last[1],  lng: last[0]  },
+            waypoints: middle.map((wp) => ({
+              location: { lat: wp[1], lng: wp[0] },
+              stopover: true,
+            })),
+            travelMode: google.maps.TravelMode.DRIVING,
+            provideRouteAlternatives: true,
+          })
+        : Promise.reject(new Error("Google Maps aún no está listo."));
 
     const [incidentsResult, directionsResult] = await Promise.allSettled([
       getRouteIncidents({
@@ -193,31 +255,36 @@ export function RoutePlanner() {
         destination_lat: last[1],
         destination_lng: last[0],
       }),
-      IS_MAPBOX_CONFIGURED
-        ? fetchDirectionsRoute({ waypoints: definedWaypoints, token: MAPBOX_TOKEN })
-        : Promise.reject(new Error("Mapbox no configurado.")),
+      directionsPromise,
     ]);
 
     let resolvedCoords: LngLat[] | null = null;
 
     if (directionsResult.status === "fulfilled") {
-      const geometry = directionsResult.value.geometry;
-      resolvedCoords = geometry.coordinates;
-      setRouteGeometry(geometry);
-      setRouteInfo({
-        distanceMeters:  directionsResult.value.distanceMeters,
-        durationSeconds: directionsResult.value.durationSeconds,
-      });
+      const allRoutes = directionsResult.value.routes;
+      // Convertir todas las rutas alternativas a LngLat[][]
+      const converted: LngLat[][] = allRoutes.map((r) =>
+        r.overview_path.map((p): LngLat => [p.lng(), p.lat()]),
+      );
+      setRoutes(converted);
+      setSelectedRouteIdx(0);
+
+      const primary = allRoutes[0];
+      if (primary) {
+        resolvedCoords = converted[0] ?? null;
+        const dist = primary.legs.reduce((s, l) => s + (l.distance?.value ?? 0), 0);
+        const dur  = primary.legs.reduce((s, l) => s + (l.duration?.value ?? 0), 0);
+        setRouteInfo({ distanceMeters: dist, durationSeconds: dur });
+      }
     } else {
-      setRouteGeometry({ type: "LineString", coordinates: definedWaypoints });
+      setRoutes([defined]);
+      setSelectedRouteIdx(0);
       setRouteInfo(null);
     }
 
     if (incidentsResult.status === "fulfilled") {
       const raw      = incidentsResult.value.data;
-      const filtered = resolvedCoords
-        ? filterIncidentsByRoute(raw, resolvedCoords)
-        : raw;
+      const filtered = resolvedCoords ? filterIncidentsByRoute(raw, resolvedCoords) : raw;
       setIncidents(filtered);
     } else {
       const reason: unknown = incidentsResult.reason;
@@ -232,17 +299,27 @@ export function RoutePlanner() {
     setLoading(false);
   }
 
-  function handleSelectFromMap(incident: Incident): void {
+  function handleSelectRoute(idx: number) {
+    setSelectedRouteIdx(idx);
+    // Re-filtrar incidentes con la nueva ruta seleccionada
+    const coords = routes[idx];
+    if (coords) {
+      setIncidents((prev) => filterIncidentsByRoute(prev, coords));
+    }
+  }
+
+  function handleSelectFromMap(incident: Incident) {
     setSelectedIncident(incident);
     setDetailOpen(true);
   }
 
-  function handleSelectFromList(incident: Incident): void {
+  function handleSelectFromList(incident: Incident) {
     if (selectedIncident?.id === incident.id) { setDetailOpen(true); return; }
     setSelectedIncident(incident);
   }
 
-  // Atajos de teclado
+  // ─── Atajos de teclado ────────────────────────────────────────────────────
+
   const kbHandlerRef = useRef<((e: KeyboardEvent) => void) | null>(null);
   kbHandlerRef.current = (event: KeyboardEvent) => {
     const target   = event.target as HTMLElement;
@@ -279,16 +356,14 @@ export function RoutePlanner() {
         if (incidents.length > 0 && !detailOpen) {
           event.preventDefault();
           const idx  = incidents.findIndex((i) => i.id === selectedIncident?.id);
-          const prev = idx <= 0 ? incidents.length - 1 : idx - 1;
-          setSelectedIncident(incidents[prev]);
+          setSelectedIncident(incidents[idx <= 0 ? incidents.length - 1 : idx - 1] ?? null);
         }
         break;
       case "ArrowRight":
         if (incidents.length > 0 && !detailOpen) {
           event.preventDefault();
           const idx  = incidents.findIndex((i) => i.id === selectedIncident?.id);
-          const next = idx >= incidents.length - 1 ? 0 : idx + 1;
-          setSelectedIncident(incidents[next]);
+          setSelectedIncident(incidents[idx >= incidents.length - 1 ? 0 : idx + 1] ?? null);
         }
         break;
     }
@@ -300,7 +375,7 @@ export function RoutePlanner() {
     return () => document.removeEventListener("keydown", onKeyDown);
   }, []);
 
-  // ─── JSX compartido ──────────────────────────────────────────────────────────
+  // ─── JSX compartido ──────────────────────────────────────────────────────
 
   const pickModeLabel = reportPickActive
     ? "la ubicación del incidente"
@@ -360,7 +435,8 @@ export function RoutePlanner() {
     </div>
   );
 
-  // Formulario de planificación de ruta
+  // ─── Formulario de planificación ──────────────────────────────────────────
+
   function renderPlannerForm(compact = false) {
     return (
       <div className={cn("space-y-3", compact && "text-sm")}>
@@ -370,14 +446,17 @@ export function RoutePlanner() {
           {waypoints.map((wp, idx) => {
             const isFirst = idx === 0;
             const isLast  = idx === waypoints.length - 1;
+            const label   = isFirst
+              ? "Punto de salida"
+              : isLast
+                ? "Destino"
+                : `Parada ${idx}`;
+
             return (
               <div key={idx} className="flex items-stretch gap-2">
                 {/* Conector vertical */}
                 <div className="flex w-6 shrink-0 flex-col items-center">
-                  <div className={cn(
-                    "flex size-6 shrink-0 items-center justify-center",
-                    isLast && "mt-0.5",
-                  )}>
+                  <div className={cn("flex size-6 shrink-0 items-center justify-center", isLast && "mt-0.5")}>
                     {isFirst ? (
                       <span className="flex size-4 items-center justify-center rounded-full border-2 border-emerald-500">
                         <span className="size-1.5 rounded-full bg-emerald-500" />
@@ -392,34 +471,21 @@ export function RoutePlanner() {
                       </span>
                     )}
                   </div>
-                  {!isLast && (
-                    <div className="w-px flex-1 bg-border/50 my-0.5" />
-                  )}
+                  {!isLast && <div className="w-px flex-1 bg-border/50 my-0.5" />}
                 </div>
 
-                {/* Contenido del waypoint */}
+                {/* Input con Places Autocomplete */}
                 <div className="flex min-w-0 flex-1 flex-col pb-1">
-                  <div className="flex items-center gap-1.5 py-0.5">
-                    <span className={cn(
-                      "min-w-0 flex-1 truncate text-sm",
-                      !wp ? "text-muted-foreground" : "font-medium",
-                    )}>
-                      {isFirst
-                        ? (wp ? resolvePointName(wp) : "Punto de salida")
-                        : isLast
-                          ? (wp ? resolvePointName(wp) : "Destino")
-                          : (wp ? resolvePointName(wp) : `Parada ${idx}`)
-                      }
-                    </span>
-                    <Button
-                      variant={pickingIndex === idx ? "secondary" : "ghost"}
-                      size="xs"
-                      onClick={() => setPickingIndex((p) => p === idx ? null : idx)}
-                      className={cn("shrink-0", pickingIndex === idx && "text-primary")}
-                    >
-                      <Crosshair data-icon="inline-start" />
-                      {pickingIndex === idx ? "Eligiendo…" : "Mapa"}
-                    </Button>
+                  <div className="flex items-center gap-1 py-0.5">
+                    <WaypointInput
+                      idx={idx}
+                      placeholder={label}
+                      address={addresses[idx] ?? null}
+                      placesLib={placesLib}
+                      isPicking={pickingIndex === idx}
+                      onSelect={(lngLat, addr) => setWaypointAt(idx, lngLat, addr)}
+                      onPickOnMap={() => setPickingIndex((p) => p === idx ? null : idx)}
+                    />
                     {!isFirst && !isLast && (
                       <Button
                         variant="ghost"
@@ -465,21 +531,17 @@ export function RoutePlanner() {
           </div>
 
           {LOCATION_PRESETS.map((preset) => {
-            const lastIdx = waypoints.length - 1;
-            const isOrigin = waypoints[0] &&
-              waypoints[0][0] === preset.coords[0] && waypoints[0][1] === preset.coords[1];
-            const isDest = waypoints[lastIdx] &&
-              waypoints[lastIdx]![0] === preset.coords[0] && waypoints[lastIdx]![1] === preset.coords[1];
+            const lastIdx  = waypoints.length - 1;
+            const isOrigin = waypoints[0]?.[0] === preset.coords[0] && waypoints[0]?.[1] === preset.coords[1];
+            const isDest   = waypoints[lastIdx]?.[0] === preset.coords[0] && waypoints[lastIdx]?.[1] === preset.coords[1];
 
             return (
               <div key={preset.name} className="flex items-center gap-2">
-                <span className="min-w-0 flex-1 truncate text-xs font-medium">
-                  {preset.name}
-                </span>
+                <span className="min-w-0 flex-1 truncate text-xs font-medium">{preset.name}</span>
                 <button
                   type="button"
                   title={`Ir desde ${preset.name}`}
-                  onClick={() => setWaypoint(0, preset.coords)}
+                  onClick={() => setWaypointAt(0, preset.coords, preset.name)}
                   className={cn(
                     "flex size-7 shrink-0 items-center justify-center rounded-full border border-border/70 transition-colors hover:border-emerald-400 hover:bg-emerald-500/10",
                     isOrigin ? "border-emerald-500 bg-emerald-500/10" : "bg-background/60",
@@ -491,7 +553,7 @@ export function RoutePlanner() {
                 <button
                   type="button"
                   title={`Ir hasta ${preset.name}`}
-                  onClick={() => setWaypoint(lastIdx, preset.coords)}
+                  onClick={() => setWaypointAt(lastIdx, preset.coords, preset.name)}
                   className={cn(
                     "flex size-7 shrink-0 items-center justify-center rounded-full border border-border/70 transition-colors hover:border-slate-500 hover:bg-slate-500/10",
                     isDest ? "border-slate-700 bg-slate-500/10 dark:border-slate-300" : "bg-background/60",
@@ -539,7 +601,7 @@ export function RoutePlanner() {
           </div>
         </details>
 
-        <Button className="w-full" onClick={handleSearch} disabled={!canSearch}>
+        <Button className="w-full" onClick={() => void handleSearch()} disabled={!canSearch}>
           {loading ? (
             <LoaderCircle data-icon="inline-start" className="animate-spin" />
           ) : (
@@ -551,6 +613,29 @@ export function RoutePlanner() {
         {routeInfo || (searched && !loading) ? (
           <>
             <Separator className="my-1" />
+
+            {/* Selector de rutas alternativas */}
+            {routes.length > 1 ? (
+              <div className="flex gap-1">
+                {routes.map((_, idx) => (
+                  <button
+                    key={idx}
+                    type="button"
+                    onClick={() => handleSelectRoute(idx)}
+                    className={cn(
+                      "flex flex-1 items-center justify-center gap-1 rounded-lg border py-1.5 text-xs font-medium transition-colors",
+                      idx === selectedRouteIdx
+                        ? "border-primary/40 bg-primary/10 text-primary"
+                        : "border-border/60 text-muted-foreground hover:bg-muted/60",
+                    )}
+                  >
+                    <RouteIcon className="size-3" />
+                    Ruta {idx + 1}
+                  </button>
+                ))}
+              </div>
+            ) : null}
+
             <div className="flex items-center gap-4 text-sm">
               {routeInfo ? (
                 <>
@@ -583,7 +668,7 @@ export function RoutePlanner() {
     );
   }
 
-  // ─── Dialogs compartidos ──────────────────────────────────────────────────────
+  // ─── Diálogos compartidos ─────────────────────────────────────────────────
 
   const sharedDialogs = (
     <>
@@ -604,15 +689,15 @@ export function RoutePlanner() {
         open={detailOpen}
         onOpenChange={setDetailOpen}
         onStatusChanged={(updated) => {
-          setIncidents(prev => prev.map(i => i.id === updated.id ? updated : i));
-          setSelectedIncident(prev => prev?.id === updated.id ? updated : prev);
+          setIncidents((prev) => prev.map((i) => i.id === updated.id ? updated : i));
+          setSelectedIncident((prev) => prev?.id === updated.id ? updated : prev);
         }}
       />
       <MapHelpDialog open={helpOpen} onOpenChange={setHelpOpen} />
     </>
   );
 
-  // ─── Modo panel ───────────────────────────────────────────────────────────────
+  // ─── Modo panel ───────────────────────────────────────────────────────────
 
   if (layoutMode === "panel") {
     return (
@@ -621,20 +706,10 @@ export function RoutePlanner() {
           <div className="flex items-center justify-between border-b px-4 py-3">
             <p className="text-sm font-semibold text-foreground">Planificador</p>
             <div className="flex items-center gap-1">
-              <Button
-                variant="ghost"
-                size="icon"
-                aria-label="Abrir guía"
-                onClick={() => setHelpOpen(true)}
-              >
+              <Button variant="ghost" size="icon" aria-label="Abrir guía" onClick={() => setHelpOpen(true)}>
                 <HelpCircle className="size-4" />
               </Button>
-              <Button
-                variant="ghost"
-                size="icon"
-                aria-label="Modo pantalla completa"
-                onClick={() => setLayoutMode("full")}
-              >
+              <Button variant="ghost" size="icon" aria-label="Modo pantalla completa" onClick={() => setLayoutMode("full")}>
                 <Maximize2 className="size-4" />
               </Button>
             </div>
@@ -656,20 +731,16 @@ export function RoutePlanner() {
           </div>
         </aside>
 
-        <div
-          className={cn(
-            "relative flex-1 overflow-hidden",
-            activePickMode &&
-              "cursor-crosshair [&_.mapboxgl-canvas-container]:cursor-crosshair!",
-          )}
-        >
+        <div className={cn("relative flex-1 overflow-hidden", activePickMode && "cursor-crosshair")}>
           <RouteMap
             waypoints={waypoints}
-            routeGeometry={routeGeometry}
+            routes={routes}
+            selectedRouteIdx={selectedRouteIdx}
             incidents={incidents}
             selectedIncidentId={selectedIncident?.id ?? null}
             onSelectIncident={handleSelectFromMap}
-            onMapClick={handleMapClick}
+            onSelectRoute={handleSelectRoute}
+            onMapClick={(lngLat) => { void handleMapClick(lngLat); }}
           />
           {pickModeIndicator}
           {legendPill}
@@ -681,24 +752,20 @@ export function RoutePlanner() {
     );
   }
 
-  // ─── Modo pantalla completa ───────────────────────────────────────────────────
+  // ─── Modo pantalla completa ───────────────────────────────────────────────
 
   return (
     <div className="relative h-full w-full overflow-hidden bg-muted/30">
-      <div
-        className={cn(
-          "absolute inset-0",
-          activePickMode &&
-            "cursor-crosshair [&_.mapboxgl-canvas-container]:cursor-crosshair!",
-        )}
-      >
+      <div className={cn("absolute inset-0", activePickMode && "cursor-crosshair")}>
         <RouteMap
           waypoints={waypoints}
-          routeGeometry={routeGeometry}
+          routes={routes}
+          selectedRouteIdx={selectedRouteIdx}
           incidents={incidents}
           selectedIncidentId={selectedIncident?.id ?? null}
           onSelectIncident={handleSelectFromMap}
-          onMapClick={handleMapClick}
+          onSelectRoute={handleSelectRoute}
+          onMapClick={(lngLat) => { void handleMapClick(lngLat); }}
         />
       </div>
 
@@ -706,9 +773,7 @@ export function RoutePlanner() {
 
       <aside className="absolute left-4 top-4 z-10 w-[min(20rem,calc(100vw-2rem))] rounded-2xl border border-border/60 bg-background/80 shadow-lg backdrop-blur">
         <div className="flex items-center justify-between border-b border-border/50 px-4 py-2.5">
-          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-            Planificador
-          </p>
+          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Planificador</p>
           <Button
             variant="ghost"
             size="icon"
@@ -719,9 +784,7 @@ export function RoutePlanner() {
             <PanelLeft className="size-4" />
           </Button>
         </div>
-        <div className="p-4">
-          {renderPlannerForm()}
-        </div>
+        <div className="p-4">{renderPlannerForm()}</div>
       </aside>
 
       <div className="absolute right-4 top-4 z-10 flex flex-col gap-2">
@@ -783,6 +846,81 @@ export function RoutePlanner() {
 }
 
 // ─── Sub-componentes ──────────────────────────────────────────────────────────
+
+interface WaypointInputProps {
+  idx: number;
+  placeholder: string;
+  address: string | null;
+  placesLib: google.maps.PlacesLibrary | null;
+  isPicking: boolean;
+  onSelect: (lngLat: LngLat, address: string) => void;
+  onPickOnMap: () => void;
+}
+
+function WaypointInput({
+  placeholder,
+  address,
+  placesLib,
+  isPicking,
+  onSelect,
+  onPickOnMap,
+}: WaypointInputProps) {
+  const inputRef = useRef<HTMLInputElement>(null);
+  const acRef    = useRef<google.maps.places.Autocomplete | null>(null);
+
+  // Inicializar Autocomplete cuando la librería esté lista
+  useEffect(() => {
+    if (!placesLib || !inputRef.current || acRef.current) return;
+
+    const ac = new placesLib.Autocomplete(inputRef.current, {
+      componentRestrictions: { country: "ec" },
+      fields: ["geometry.location", "formatted_address", "name"],
+    });
+    acRef.current = ac;
+
+    const listener = ac.addListener("place_changed", () => {
+      const place = ac.getPlace();
+      const loc   = place?.geometry?.location;
+      if (!loc) return;
+      const addr = place.formatted_address ?? place.name ?? "";
+      onSelect([loc.lng(), loc.lat()], addr);
+    });
+
+    return () => {
+      window.google?.maps.event.removeListener(listener);
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [placesLib]);
+
+  // Sincronizar el valor del input cuando cambia la dirección externamente
+  useEffect(() => {
+    if (!inputRef.current) return;
+    const isFocused = document.activeElement === inputRef.current;
+    if (!isFocused) inputRef.current.value = address ?? "";
+  }, [address]);
+
+  return (
+    <div className="flex min-w-0 flex-1 items-center gap-1">
+      <input
+        ref={inputRef}
+        type="text"
+        placeholder={placeholder}
+        defaultValue={address ?? ""}
+        className="min-w-0 flex-1 rounded-lg border border-transparent bg-muted/40 px-2.5 py-1.5 text-sm outline-none transition-[border,box-shadow] placeholder:text-muted-foreground/60 focus:border-ring focus:ring-2 focus:ring-ring/20"
+      />
+      <Button
+        variant={isPicking ? "secondary" : "ghost"}
+        size="xs"
+        type="button"
+        onClick={onPickOnMap}
+        className={cn("shrink-0", isPicking && "text-primary")}
+      >
+        <Crosshair data-icon="inline-start" className="size-3.5" />
+        {isPicking ? "Eligiendo…" : "Mapa"}
+      </Button>
+    </div>
+  );
+}
 
 interface CoordinateInputProps {
   id: string;
