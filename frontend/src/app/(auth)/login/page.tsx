@@ -73,7 +73,7 @@ export default function LoginPage() {
         const msg = err instanceof Error ? err.message : String(err);
         setError(
           isNetworkError(err)
-            ? 'No se pudo conectar al servidor. Inténtalo en unos segundos.'
+            ? `Sin conexión al servidor (${msg}). Inténtalo en unos segundos.`
             : msg || 'Error al iniciar sesión.',
         );
         break;
