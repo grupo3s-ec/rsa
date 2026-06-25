@@ -29,10 +29,8 @@ jobs:
       - name: Build para Cloudflare Workers
         run: npm run cf:build
         working-directory: frontend
-        env:
-          # Variables públicas del cliente — se inlinean en el bundle en build time.
-          NEXT_PUBLIC_API_BASE_URL: ${{ secrets.NEXT_PUBLIC_API_BASE_URL }}
-          NEXT_PUBLIC_MAPBOX_TOKEN: ${{ secrets.NEXT_PUBLIC_MAPBOX_TOKEN }}
+        # Las vars NEXT_PUBLIC_* vienen de .env.production (committed).
+        # Solo se usan secrets para credenciales de despliegue.
 
       - name: Deploy a Cloudflare Workers
         run: npx wrangler deploy
