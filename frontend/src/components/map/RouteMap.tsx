@@ -6,6 +6,7 @@ import {
   Map,
   useMap,
 } from "@vis.gl/react-google-maps";
+import { useTheme } from "next-themes";
 import { Flag } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { severityMeta, typeMeta } from "@/lib/incidents/format";
@@ -170,6 +171,8 @@ export default function RouteMap({
   onMapClick,
 }: RouteMapProps) {
   const selected = routes[selectedRouteIdx] ?? [];
+  const { resolvedTheme } = useTheme();
+  const colorScheme = resolvedTheme === "dark" ? "DARK" : "LIGHT";
 
   return (
     <Map
@@ -178,6 +181,7 @@ export default function RouteMap({
       defaultZoom={11}
       gestureHandling="greedy"
       disableDefaultUI={false}
+      colorScheme={colorScheme}
       onClick={(e) => {
         if (!e.detail.latLng) return;
         onMapClick?.([e.detail.latLng.lng, e.detail.latLng.lat]);
