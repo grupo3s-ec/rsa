@@ -47,17 +47,6 @@ const RouteMap = dynamic(() => import("@/components/map/RouteMap"), {
   ),
 });
 
-interface LocationPreset {
-  name: string;
-  coords: LngLat;
-}
-
-const LOCATION_PRESETS: LocationPreset[] = [
-  { name: "Quito Centro", coords: [-78.5125, -0.22] },
-  { name: "Cumbayá",      coords: [-78.428,  -0.205] },
-  { name: "Aeropuerto",   coords: [-78.3575, -0.1252] },
-  { name: "Quito Norte",  coords: [-78.485,  -0.11] },
-];
 
 const MAX_WAYPOINTS = 8;
 
@@ -517,55 +506,6 @@ function RoutePlannerContent() {
         )}
 
         <Separator />
-
-        {/* Lugares frecuentes */}
-        <div className="space-y-1">
-          <div className="flex items-center justify-between">
-            <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-              Lugares frecuentes
-            </p>
-            <div className="flex gap-3 pr-0.5 text-[10px] font-medium text-muted-foreground/60">
-              <span>Salida</span>
-              <span>Llegada</span>
-            </div>
-          </div>
-
-          {LOCATION_PRESETS.map((preset) => {
-            const lastIdx  = waypoints.length - 1;
-            const isOrigin = waypoints[0]?.[0] === preset.coords[0] && waypoints[0]?.[1] === preset.coords[1];
-            const isDest   = waypoints[lastIdx]?.[0] === preset.coords[0] && waypoints[lastIdx]?.[1] === preset.coords[1];
-
-            return (
-              <div key={preset.name} className="flex items-center gap-2">
-                <span className="min-w-0 flex-1 truncate text-xs font-medium">{preset.name}</span>
-                <button
-                  type="button"
-                  title={`Ir desde ${preset.name}`}
-                  onClick={() => setWaypointAt(0, preset.coords, preset.name)}
-                  className={cn(
-                    "flex size-7 shrink-0 items-center justify-center rounded-full border border-border/70 transition-colors hover:border-emerald-400 hover:bg-emerald-500/10",
-                    isOrigin ? "border-emerald-500 bg-emerald-500/10" : "bg-background/60",
-                  )}
-                  aria-label={`Salida: ${preset.name}`}
-                >
-                  <span className="size-2.5 rounded-full border-2 border-emerald-500" />
-                </button>
-                <button
-                  type="button"
-                  title={`Ir hasta ${preset.name}`}
-                  onClick={() => setWaypointAt(lastIdx, preset.coords, preset.name)}
-                  className={cn(
-                    "flex size-7 shrink-0 items-center justify-center rounded-full border border-border/70 transition-colors hover:border-slate-500 hover:bg-slate-500/10",
-                    isDest ? "border-slate-700 bg-slate-500/10 dark:border-slate-300" : "bg-background/60",
-                  )}
-                  aria-label={`Llegada: ${preset.name}`}
-                >
-                  <Flag className="size-3 text-slate-600 dark:text-slate-400" />
-                </button>
-              </div>
-            );
-          })}
-        </div>
 
         {/* Coordenadas exactas */}
         <details className="group rounded-xl border border-border/50 bg-muted/30">
