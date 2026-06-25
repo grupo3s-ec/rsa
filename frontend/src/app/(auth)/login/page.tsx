@@ -27,12 +27,25 @@ export default function LoginPage() {
   const [warming,    setWarming]    = useState(false);
 
   // Despierta el backend de Render (free tier duerme a los 15 min)
+  // Reintenta hasta 6 veces en caso de fallo inmediato (connection refused al despertar)
   useEffect(() => {
     let cancelled = false;
+
+    async function warmup() {
+      for (let i = 0; i < 6; i++) {
+        if (cancelled) return;
+        try {
+          await fetch(`${API_BASE}/ping`, { signal: AbortSignal.timeout(10_000) });
+          break;
+        } catch {
+          if (i < 5 && !cancelled) await new Promise(r => setTimeout(r, 8_000));
+        }
+      }
+      if (!cancelled) setWarming(false);
+    }
+
     setWarming(true);
-    fetch(`${API_BASE}/ping`, { method: 'GET', signal: AbortSignal.timeout(45_000) })
-      .catch(() => { /* silencioso — solo warmup */ })
-      .finally(() => { if (!cancelled) setWarming(false); });
+    void warmup();
     return () => { cancelled = true; };
   }, []);
 
@@ -44,32 +57,30 @@ export default function LoginPage() {
     e.preventDefault();
     setError(null);
     setSubmitting(true);
-    try {
-      await login(email, password, remember);
-      router.replace('/mapa');
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      if (isNetworkError(err)) {
-        // Reintenta una vez si fue error de red (ej. Render despertando)
-        try {
-          await new Promise(r => setTimeout(r, 8000));
-          await login(email, password, remember);
-          router.replace('/mapa');
-          return;
-        } catch (retryErr) {
-          const retryMsg = retryErr instanceof Error ? retryErr.message : String(retryErr);
-          setError(
-            isNetworkError(retryErr)
-              ? 'No se pudo conectar al servidor. Inténtalo en unos segundos.'
-              : retryMsg,
-          );
+
+    for (let attempt = 0; attempt <= 3; attempt++) {
+      try {
+        await login(email, password, remember);
+        router.replace('/mapa');
+        return;
+      } catch (err) {
+        if (isNetworkError(err) && attempt < 3) {
+          setError('El servidor está despertando. Reintentando…');
+          await new Promise(r => setTimeout(r, 12_000));
+          setError(null);
+          continue;
         }
-      } else {
-        setError(msg || 'Error al iniciar sesión.');
+        const msg = err instanceof Error ? err.message : String(err);
+        setError(
+          isNetworkError(err)
+            ? 'No se pudo conectar al servidor. Inténtalo en unos segundos.'
+            : msg || 'Error al iniciar sesión.',
+        );
+        break;
       }
-    } finally {
-      setSubmitting(false);
     }
+
+    setSubmitting(false);
   }
 
   if (loading) {
