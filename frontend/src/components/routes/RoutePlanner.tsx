@@ -16,7 +16,6 @@ import {
   Plus,
   Route as RouteIcon,
   Timer,
-  TriangleAlert,
   X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -25,7 +24,6 @@ import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 import { IncidentDetailDialog } from "@/components/incidents/IncidentDetailDialog";
 import { IncidentSidebar } from "@/components/incidents/IncidentSidebar";
-import { ReportDrawer } from "@/components/incidents/ReportDrawer";
 import { MapHelpDialog } from "@/components/map/MapHelpDialog";
 import { cn } from "@/lib/utils";
 import { GOOGLE_MAPS_API_KEY } from "@/lib/config";
@@ -107,9 +105,6 @@ function RoutePlannerContent() {
   const [pickingIndex,  setPickingIndex]  = useState<PickingIndex>(null);
   const [panelOpen,     setPanelOpen]     = useState(true);
   const [searched,      setSearched]      = useState(false);
-  const [reportOpen,    setReportOpen]    = useState(false);
-  const [reportPickActive, setReportPickActive] = useState(false);
-  const [pickedReportCoords, setPickedReportCoords] = useState<LngLat | null>(null);
   const [helpOpen,      setHelpOpen]      = useState(false);
   const [layoutMode,    setLayoutMode]    = useState<LayoutMode>("panel");
 
@@ -124,7 +119,7 @@ function RoutePlannerContent() {
     [incidents],
   );
 
-  const activePickMode = reportPickActive || pickingIndex !== null;
+  const activePickMode = pickingIndex !== null;
 
   // ─── Mutaciones de waypoints ──────────────────────────────────────────────
 
@@ -175,13 +170,6 @@ function RoutePlannerContent() {
 
   const handleMapClick = useCallback(
     async (lngLat: LngLat) => {
-      if (reportPickActive) {
-        setPickedReportCoords(lngLat);
-        setReportPickActive(false);
-        setPickingIndex(null);
-        setReportOpen(true);
-        return;
-      }
       if (pickingIndex !== null) {
         const idx = pickingIndex;
         setWaypoints((prev) => { const n = [...prev]; n[idx] = lngLat; return n; });
@@ -200,13 +188,12 @@ function RoutePlannerContent() {
         }
       }
     },
-    [pickingIndex, reportPickActive, geocoder],
+    [pickingIndex, geocoder],
   );
 
   const cancelPickMode = useCallback(() => {
     setPickingIndex(null);
-    if (reportPickActive) { setReportPickActive(false); setReportOpen(true); }
-  }, [reportPickActive]);
+  }, []);
 
   // ─── Calcular ruta con Google Directions ─────────────────────────────────
 
@@ -320,7 +307,7 @@ function RoutePlannerContent() {
 
     switch (event.key) {
       case "Enter":
-        if (canSearch && !reportOpen && !detailOpen && !helpOpen) {
+        if (canSearch && !detailOpen && !helpOpen) {
           event.preventDefault();
           void handleSearch();
         }
@@ -328,13 +315,8 @@ function RoutePlannerContent() {
       case "Escape":
         if (activePickMode) { event.preventDefault(); cancelPickMode(); }
         break;
-      case "r": case "R":
-        if (!activePickMode && !reportOpen && !detailOpen && !helpOpen) {
-          event.preventDefault(); setReportOpen(true);
-        }
-        break;
       case "a": case "A":
-        if (!reportOpen && !detailOpen && !helpOpen) {
+        if (!detailOpen && !helpOpen) {
           event.preventDefault(); setPanelOpen((o) => !o);
         }
         break;
@@ -366,13 +348,11 @@ function RoutePlannerContent() {
 
   // ─── JSX compartido ──────────────────────────────────────────────────────
 
-  const pickModeLabel = reportPickActive
-    ? "la ubicación del incidente"
-    : pickingIndex === 0
-      ? "el punto de salida"
-      : pickingIndex === waypoints.length - 1
-        ? "el destino"
-        : `la parada ${pickingIndex ?? ""}`;
+  const pickModeLabel = pickingIndex === 0
+    ? "el punto de salida"
+    : pickingIndex === waypoints.length - 1
+      ? "el destino"
+      : `la parada ${pickingIndex ?? ""}`;
 
   const pickModeIndicator = activePickMode ? (
     <div className="pointer-events-none absolute inset-x-0 top-4 z-20 flex justify-center">
@@ -391,18 +371,6 @@ function RoutePlannerContent() {
           <X className="size-3.5" />
         </button>
       </div>
-    </div>
-  ) : null;
-
-  const reportButton = !activePickMode ? (
-    <div className="absolute bottom-6 left-4 z-10">
-      <Button
-        aria-label="Reportar incidente"
-        onClick={() => setReportOpen(true)}
-        className="size-12 rounded-full shadow-xl"
-      >
-        <TriangleAlert className="size-5" />
-      </Button>
     </div>
   ) : null;
 
@@ -612,18 +580,6 @@ function RoutePlannerContent() {
 
   const sharedDialogs = (
     <>
-      <ReportDrawer
-        defaultCoords={origin ?? [-78.4678, -0.1807]}
-        open={reportOpen}
-        onOpenChange={setReportOpen}
-        onPickLocation={() => {
-          setReportOpen(false);
-          setReportPickActive(true);
-          setPickingIndex(0);
-        }}
-        pendingPickCoords={pickedReportCoords}
-        onCreated={() => { void handleSearch(); }}
-      />
       <IncidentDetailDialog
         incident={selectedIncident}
         open={detailOpen}
@@ -684,7 +640,6 @@ function RoutePlannerContent() {
           />
           {pickModeIndicator}
           {legendPill}
-          {reportButton}
         </div>
 
         {sharedDialogs}
@@ -779,7 +734,6 @@ function RoutePlannerContent() {
       </div>
 
       {legendPill}
-      {reportButton}
       {sharedDialogs}
     </div>
   );
