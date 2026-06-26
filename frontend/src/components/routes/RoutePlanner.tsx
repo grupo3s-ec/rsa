@@ -58,17 +58,22 @@ interface RouteInfo {
 
 // ─── Componente público (envuelve todo en APIProvider) ────────────────────────
 
-export function RoutePlanner() {
+interface RoutePlannerProps {
+  /** Si se provee, reemplaza el mapa en el slot derecho (para paneles de análisis). */
+  rightSlot?: React.ReactNode;
+}
+
+export function RoutePlanner({ rightSlot }: RoutePlannerProps = {}) {
   return (
     <APIProvider apiKey={GOOGLE_MAPS_API_KEY} libraries={["places", "routes", "geocoding"]}>
-      <RoutePlannerContent />
+      <RoutePlannerContent rightSlot={rightSlot} />
     </APIProvider>
   );
 }
 
 // ─── Contenido real (dentro del contexto de Google Maps) ─────────────────────
 
-function RoutePlannerContent() {
+function RoutePlannerContent({ rightSlot }: { rightSlot?: React.ReactNode }) {
   const routesLib    = useMapsLibrary("routes");
   const placesLib    = useMapsLibrary("places");
   const geocodingLib = useMapsLibrary("geocoding");
@@ -598,7 +603,7 @@ function RoutePlannerContent() {
   if (layoutMode === "panel") {
     return (
       <div className="flex h-full w-full overflow-hidden">
-        <aside className="flex w-[360px] shrink-0 flex-col border-r bg-background">
+        <aside className="flex w-1/2 min-w-[320px] max-w-[560px] shrink-0 flex-col border-r bg-background">
           <div className="flex items-center justify-between border-b px-4 py-3">
             <p className="text-sm font-semibold text-foreground">Planificador</p>
             <div className="flex items-center gap-1">
@@ -627,19 +632,23 @@ function RoutePlannerContent() {
           </div>
         </aside>
 
-        <div className={cn("relative flex-1 overflow-hidden", activePickMode && "cursor-crosshair")}>
-          <RouteMap
-            waypoints={waypoints}
-            routes={routes}
-            selectedRouteIdx={selectedRouteIdx}
-            incidents={incidents}
-            selectedIncidentId={selectedIncident?.id ?? null}
-            onSelectIncident={handleSelectFromMap}
-            onSelectRoute={handleSelectRoute}
-            onMapClick={(lngLat) => { void handleMapClick(lngLat); }}
-          />
-          {pickModeIndicator}
-          {legendPill}
+        <div className={cn("relative flex-1 overflow-hidden", !rightSlot && activePickMode && "cursor-crosshair")}>
+          {rightSlot ?? (
+            <>
+              <RouteMap
+                waypoints={waypoints}
+                routes={routes}
+                selectedRouteIdx={selectedRouteIdx}
+                incidents={incidents}
+                selectedIncidentId={selectedIncident?.id ?? null}
+                onSelectIncident={handleSelectFromMap}
+                onSelectRoute={handleSelectRoute}
+                onMapClick={(lngLat) => { void handleMapClick(lngLat); }}
+              />
+              {pickModeIndicator}
+              {legendPill}
+            </>
+          )}
         </div>
 
         {sharedDialogs}
