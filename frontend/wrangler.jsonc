@@ -3,7 +3,7 @@
   "name": "rsa-frontend",
   "main": ".open-next/worker.js",
   // Ajusta esta fecha si hay compatibilidad nueva disponible.
-  "compatibility_date": "2026-06-10",
+  "compatibility_date": "2026-06-25",
   "compatibility_flags": ["nodejs_compat"],
   "assets": {
     "directory": ".open-next/assets",
