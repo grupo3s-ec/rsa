@@ -85,7 +85,7 @@ interface RoutePlannerProps {
 
 export function RoutePlanner({ rightSlot, mapOverlay, onRouteCalculated }: RoutePlannerProps = {}) {
   return (
-    <APIProvider apiKey={GOOGLE_MAPS_API_KEY} libraries={["places", "routes", "geocoding"]}>
+    <APIProvider apiKey={GOOGLE_MAPS_API_KEY} libraries={["places", "geocoding"]}>
       <RoutePlannerContent rightSlot={rightSlot} mapOverlay={mapOverlay} onRouteCalculated={onRouteCalculated} />
     </APIProvider>
   );
@@ -102,7 +102,6 @@ function RoutePlannerContent({
   mapOverlay?: React.ReactNode;
   onRouteCalculated?: (hasRoute: boolean) => void;
 }) {
-  const routesLib    = useMapsLibrary("routes");
   const placesLib    = useMapsLibrary("places");
   const geocodingLib = useMapsLibrary("geocoding");
 
@@ -111,9 +110,10 @@ function RoutePlannerContent({
   const [geocoder, setGeocoder] =
     useState<google.maps.Geocoder | null>(null);
 
+  // DirectionsService es parte del core de Maps JS — no requiere librería adicional
   useEffect(() => {
-    if (routesLib)    setDirectionsService(new routesLib.DirectionsService());
-  }, [routesLib]);
+    setDirectionsService(new google.maps.DirectionsService());
+  }, []);
   useEffect(() => {
     if (geocodingLib) setGeocoder(new geocodingLib.Geocoder());
   }, [geocodingLib]);
