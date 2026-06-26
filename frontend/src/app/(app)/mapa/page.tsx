@@ -31,7 +31,8 @@ const RIGHT_SLOTS: Partial<Record<Tab, React.ReactNode>> = {
 };
 
 export default function MapaPage() {
-  const [activeTab, setActiveTab] = useState<Tab>('ruta');
+  const [activeTab,  setActiveTab]  = useState<Tab>('ruta');
+  const [hasRoute,   setHasRoute]   = useState(false);
 
   return (
     <div className="flex h-full flex-col overflow-hidden">
@@ -60,11 +61,12 @@ export default function MapaPage() {
         <RoutePlanner
           rightSlot={RIGHT_SLOTS[activeTab]}
           mapOverlay={activeTab === 'ruta' ? <IncidentFab /> : undefined}
+          onRouteCalculated={setHasRoute}
         />
       </div>
 
       {/* Timeline de ruta */}
-      <RouteTimeline />
+      <RouteTimeline hasRoute={hasRoute} />
     </div>
   );
 }

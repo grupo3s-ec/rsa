@@ -4,10 +4,26 @@ import dynamic from "next/dynamic";
 import { APIProvider, useMapsLibrary } from "@vis.gl/react-google-maps";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  DndContext,
+  closestCenter,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from "@dnd-kit/core";
+import {
+  SortableContext,
+  useSortable,
+  verticalListSortingStrategy,
+  arrayMove,
+} from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
+import {
   Bell,
   ChevronRight,
   Crosshair,
   Flag,
+  GripVertical,
   HelpCircle,
   LoaderCircle,
   Maximize2,
@@ -63,19 +79,29 @@ interface RoutePlannerProps {
   rightSlot?: React.ReactNode;
   /** Elemento que se superpone en la esquina del mapa (ej. FAB de reporte). */
   mapOverlay?: React.ReactNode;
+  /** Callback que se dispara cuando se calcula (o falla) una búsqueda de ruta. */
+  onRouteCalculated?: (hasRoute: boolean) => void;
 }
 
-export function RoutePlanner({ rightSlot, mapOverlay }: RoutePlannerProps = {}) {
+export function RoutePlanner({ rightSlot, mapOverlay, onRouteCalculated }: RoutePlannerProps = {}) {
   return (
     <APIProvider apiKey={GOOGLE_MAPS_API_KEY} libraries={["places", "routes", "geocoding"]}>
-      <RoutePlannerContent rightSlot={rightSlot} mapOverlay={mapOverlay} />
+      <RoutePlannerContent rightSlot={rightSlot} mapOverlay={mapOverlay} onRouteCalculated={onRouteCalculated} />
     </APIProvider>
   );
 }
 
 // ─── Contenido real (dentro del contexto de Google Maps) ─────────────────────
 
-function RoutePlannerContent({ rightSlot, mapOverlay }: { rightSlot?: React.ReactNode; mapOverlay?: React.ReactNode }) {
+function RoutePlannerContent({
+  rightSlot,
+  mapOverlay,
+  onRouteCalculated,
+}: {
+  rightSlot?: React.ReactNode;
+  mapOverlay?: React.ReactNode;
+  onRouteCalculated?: (hasRoute: boolean) => void;
+}) {
   const routesLib    = useMapsLibrary("routes");
   const placesLib    = useMapsLibrary("places");
   const geocodingLib = useMapsLibrary("geocoding");
@@ -94,6 +120,9 @@ function RoutePlannerContent({ rightSlot, mapOverlay }: { rightSlot?: React.Reac
 
   const [waypoints, setWaypoints] = useState<(LngLat | null)[]>([null, null]);
   const [addresses, setAddresses] = useState<(string | null)[]>([null, null]);
+  const [wpIds,     setWpIds]     = useState<string[]>(['wp-0', 'wp-1']);
+
+  const dndSensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }));
 
   /** Todas las rutas calculadas (índice 0 = primera / seleccionada). */
   const [routes,           setRoutes]           = useState<LngLat[][]>([]);
@@ -136,26 +165,36 @@ function RoutePlannerContent({ rightSlot, mapOverlay }: { rightSlot?: React.Reac
   }
 
   function addWaypoint() {
-    setWaypoints((prev) => {
-      if (prev.length >= MAX_WAYPOINTS) return prev;
-      const n = [...prev];
-      n.splice(prev.length - 1, 0, null);
-      return n;
-    });
-    setAddresses((prev) => {
-      const n = [...prev];
-      n.splice(prev.length - 1, 0, null);
-      return n;
-    });
+    if (waypoints.length >= MAX_WAYPOINTS) return;
+    const newId = `wp-${Date.now()}`;
+    setWaypoints((prev) => { const n = [...prev]; n.splice(n.length - 1, 0, null); return n; });
+    setAddresses((prev) => { const n = [...prev]; n.splice(n.length - 1, 0, null); return n; });
+    setWpIds((prev)     => { const n = [...prev]; n.splice(n.length - 1, 0, newId); return n; });
   }
 
   function removeWaypoint(idx: number) {
-    setWaypoints((prev) => {
-      if (prev.length <= 2) return prev;
-      return prev.filter((_, i) => i !== idx);
-    });
+    if (waypoints.length <= 2) return;
+    setWaypoints((prev) => prev.filter((_, i) => i !== idx));
     setAddresses((prev) => prev.filter((_, i) => i !== idx));
+    setWpIds((prev)     => prev.filter((_, i) => i !== idx));
     if (pickingIndex === idx) setPickingIndex(null);
+  }
+
+  function handleDragEnd(event: DragEndEvent) {
+    const { active, over } = event;
+    if (!over || active.id === over.id) return;
+    const oldIdx = wpIds.indexOf(active.id as string);
+    const newIdx = wpIds.indexOf(over.id  as string);
+    if (oldIdx === -1 || newIdx === -1) return;
+
+    const newWaypoints = arrayMove(waypoints, oldIdx, newIdx);
+    const newAddresses = arrayMove(addresses, oldIdx, newIdx);
+    setWaypoints(newWaypoints);
+    setAddresses(newAddresses);
+    setWpIds((prev) => arrayMove(prev, oldIdx, newIdx));
+    if (pickingIndex !== null) setPickingIndex(null);
+
+    if (searched) void handleSearchWith(newWaypoints);
   }
 
   function updateWaypointCoord(idx: number, axis: "lat" | "lng", rawValue: string) {
@@ -204,8 +243,8 @@ function RoutePlannerContent({ rightSlot, mapOverlay }: { rightSlot?: React.Reac
 
   // ─── Calcular ruta con Google Directions ─────────────────────────────────
 
-  async function handleSearch(): Promise<void> {
-    const defined = waypoints.filter((w): w is LngLat => w !== null);
+  async function handleSearchWith(wps: (LngLat | null)[]): Promise<void> {
+    const defined = wps.filter((w): w is LngLat => w !== null);
     if (defined.length < 2) return;
 
     setLoading(true);
@@ -245,7 +284,6 @@ function RoutePlannerContent({ rightSlot, mapOverlay }: { rightSlot?: React.Reac
 
     if (directionsResult.status === "fulfilled") {
       const allRoutes = directionsResult.value.routes;
-      // Convertir todas las rutas alternativas a LngLat[][]
       const converted: LngLat[][] = allRoutes.map((r) =>
         r.overview_path.map((p): LngLat => [p.lng(), p.lat()]),
       );
@@ -279,7 +317,12 @@ function RoutePlannerContent({ rightSlot, mapOverlay }: { rightSlot?: React.Reac
       setIncidents([]);
     }
 
+    onRouteCalculated?.(true);
     setLoading(false);
+  }
+
+  async function handleSearch(): Promise<void> {
+    return handleSearchWith(waypoints);
   }
 
   function handleSelectRoute(idx: number) {
@@ -405,68 +448,40 @@ function RoutePlannerContent({ rightSlot, mapOverlay }: { rightSlot?: React.Reac
     return (
       <div className={cn("space-y-3", compact && "text-sm")}>
 
-        {/* Lista de waypoints */}
-        <div className="space-y-1">
-          {waypoints.map((wp, idx) => {
-            const isFirst = idx === 0;
-            const isLast  = idx === waypoints.length - 1;
-            const label   = isFirst
-              ? "Punto de salida"
-              : isLast
-                ? "Destino"
-                : `Parada ${idx}`;
+        {/* Lista de waypoints con drag & drop */}
+        <DndContext sensors={dndSensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+          <SortableContext items={wpIds} strategy={verticalListSortingStrategy}>
+            <div className="space-y-1">
+              {waypoints.map((_, idx) => {
+                const isFirst = idx === 0;
+                const isLast  = idx === waypoints.length - 1;
+                const label   = isFirst
+                  ? "Punto de salida"
+                  : isLast
+                    ? "Destino"
+                    : `Parada ${idx}`;
 
-            return (
-              <div key={idx} className="flex items-stretch gap-2">
-                {/* Conector vertical */}
-                <div className="flex w-6 shrink-0 flex-col items-center">
-                  <div className={cn("flex size-6 shrink-0 items-center justify-center", isLast && "mt-0.5")}>
-                    {isFirst ? (
-                      <span className="flex size-4 items-center justify-center rounded-full border-2 border-emerald-500">
-                        <span className="size-1.5 rounded-full bg-emerald-500" />
-                      </span>
-                    ) : isLast ? (
-                      <span className="flex size-6 items-center justify-center rounded-full bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900">
-                        <Flag className="size-3" />
-                      </span>
-                    ) : (
-                      <span className="flex size-5 items-center justify-center rounded-full bg-primary text-[9px] font-bold text-white">
-                        {idx}
-                      </span>
-                    )}
-                  </div>
-                  {!isLast && <div className="w-px flex-1 bg-border/50 my-0.5" />}
-                </div>
-
-                {/* Input con Places Autocomplete */}
-                <div className="flex min-w-0 flex-1 flex-col pb-1">
-                  <div className="flex items-center gap-1 py-0.5">
-                    <WaypointInput
-                      idx={idx}
-                      placeholder={label}
-                      address={addresses[idx] ?? null}
-                      placesLib={placesLib}
-                      isPicking={pickingIndex === idx}
-                      onSelect={(lngLat, addr) => setWaypointAt(idx, lngLat, addr)}
-                      onPickOnMap={() => setPickingIndex((p) => p === idx ? null : idx)}
-                    />
-                    {!isFirst && !isLast && (
-                      <Button
-                        variant="ghost"
-                        size="xs"
-                        onClick={() => removeWaypoint(idx)}
-                        className="shrink-0 text-muted-foreground hover:text-destructive"
-                        aria-label="Eliminar parada"
-                      >
-                        <X className="size-3.5" />
-                      </Button>
-                    )}
-                  </div>
-                </div>
-              </div>
-            );
-          })}
-        </div>
+                return (
+                  <SortableWaypointRow
+                    key={wpIds[idx]}
+                    id={wpIds[idx]!}
+                    idx={idx}
+                    isFirst={isFirst}
+                    isLast={isLast}
+                    label={label}
+                    address={addresses[idx] ?? null}
+                    placesLib={placesLib}
+                    isPicking={pickingIndex === idx}
+                    onSelect={(lngLat, addr) => setWaypointAt(idx, lngLat, addr)}
+                    onPickOnMap={() => setPickingIndex((p) => p === idx ? null : idx)}
+                    onRemove={() => removeWaypoint(idx)}
+                    waypointCount={waypoints.length}
+                  />
+                );
+              })}
+            </div>
+          </SortableContext>
+        </DndContext>
 
         {/* Añadir parada */}
         {waypoints.length < MAX_WAYPOINTS && (
@@ -753,6 +768,95 @@ function RoutePlannerContent({ rightSlot, mapOverlay }: { rightSlot?: React.Reac
 }
 
 // ─── Sub-componentes ──────────────────────────────────────────────────────────
+
+interface SortableWaypointRowProps {
+  id: string;
+  idx: number;
+  isFirst: boolean;
+  isLast: boolean;
+  label: string;
+  address: string | null;
+  placesLib: google.maps.PlacesLibrary | null;
+  isPicking: boolean;
+  waypointCount: number;
+  onSelect: (lngLat: LngLat, address: string) => void;
+  onPickOnMap: () => void;
+  onRemove: () => void;
+}
+
+function SortableWaypointRow({
+  id, idx, isFirst, isLast, label, address, placesLib,
+  isPicking, waypointCount, onSelect, onPickOnMap, onRemove,
+}: SortableWaypointRowProps) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id });
+
+  const style: React.CSSProperties = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.5 : 1,
+    zIndex:  isDragging ? 10 : undefined,
+  };
+
+  const canDrag = waypointCount > 2;
+
+  return (
+    <div ref={setNodeRef} style={style} className="flex items-stretch gap-2">
+      {/* Grip + conector visual */}
+      <div className="flex w-6 shrink-0 flex-col items-center">
+        {canDrag ? (
+          <button
+            type="button"
+            {...attributes}
+            {...listeners}
+            className="flex size-6 shrink-0 cursor-grab items-center justify-center rounded text-muted-foreground/40 transition-colors hover:text-muted-foreground active:cursor-grabbing"
+            aria-label="Arrastrar para reordenar"
+          >
+            <GripVertical className="size-3.5" />
+          </button>
+        ) : (
+          <div className={cn("flex size-6 shrink-0 items-center justify-center", isLast && "mt-0.5")}>
+            {isFirst ? (
+              <span className="flex size-4 items-center justify-center rounded-full border-2 border-emerald-500">
+                <span className="size-1.5 rounded-full bg-emerald-500" />
+              </span>
+            ) : isLast ? (
+              <span className="flex size-6 items-center justify-center rounded-full bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900">
+                <Flag className="size-3" />
+              </span>
+            ) : null}
+          </div>
+        )}
+        {!isLast && <div className="w-px flex-1 bg-border/50 my-0.5" />}
+      </div>
+
+      {/* Input */}
+      <div className="flex min-w-0 flex-1 flex-col pb-1">
+        <div className="flex items-center gap-1 py-0.5">
+          <WaypointInput
+            idx={idx}
+            placeholder={label}
+            address={address}
+            placesLib={placesLib}
+            isPicking={isPicking}
+            onSelect={onSelect}
+            onPickOnMap={onPickOnMap}
+          />
+          {!isFirst && !isLast && (
+            <Button
+              variant="ghost"
+              size="xs"
+              onClick={onRemove}
+              className="shrink-0 text-muted-foreground hover:text-destructive"
+              aria-label="Eliminar parada"
+            >
+              <X className="size-3.5" />
+            </Button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
 
 interface WaypointInputProps {
   idx: number;
