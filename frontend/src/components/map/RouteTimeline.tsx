@@ -55,7 +55,7 @@ export function RouteTimeline() {
   return (
     <div className={cn(
       'shrink-0 border-t border-border/60 bg-background/95 backdrop-blur transition-all duration-300',
-      open ? 'h-[7.5rem]' : 'h-9',
+      open ? 'h-[25vh] min-h-[10rem]' : 'h-9',
     )}>
       {/* Encabezado del panel */}
       <div className="flex h-9 items-center gap-3 border-b border-border/40 px-4">
@@ -96,20 +96,20 @@ export function RouteTimeline() {
 
       {/* Timeline scrolleable */}
       {open && (
-        <div className="flex h-[calc(7.5rem-2.25rem)] items-center overflow-x-auto px-4 scrollbar-thin">
-          <div className="flex items-center gap-0 min-w-max py-2">
+        <div className="flex h-[calc(25vh-2.25rem)] min-h-[calc(10rem-2.25rem)] items-center overflow-x-auto px-4 scrollbar-thin">
+          <div className="flex items-center gap-0 min-w-max py-3">
             {DUMMY_POINTS.map((point, idx) => {
               const isLast = idx === DUMMY_POINTS.length - 1;
               return (
                 <div key={point.km} className="flex items-center">
                   {/* Nodo km */}
-                  <div className="group relative flex flex-col items-center gap-1">
+                  <div className="group relative flex flex-col items-center gap-1.5">
                     {/* Icono de lluvia si >40% */}
-                    <div className="flex h-4 items-center justify-center">
+                    <div className="flex h-5 items-center justify-center">
                       {point.rainPct > 40 ? (
-                        <CloudRain className="size-3 text-sky-400" />
+                        <CloudRain className="size-4 text-sky-400" />
                       ) : (
-                        <span className="text-[9px] text-muted-foreground/40">
+                        <span className="text-[10px] text-muted-foreground/50">
                           {point.rainPct}%
                         </span>
                       )}
@@ -117,25 +117,25 @@ export function RouteTimeline() {
 
                     {/* Círculo del km */}
                     <div className={cn(
-                      'flex size-7 shrink-0 items-center justify-center rounded-full border-2 text-[10px] font-bold text-white shadow-sm transition-transform hover:scale-110 cursor-default',
+                      'flex size-11 shrink-0 items-center justify-center rounded-full border-2 text-xs font-bold text-white shadow-md transition-transform hover:scale-110 cursor-default',
                       RISK_COLOR[point.risk],
                     )}>
                       {point.km}
                     </div>
 
                     {/* Indicador de incidentes */}
-                    <div className="flex h-3.5 items-center justify-center">
+                    <div className="flex h-5 items-center justify-center">
                       {point.incidents > 0 ? (
-                        <span className="flex size-3 items-center justify-center rounded-full bg-destructive text-[8px] font-bold text-white">
+                        <span className="flex size-4 items-center justify-center rounded-full bg-destructive text-[9px] font-bold text-white shadow-sm">
                           {point.incidents}
                         </span>
                       ) : (
-                        <span className="size-1 rounded-full bg-border/40" />
+                        <span className="size-1.5 rounded-full bg-border/40" />
                       )}
                     </div>
 
                     {/* Tooltip */}
-                    <div className="pointer-events-none absolute bottom-full mb-2 left-1/2 -translate-x-1/2 z-50 rounded-lg border bg-popover px-2 py-1 text-[10px] text-popover-foreground shadow-lg opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap">
+                    <div className="pointer-events-none absolute bottom-full mb-2 left-1/2 -translate-x-1/2 z-50 rounded-lg border bg-popover px-2.5 py-1.5 text-[11px] text-popover-foreground shadow-lg opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap">
                       <p className="font-semibold">km {point.km}</p>
                       <p>{point.incidents} incidente{point.incidents !== 1 ? 's' : ''}</p>
                       <p>Lluvia: {point.rainPct}%</p>
@@ -144,7 +144,7 @@ export function RouteTimeline() {
 
                   {/* Línea conectora */}
                   {!isLast && (
-                    <div className={cn('h-1 w-6 rounded-full', RISK_LINE[point.risk])} />
+                    <div className={cn('h-1.5 w-8 rounded-full', RISK_LINE[point.risk])} />
                   )}
                 </div>
               );

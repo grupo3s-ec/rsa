@@ -57,13 +57,14 @@ export default function MapaPage() {
 
       {/* Contenido: planner izquierda (50%) + mapa o panel derecha (50%) */}
       <div className="min-h-0 flex-1">
-        <RoutePlanner rightSlot={RIGHT_SLOTS[activeTab]} />
+        <RoutePlanner
+          rightSlot={RIGHT_SLOTS[activeTab]}
+          mapOverlay={activeTab === 'ruta' ? <IncidentFab /> : undefined}
+        />
       </div>
 
       {/* Timeline de ruta */}
       <RouteTimeline />
-
-      {activeTab === 'ruta' && <IncidentFab />}
     </div>
   );
 }

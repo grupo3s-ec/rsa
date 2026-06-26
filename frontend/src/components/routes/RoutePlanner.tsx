@@ -61,19 +61,21 @@ interface RouteInfo {
 interface RoutePlannerProps {
   /** Si se provee, reemplaza el mapa en el slot derecho (para paneles de análisis). */
   rightSlot?: React.ReactNode;
+  /** Elemento que se superpone en la esquina del mapa (ej. FAB de reporte). */
+  mapOverlay?: React.ReactNode;
 }
 
-export function RoutePlanner({ rightSlot }: RoutePlannerProps = {}) {
+export function RoutePlanner({ rightSlot, mapOverlay }: RoutePlannerProps = {}) {
   return (
     <APIProvider apiKey={GOOGLE_MAPS_API_KEY} libraries={["places", "routes", "geocoding"]}>
-      <RoutePlannerContent rightSlot={rightSlot} />
+      <RoutePlannerContent rightSlot={rightSlot} mapOverlay={mapOverlay} />
     </APIProvider>
   );
 }
 
 // ─── Contenido real (dentro del contexto de Google Maps) ─────────────────────
 
-function RoutePlannerContent({ rightSlot }: { rightSlot?: React.ReactNode }) {
+function RoutePlannerContent({ rightSlot, mapOverlay }: { rightSlot?: React.ReactNode; mapOverlay?: React.ReactNode }) {
   const routesLib    = useMapsLibrary("routes");
   const placesLib    = useMapsLibrary("places");
   const geocodingLib = useMapsLibrary("geocoding");
@@ -649,6 +651,7 @@ function RoutePlannerContent({ rightSlot }: { rightSlot?: React.ReactNode }) {
               {legendPill}
             </>
           )}
+          {mapOverlay}
         </div>
 
         {sharedDialogs}
@@ -743,6 +746,7 @@ function RoutePlannerContent({ rightSlot }: { rightSlot?: React.ReactNode }) {
       </div>
 
       {legendPill}
+      {mapOverlay}
       {sharedDialogs}
     </div>
   );
