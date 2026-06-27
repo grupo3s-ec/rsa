@@ -39,6 +39,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       className={cn('h-full antialiased', geistSans.variable, geistMono.variable, 'font-sans', inter.variable)}
     >
       <body className="flex min-h-full flex-col">
+        {/* Polyfill __name: @opennextjs/cloudflare inyecta este helper de esbuild en el script de next-themes, pero no existe en el browser */}
+        {/* eslint-disable-next-line @next/next/no-before-interactive-script-outside-document */}
+        <script dangerouslySetInnerHTML={{ __html: 'var __name=(f,n)=>{try{Object.defineProperty(f,"name",{value:n,configurable:!0})}catch(e){}return f};' }} />
         <ThemeProvider>
           <AuthProvider>
             {children}
