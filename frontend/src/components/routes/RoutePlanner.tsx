@@ -1,7 +1,7 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { APIProvider, useMapsLibrary } from "@vis.gl/react-google-maps";
+import { APIProvider, useApiIsLoaded, useMapsLibrary } from "@vis.gl/react-google-maps";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   DndContext,
@@ -104,16 +104,18 @@ function RoutePlannerContent({
 }) {
   const placesLib    = useMapsLibrary("places");
   const geocodingLib = useMapsLibrary("geocoding");
+  const apiIsLoaded  = useApiIsLoaded();
 
   const [directionsService, setDirectionsService] =
     useState<google.maps.DirectionsService | null>(null);
   const [geocoder, setGeocoder] =
     useState<google.maps.Geocoder | null>(null);
 
-  // DirectionsService es parte del core de Maps JS — no requiere librería adicional
+  // DirectionsService es parte del core de Maps JS — espera a que la API esté cargada
   useEffect(() => {
+    if (!apiIsLoaded) return;
     setDirectionsService(new google.maps.DirectionsService());
-  }, []);
+  }, [apiIsLoaded]);
   useEffect(() => {
     if (geocodingLib) setGeocoder(new geocodingLib.Geocoder());
   }, [geocodingLib]);
