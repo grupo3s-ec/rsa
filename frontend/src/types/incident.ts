@@ -49,6 +49,10 @@ export interface Incident {
   geotab_device_id: string | null;
   geotab_rule_id: string | null;
   altitude_meters: number | null;
+  probability: number | null;
+  impact: number | null;
+  risk_score: number | null;
+  risk_level: string | null;
   created_at: string | null;
   updated_at: string | null;
 }
@@ -119,4 +123,6 @@ export interface CreateIncidentPayload {
   video_url: string | null;
   occurred_at: string | null;
   status?: IncidentStatus;
+  probability?: number | null;
+  impact?: number | null;
 }

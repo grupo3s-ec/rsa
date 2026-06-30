@@ -15,6 +15,14 @@ import { severityMeta, typeMeta } from '@/lib/incidents/format';
 import { createIncident, uploadIncidentPhoto } from '@/services/incidents.service';
 import { INCIDENT_SEVERITIES, INCIDENT_TYPES } from '@/types/incident';
 import type { IncidentSeverity, IncidentType } from '@/types/incident';
+import {
+  getRiskLevel,
+  getRiskScore,
+  IMPACT_LABELS,
+  PROBABILITY_LABELS,
+  RISK_LEVEL_META,
+} from '@/lib/risk-matrix';
+import { cn } from '@/lib/utils';
 
 export interface IncidentCreateDialogProps {
   open: boolean;
@@ -31,7 +39,17 @@ export function IncidentCreateDialog({ open, onOpenChange, onCreated }: Incident
   const [locating,    setLocating]    = useState(false);
   const [saving,      setSaving]      = useState(false);
   const [photoFile,   setPhotoFile]   = useState<File | null>(null);
+  const [probability, setProbability] = useState<number | null>(null);
+  const [impact,      setImpact]      = useState<number | null>(null);
   const photoRef = useRef<HTMLInputElement>(null);
+
+  const riskLevel = probability !== null && impact !== null
+    ? getRiskLevel(probability, impact)
+    : null;
+  const riskScore = probability !== null && impact !== null
+    ? getRiskScore(probability, impact)
+    : null;
+  const riskMeta = riskLevel ? RISK_LEVEL_META[riskLevel] : null;
 
   function reset() {
     setType('accident');
@@ -40,6 +58,8 @@ export function IncidentCreateDialog({ open, onOpenChange, onCreated }: Incident
     setDescription('');
     setCoords(null);
     setPhotoFile(null);
+    setProbability(null);
+    setImpact(null);
   }
 
   function detectLocation() {
@@ -80,6 +100,8 @@ export function IncidentCreateDialog({ open, onOpenChange, onCreated }: Incident
         source:      'manual',
         video_url:   null,
         occurred_at: null,
+        probability: probability ?? null,
+        impact:      impact ?? null,
       });
 
       if (photoFile) {
@@ -160,6 +182,73 @@ export function IncidentCreateDialog({ open, onOpenChange, onCreated }: Incident
                   </button>
                 );
               })}
+            </div>
+          </div>
+
+          {/* Evaluación de riesgo ISO 31000 */}
+          <div className="space-y-3 rounded-xl border border-border/50 p-3.5">
+            <div className="flex items-center justify-between">
+              <p className="text-xs font-medium text-muted-foreground">Evaluación de riesgo (ISO 31000)</p>
+              {riskMeta && riskScore !== null && (
+                <span className={cn(
+                  'rounded-full px-2.5 py-0.5 text-[11px] font-semibold border',
+                  riskMeta.color, riskMeta.bg, riskMeta.border,
+                )}>
+                  {riskMeta.label} · {riskScore}
+                </span>
+              )}
+            </div>
+
+            {/* Probabilidad */}
+            <div className="space-y-1.5">
+              <p className="text-[11px] text-muted-foreground">Probabilidad</p>
+              <div className="flex gap-1.5">
+                {[1, 2, 3, 4, 5].map(v => (
+                  <button
+                    key={v}
+                    type="button"
+                    onClick={() => setProbability(probability === v ? null : v)}
+                    title={PROBABILITY_LABELS[v]}
+                    className={cn(
+                      'flex flex-1 flex-col items-center gap-0.5 rounded-lg py-2 text-[10px] font-medium transition-colors',
+                      probability === v
+                        ? 'bg-[var(--brand-navy)] text-white dark:bg-[var(--brand-cyan)] dark:text-black'
+                        : 'bg-muted/40 text-muted-foreground hover:bg-muted',
+                    )}
+                  >
+                    <span className="text-xs font-bold">{v}</span>
+                  </button>
+                ))}
+              </div>
+              {probability !== null && (
+                <p className="text-[10px] text-muted-foreground">{PROBABILITY_LABELS[probability]}</p>
+              )}
+            </div>
+
+            {/* Impacto */}
+            <div className="space-y-1.5">
+              <p className="text-[11px] text-muted-foreground">Impacto</p>
+              <div className="flex gap-1.5">
+                {[1, 2, 3, 4, 5].map(v => (
+                  <button
+                    key={v}
+                    type="button"
+                    onClick={() => setImpact(impact === v ? null : v)}
+                    title={IMPACT_LABELS[v]}
+                    className={cn(
+                      'flex flex-1 flex-col items-center gap-0.5 rounded-lg py-2 text-[10px] font-medium transition-colors',
+                      impact === v
+                        ? 'bg-[var(--brand-navy)] text-white dark:bg-[var(--brand-cyan)] dark:text-black'
+                        : 'bg-muted/40 text-muted-foreground hover:bg-muted',
+                    )}
+                  >
+                    <span className="text-xs font-bold">{v}</span>
+                  </button>
+                ))}
+              </div>
+              {impact !== null && (
+                <p className="text-[10px] text-muted-foreground">{IMPACT_LABELS[impact]}</p>
+              )}
             </div>
           </div>
 

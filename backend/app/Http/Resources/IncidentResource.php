@@ -31,6 +31,10 @@ class IncidentResource extends JsonResource
             'geotab_device_id'          => $this->geotab_device_id,
             'geotab_rule_id'            => $this->geotab_rule_id,
             'altitude_meters'           => $this->altitude_meters !== null ? (float) $this->altitude_meters : null,
+            'probability'               => $this->probability,
+            'impact'                    => $this->impact,
+            'risk_score'                => $this->risk_score,
+            'risk_level'                => $this->risk_level,
             'created_at'                => $this->created_at?->toISOString(),
             'updated_at'                => $this->updated_at?->toISOString(),
         ];

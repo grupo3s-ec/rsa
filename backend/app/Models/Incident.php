@@ -26,14 +26,21 @@ class Incident extends Model
         'geotab_device_id',
         'geotab_rule_id',
         'altitude_meters',
+        'probability',
+        'impact',
+        'risk_score',
+        'risk_level',
     ];
 
     protected function casts(): array
     {
         return [
-            'latitude' => 'decimal:7',
-            'longitude' => 'decimal:7',
+            'latitude'    => 'decimal:7',
+            'longitude'   => 'decimal:7',
             'occurred_at' => 'datetime',
+            'probability' => 'integer',
+            'impact'      => 'integer',
+            'risk_score'  => 'integer',
         ];
     }
 

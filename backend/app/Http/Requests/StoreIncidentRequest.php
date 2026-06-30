@@ -35,6 +35,8 @@ class StoreIncidentRequest extends FormRequest
             'occurred_at' => ['nullable', 'date'],
             'status'      => ['sometimes', 'string', Rule::in(['open', 'in_progress', 'resolved', 'archived'])],
             'note'        => ['sometimes', 'nullable', 'string', 'max:500'],
+            'probability' => ['sometimes', 'nullable', 'integer', 'between:1,5'],
+            'impact'      => ['sometimes', 'nullable', 'integer', 'between:1,5'],
         ];
     }
 }
