@@ -2,15 +2,11 @@
 
 import { ExternalLink, BarChart2 } from 'lucide-react';
 
-const ANT_POWERBI_URL =
-  'https://app.powerbi.com/view' +
-  '?pageName=ReportSectioncd99edcca07a5ff10551' +
-  '&r=eyJrIjoiNTFkOWRhYWQtYmMwMS00OWNmLTg4ZTctNjZjYTc1OTIyN2M0IiwidCI6IjNlZWNkMjZlLTlhNTUtNDg4MC04ODEyLWEzMGZjZGU3OGEyZCJ9';
+const ANT_URL = 'https://www.ant.gob.ec/estadisticas/';
 
 export function AntStatsPanel() {
   return (
     <div className="flex h-full flex-col bg-background">
-      {/* Encabezado */}
       <div className="shrink-0 flex items-center justify-between px-4 py-3 border-b border-border/40">
         <div>
           <h2 className="text-sm font-semibold text-foreground flex items-center gap-2">
@@ -22,7 +18,7 @@ export function AntStatsPanel() {
           </p>
         </div>
         <a
-          href={ANT_POWERBI_URL}
+          href={ANT_URL}
           target="_blank"
           rel="noopener noreferrer"
           className="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs text-muted-foreground border border-border/50 hover:text-foreground hover:border-border transition-colors"
@@ -32,10 +28,9 @@ export function AntStatsPanel() {
         </a>
       </div>
 
-      {/* iframe Power BI */}
       <div className="flex-1 min-h-0">
         <iframe
-          src={ANT_POWERBI_URL}
+          src={ANT_URL}
           title="Estadísticas de Siniestralidad Vial — ANT Ecuador"
           className="w-full h-full border-0"
           allowFullScreen
