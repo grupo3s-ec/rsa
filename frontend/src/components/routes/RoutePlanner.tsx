@@ -473,7 +473,17 @@ function RoutePlannerContent({
       return;
     }
 
-    const route = extractRouteFromGoogleMapsUrl(raw);
+    // URLs cortas (maps.app.goo.gl) necesitan expandirse server-side antes de parsear
+    let resolved = raw.trim();
+    if (resolved.includes('goo.gl')) {
+      try {
+        const res = await fetch(`/api/expand-url?url=${encodeURIComponent(resolved)}`);
+        const data = (await res.json()) as { url?: string };
+        if (data.url) resolved = data.url;
+      } catch { /* si falla, intentamos con la URL original */ }
+    }
+
+    const route = extractRouteFromGoogleMapsUrl(resolved);
     if (route && geocoder) {
       const [oRes, dRes] = await Promise.allSettled([
         resolveLocationText(route.origin, geocoder),
@@ -485,7 +495,7 @@ function RoutePlannerContent({
     }
 
     // Si tiene @lat,lng (enlace de lugar), usarlo como origen
-    const point = await resolveLocationText(raw, geocoder);
+    const point = await resolveLocationText(resolved, geocoder);
     if (point) setPasteOriginCoords(point);
   }
 
