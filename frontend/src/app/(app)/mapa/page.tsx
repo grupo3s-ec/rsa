@@ -51,7 +51,7 @@ export default function MapaPage() {
   const RIGHT_SLOTS: Partial<Record<Tab, React.ReactNode>> = {
     altimetria: <AltimetriaPanel routeCoords={routeData?.coords ?? null} />,
     calor:      <CalorPanel filterProvinces={routeData ? conflictProvinces : null} />,
-    clima:      <ClimaPanel />,
+    clima:      <ClimaPanel routeData={routeData} />,
     vias:       <ViaEstadoPanel />,
     ant:        <AntStatsPanel />,
   };
