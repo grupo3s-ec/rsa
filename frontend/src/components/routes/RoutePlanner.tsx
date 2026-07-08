@@ -249,6 +249,7 @@ function RoutePlannerContent({
   const [pasteRouteLinkRaw, setPasteRouteLinkRaw] = useState("");
   const [pasteOriginCoords, setPasteOriginCoords] = useState<{ lngLat: LngLat; address: string } | null>(null);
   const [pasteDestCoords,   setPasteDestCoords]   = useState<{ lngLat: LngLat; address: string } | null>(null);
+  const [pasteViaCoords,    setPasteViaCoords]    = useState<Array<{ lngLat: LngLat; address: string }>>([]);
 
   const origin      = waypoints[0];
   const destination = waypoints[waypoints.length - 1];
@@ -470,6 +471,7 @@ function RoutePlannerContent({
     if (!raw.trim()) {
       setPasteOriginCoords(null);
       setPasteDestCoords(null);
+      setPasteViaCoords([]);
       return;
     }
 
@@ -485,12 +487,17 @@ function RoutePlannerContent({
 
     const route = extractRouteFromGoogleMapsUrl(resolved);
     if (route && geocoder) {
-      const [oRes, dRes] = await Promise.allSettled([
-        resolveLocationText(route.origin, geocoder),
-        resolveLocationText(route.destination, geocoder),
-      ]);
-      if (oRes.status === "fulfilled" && oRes.value) setPasteOriginCoords(oRes.value);
-      if (dRes.status === "fulfilled" && dRes.value) setPasteDestCoords(dRes.value);
+      const allResults = await Promise.allSettled(
+        route.waypoints.map((wp) => resolveLocationText(wp, geocoder)),
+      );
+      const allCoords = allResults
+        .map((r) => (r.status === "fulfilled" ? r.value : null))
+        .filter((c): c is { lngLat: LngLat; address: string } => c !== null);
+      if (allCoords.length >= 2) {
+        setPasteOriginCoords(allCoords[0]!);
+        setPasteDestCoords(allCoords[allCoords.length - 1]!);
+        setPasteViaCoords(allCoords.slice(1, -1));
+      }
       return;
     }
 
@@ -501,11 +508,13 @@ function RoutePlannerContent({
 
   async function handleApplyPaste(): Promise<void> {
     if (!pasteOriginCoords || !pasteDestCoords) return;
-    const newWps: (LngLat | null)[]   = [pasteOriginCoords.lngLat, pasteDestCoords.lngLat];
-    const newAddrs: (string | null)[] = [pasteOriginCoords.address, pasteDestCoords.address];
+    const all = [pasteOriginCoords, ...pasteViaCoords, pasteDestCoords];
+    const newWps   = all.map((w) => w.lngLat);
+    const newAddrs = all.map((w) => w.address);
+    const newIds   = all.map((_, i) => `wp-p${i}`);
     setWaypoints(newWps);
     setAddresses(newAddrs);
-    setWpIds(["wp-p0", "wp-p1"]);
+    setWpIds(newIds);
     await handleSearchWith(newWps);
   }
 
@@ -666,12 +675,18 @@ function RoutePlannerContent({
               <div className="rounded-lg border border-emerald-500/30 bg-emerald-50/60 p-2.5 dark:bg-emerald-950/30">
                 <p className="mb-1.5 flex items-center gap-1.5 text-[11px] font-semibold text-emerald-700 dark:text-emerald-400">
                   <CircleCheck className="size-3.5" />
-                  Ruta reconocida
+                  Ruta reconocida{pasteViaCoords.length > 0 ? ` · ${pasteViaCoords.length} parada${pasteViaCoords.length > 1 ? "s" : ""}` : ""}
                 </p>
                 <p className="truncate text-[11px] text-muted-foreground">
                   <span className="font-medium text-foreground/70">Origen:</span>{" "}
                   {pasteOriginCoords.address}
                 </p>
+                {pasteViaCoords.map((via, i) => (
+                  <p key={i} className="truncate text-[11px] text-muted-foreground">
+                    <span className="font-medium text-foreground/70">Parada {i + 1}:</span>{" "}
+                    {via.address}
+                  </p>
+                ))}
                 <p className="truncate text-[11px] text-muted-foreground">
                   <span className="font-medium text-foreground/70">Destino:</span>{" "}
                   {pasteDestCoords.address}
@@ -1476,7 +1491,7 @@ async function resolveLocationText(
   return null;
 }
 
-function extractRouteFromGoogleMapsUrl(text: string): { origin: string; destination: string } | null {
+function extractRouteFromGoogleMapsUrl(text: string): { waypoints: string[] } | null {
   try {
     const url = new URL(text.trim());
     if (!url.hostname.includes("google")) return null;
@@ -1487,7 +1502,7 @@ function extractRouteFromGoogleMapsUrl(text: string): { origin: string; destinat
       .map((s) => decodeURIComponent(s.replace(/\+/g, " ")).trim())
       .filter((s) => s && !s.startsWith("@") && !s.startsWith("data="));
     if (segments.length < 2) return null;
-    return { origin: segments[0]!, destination: segments[segments.length - 1]! };
+    return { waypoints: segments };
   } catch {
     return null;
   }
