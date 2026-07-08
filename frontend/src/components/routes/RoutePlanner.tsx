@@ -19,18 +19,24 @@ import {
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import {
+  AlertTriangle,
   Bell,
+  ChevronDown,
   ChevronRight,
+  ChevronUp,
+  CircleCheck,
   Crosshair,
   Flag,
   GripVertical,
   HelpCircle,
+  Link2,
   LoaderCircle,
   Maximize2,
   Navigation,
   PanelLeft,
   Plus,
   Route as RouteIcon,
+  Search,
   Timer,
   X,
 } from "lucide-react";
@@ -50,7 +56,10 @@ import {
 } from "@/lib/mapbox/directions";
 import { filterIncidentsByRoute } from "@/lib/mapbox/route-filter";
 import { getRouteIncidents } from "@/services/routes.service";
+import { getIncidents } from "@/services/incidents.service";
+import { pointNearPolyline } from "@/lib/geo";
 import type { Incident } from "@/types/incident";
+import type { Ecu911Response, ViaGeoMarker } from "@/types/ecu911";
 
 const RouteMap = dynamic(() => import("@/components/map/RouteMap"), {
   ssr: false,
@@ -74,19 +83,30 @@ interface RouteInfo {
 
 // ─── Componente público (envuelve todo en APIProvider) ────────────────────────
 
+export interface RouteCalculatedData {
+  coords: LngLat[];
+  incidents: Incident[];
+  distanceMeters: number;
+  durationSeconds: number;
+}
+
 interface RoutePlannerProps {
   /** Si se provee, reemplaza el mapa en el slot derecho (para paneles de análisis). */
   rightSlot?: React.ReactNode;
   /** Elemento que se superpone en la esquina del mapa (ej. FAB de reporte). */
   mapOverlay?: React.ReactNode;
-  /** Callback que se dispara cuando se calcula (o falla) una búsqueda de ruta. */
-  onRouteCalculated?: (hasRoute: boolean) => void;
+  /** Callback con datos de la ruta calculada, o null si falló. */
+  onRouteCalculated?: (data: RouteCalculatedData | null) => void;
+  /** Provincias con vías ECU911 conflictivas respecto a la ruta activa. */
+  onViaConflictsChanged?: (provinces: string[]) => void;
+  /** Incrementar para forzar recarga de incidentes (ej. después de crear uno nuevo). */
+  incidentRefreshKey?: number;
 }
 
-export function RoutePlanner({ rightSlot, mapOverlay, onRouteCalculated }: RoutePlannerProps = {}) {
+export function RoutePlanner({ rightSlot, mapOverlay, onRouteCalculated, onViaConflictsChanged, incidentRefreshKey }: RoutePlannerProps = {}) {
   return (
-    <APIProvider apiKey={GOOGLE_MAPS_API_KEY} libraries={["places", "geocoding"]}>
-      <RoutePlannerContent rightSlot={rightSlot} mapOverlay={mapOverlay} onRouteCalculated={onRouteCalculated} />
+    <APIProvider apiKey={GOOGLE_MAPS_API_KEY} libraries={["geocoding"]}>
+      <RoutePlannerContent rightSlot={rightSlot} mapOverlay={mapOverlay} onRouteCalculated={onRouteCalculated} onViaConflictsChanged={onViaConflictsChanged} incidentRefreshKey={incidentRefreshKey} />
     </APIProvider>
   );
 }
@@ -97,12 +117,15 @@ function RoutePlannerContent({
   rightSlot,
   mapOverlay,
   onRouteCalculated,
+  onViaConflictsChanged,
+  incidentRefreshKey,
 }: {
   rightSlot?: React.ReactNode;
   mapOverlay?: React.ReactNode;
-  onRouteCalculated?: (hasRoute: boolean) => void;
+  onRouteCalculated?: (data: RouteCalculatedData | null) => void;
+  onViaConflictsChanged?: (provinces: string[]) => void;
+  incidentRefreshKey?: number;
 }) {
-  const placesLib    = useMapsLibrary("places");
   const geocodingLib = useMapsLibrary("geocoding");
   const apiIsLoaded  = useApiIsLoaded();
 
@@ -139,12 +162,93 @@ function RoutePlannerContent({
   const [selectedIncident, setSelectedIncident] = useState<Incident | null>(null);
   const [detailOpen,    setDetailOpen]    = useState(false);
   const [loading,       setLoading]       = useState(false);
+
+  // Carga inicial y recarga tras crear novedad (incidentRefreshKey incrementa)
+  useEffect(() => {
+    void (async () => {
+      try {
+        const { data } = await getIncidents();
+        // Solo mostrar incidentes activos en el mapa
+        setIncidents(data.filter((i) => i.status === 'open' || i.status === 'in_progress'));
+      } catch { /* falla silenciosamente — el usuario puede calcular ruta para reintentar */ }
+    })();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [incidentRefreshKey]);
   const [error,         setError]         = useState<string | null>(null);
   const [pickingIndex,  setPickingIndex]  = useState<PickingIndex>(null);
   const [panelOpen,     setPanelOpen]     = useState(true);
   const [searched,      setSearched]      = useState(false);
   const [helpOpen,      setHelpOpen]      = useState(false);
   const [layoutMode,    setLayoutMode]    = useState<LayoutMode>("panel");
+
+  // ─── ECU911 — vías con restricciones ────────────────────────────────────
+  const [viaMarkers,       setViaMarkers]       = useState<ViaGeoMarker[]>([]);
+  const [viaConflicts,     setViaConflicts]     = useState<ViaGeoMarker[]>([]);
+  const [selectedVia,      setSelectedVia]      = useState<ViaGeoMarker | null>(null);
+  const [conflictsOpen,    setConflictsOpen]    = useState(false);
+  const geocodedRef = useRef(false);
+
+  // Geocodifica las vías ECU911 una sola vez cuando el geocoder está disponible
+  useEffect(() => {
+    if (!geocoder || geocodedRef.current) return;
+    geocodedRef.current = true;
+
+    void (async () => {
+      try {
+        const res = await fetch('/api/ecu911');
+        if (!res.ok) return;
+        const json = (await res.json()) as Ecu911Response;
+        const vias = json.data ?? [];
+
+        const results: ViaGeoMarker[] = [];
+        // Geocodificar en lotes de 8 para no saturar la API
+        const BATCH = 8;
+        for (let i = 0; i < vias.length; i += BATCH) {
+          const batch = vias.slice(i, i + BATCH);
+          const settled = await Promise.allSettled(
+            batch.map(async (via) => {
+              // Tomar el primer segmento del nombre como referencia geográfica
+              const namePart = via.descripcion.split(' - ')[0]?.trim() ?? via.descripcion;
+              const geo = await geocoder.geocode({ address: `${namePart}, Ecuador`, region: 'ec' });
+              const loc = geo.results[0]?.geometry?.location;
+              if (!loc) return null;
+              return { via, location: { lat: loc.lat(), lng: loc.lng() } } satisfies ViaGeoMarker;
+            }),
+          );
+          for (const r of settled) {
+            if (r.status === 'fulfilled' && r.value) results.push(r.value);
+          }
+        }
+        setViaMarkers(results);
+      } catch {
+        // Si falla silenciosamente no bloquea el resto del planificador
+      }
+    })();
+  }, [geocoder]);
+
+  // Detectar conflictos con la ruta activa (umbral 25 km)
+  useEffect(() => {
+    const coords = routes[selectedRouteIdx];
+    if (!coords || coords.length === 0 || viaMarkers.length === 0) {
+      setViaConflicts([]);
+      onViaConflictsChanged?.([]);
+      return;
+    }
+    const polyline = coords.map(([lng, lat]) => ({ lat, lng }));
+    const conflicts = viaMarkers.filter((m) =>
+      pointNearPolyline(m.location, polyline, 25),
+    );
+    setViaConflicts(conflicts);
+    if (conflicts.length > 0) setConflictsOpen(true);
+    onViaConflictsChanged?.(conflicts.map((m) => m.via.Provincia.descripcion));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [routes, selectedRouteIdx, viaMarkers]);
+
+  // ─── Modo de dirección (tabs) ────────────────────────────────────────────
+  const [addressMode,       setAddressMode]       = useState<"url" | "buscar" | "coordenadas">("url");
+  const [pasteRouteLinkRaw, setPasteRouteLinkRaw] = useState("");
+  const [pasteOriginCoords, setPasteOriginCoords] = useState<{ lngLat: LngLat; address: string } | null>(null);
+  const [pasteDestCoords,   setPasteDestCoords]   = useState<{ lngLat: LngLat; address: string } | null>(null);
 
   const origin      = waypoints[0];
   const destination = waypoints[waypoints.length - 1];
@@ -283,6 +387,8 @@ function RoutePlannerContent({
     ]);
 
     let resolvedCoords: LngLat[] | null = null;
+    let resolvedDist = 0;
+    let resolvedDur  = 0;
 
     if (directionsResult.status === "fulfilled") {
       const allRoutes = directionsResult.value.routes;
@@ -295,9 +401,9 @@ function RoutePlannerContent({
       const primary = allRoutes[0];
       if (primary) {
         resolvedCoords = converted[0] ?? null;
-        const dist = primary.legs.reduce((s, l) => s + (l.distance?.value ?? 0), 0);
-        const dur  = primary.legs.reduce((s, l) => s + (l.duration?.value ?? 0), 0);
-        setRouteInfo({ distanceMeters: dist, durationSeconds: dur });
+        resolvedDist = primary.legs.reduce((s, l) => s + (l.distance?.value ?? 0), 0);
+        resolvedDur  = primary.legs.reduce((s, l) => s + (l.duration?.value ?? 0), 0);
+        setRouteInfo({ distanceMeters: resolvedDist, durationSeconds: resolvedDur });
       }
     } else {
       setRoutes([defined]);
@@ -305,9 +411,11 @@ function RoutePlannerContent({
       setRouteInfo(null);
     }
 
+    let callbackIncidents: Incident[] = [];
     if (incidentsResult.status === "fulfilled") {
       const raw      = incidentsResult.value.data;
       const filtered = resolvedCoords ? filterIncidentsByRoute(raw, resolvedCoords) : raw;
+      callbackIncidents = filtered;
       setIncidents(filtered);
     } else {
       const reason: unknown = incidentsResult.reason;
@@ -319,7 +427,16 @@ function RoutePlannerContent({
       setIncidents([]);
     }
 
-    onRouteCalculated?.(true);
+    if (resolvedCoords) {
+      onRouteCalculated?.({
+        coords: resolvedCoords,
+        incidents: callbackIncidents,
+        distanceMeters: resolvedDist,
+        durationSeconds: resolvedDur,
+      });
+    } else {
+      onRouteCalculated?.(null);
+    }
     setLoading(false);
   }
 
@@ -344,6 +461,42 @@ function RoutePlannerContent({
   function handleSelectFromList(incident: Incident) {
     if (selectedIncident?.id === incident.id) { setDetailOpen(true); return; }
     setSelectedIncident(incident);
+  }
+
+  // ─── Modo URL ────────────────────────────────────────────────────────────
+
+  async function handlePasteRouteLink(raw: string): Promise<void> {
+    setPasteRouteLinkRaw(raw);
+    if (!raw.trim()) {
+      setPasteOriginCoords(null);
+      setPasteDestCoords(null);
+      return;
+    }
+
+    const route = extractRouteFromGoogleMapsUrl(raw);
+    if (route && geocoder) {
+      const [oRes, dRes] = await Promise.allSettled([
+        resolveLocationText(route.origin, geocoder),
+        resolveLocationText(route.destination, geocoder),
+      ]);
+      if (oRes.status === "fulfilled" && oRes.value) setPasteOriginCoords(oRes.value);
+      if (dRes.status === "fulfilled" && dRes.value) setPasteDestCoords(dRes.value);
+      return;
+    }
+
+    // Si tiene @lat,lng (enlace de lugar), usarlo como origen
+    const point = await resolveLocationText(raw, geocoder);
+    if (point) setPasteOriginCoords(point);
+  }
+
+  async function handleApplyPaste(): Promise<void> {
+    if (!pasteOriginCoords || !pasteDestCoords) return;
+    const newWps: (LngLat | null)[]   = [pasteOriginCoords.lngLat, pasteDestCoords.lngLat];
+    const newAddrs: (string | null)[] = [pasteOriginCoords.address, pasteDestCoords.address];
+    setWaypoints(newWps);
+    setAddresses(newAddrs);
+    setWpIds(["wp-p0", "wp-p1"]);
+    await handleSearchWith(newWps);
   }
 
   // ─── Atajos de teclado ────────────────────────────────────────────────────
@@ -444,85 +597,152 @@ function RoutePlannerContent({
     </div>
   );
 
+  // ─── Tabs de modo (se renderizan fuera del formulario, bajo el header) ───────
+
+  const addressTabs = (
+    <div className="flex border-b border-border/50">
+      {(["url"] as const).map((tab) => {
+        const labels   = { url: "URL", buscar: "Buscar", coordenadas: "Coords" } as const;
+        const tabIcons = {
+          url:          <Link2      className="size-3" />,
+          buscar:       <Search     className="size-3" />,
+          coordenadas:  <Crosshair  className="size-3" />,
+        } as const;
+        return (
+          <button
+            key={tab}
+            type="button"
+            onClick={() => setAddressMode(tab)}
+            className={cn(
+              "flex flex-1 items-center justify-center gap-1.5 py-2.5 text-[11px] font-medium transition-colors",
+              addressMode === tab
+                ? "-mb-px border-b-2 border-[var(--brand-navy)] text-foreground dark:border-[var(--brand-cyan)]"
+                : "text-muted-foreground hover:text-foreground",
+            )}
+          >
+            {tabIcons[tab]}
+            {labels[tab]}
+          </button>
+        );
+      })}
+    </div>
+  );
+
   // ─── Formulario de planificación ──────────────────────────────────────────
 
   function renderPlannerForm(compact = false) {
+    const isUrlMode   = addressMode === "url";
+    const canPasteUrl = !!(pasteOriginCoords && pasteDestCoords) && !loading;
+    const btnDisabled = isUrlMode ? !canPasteUrl : !canSearch;
+    const btnAction   = isUrlMode ? handleApplyPaste : handleSearch;
+
     return (
       <div className={cn("space-y-3", compact && "text-sm")}>
 
-        {/* Lista de waypoints con drag & drop */}
-        <DndContext sensors={dndSensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
-          <SortableContext items={wpIds} strategy={verticalListSortingStrategy}>
-            <div className="space-y-1">
-              {waypoints.map((_, idx) => {
-                const isFirst = idx === 0;
-                const isLast  = idx === waypoints.length - 1;
-                const label   = isFirst
-                  ? "Punto de salida"
-                  : isLast
-                    ? "Destino"
-                    : `Parada ${idx}`;
-
-                return (
-                  <SortableWaypointRow
-                    key={wpIds[idx]}
-                    id={wpIds[idx]!}
-                    idx={idx}
-                    isFirst={isFirst}
-                    isLast={isLast}
-                    label={label}
-                    address={addresses[idx] ?? null}
-                    placesLib={placesLib}
-                    isPicking={pickingIndex === idx}
-                    onSelect={(lngLat, addr) => setWaypointAt(idx, lngLat, addr)}
-                    onPickOnMap={() => setPickingIndex((p) => p === idx ? null : idx)}
-                    onRemove={() => removeWaypoint(idx)}
-                    waypointCount={waypoints.length}
-                  />
-                );
-              })}
-            </div>
-          </SortableContext>
-        </DndContext>
-
-        {/* Añadir parada */}
-        {waypoints.length < MAX_WAYPOINTS && (
-          <button
-            type="button"
-            onClick={addWaypoint}
-            className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-xs text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground"
-          >
-            <Plus className="size-3.5" />
-            Añadir parada intermedia
-          </button>
+        {/* ── Tab URL ── */}
+        {addressMode === "url" && (
+          <div className="space-y-2.5">
+            <p className="text-[11px] leading-relaxed text-muted-foreground">
+              Pega el enlace de una ruta de Google Maps y se detectan automáticamente el origen y destino.
+            </p>
+            <input
+              type="text"
+              value={pasteRouteLinkRaw}
+              onChange={(e) => void handlePasteRouteLink(e.target.value)}
+              placeholder="https://maps.google.com/maps/dir/…"
+              className="w-full rounded-lg border border-transparent bg-muted/40 px-2.5 py-2 text-sm outline-none transition-[border,box-shadow] placeholder:text-muted-foreground/50 focus:border-ring focus:ring-2 focus:ring-ring/20"
+            />
+            {pasteOriginCoords && pasteDestCoords ? (
+              <div className="rounded-lg border border-emerald-500/30 bg-emerald-50/60 p-2.5 dark:bg-emerald-950/30">
+                <p className="mb-1.5 flex items-center gap-1.5 text-[11px] font-semibold text-emerald-700 dark:text-emerald-400">
+                  <CircleCheck className="size-3.5" />
+                  Ruta reconocida
+                </p>
+                <p className="truncate text-[11px] text-muted-foreground">
+                  <span className="font-medium text-foreground/70">Origen:</span>{" "}
+                  {pasteOriginCoords.address}
+                </p>
+                <p className="truncate text-[11px] text-muted-foreground">
+                  <span className="font-medium text-foreground/70">Destino:</span>{" "}
+                  {pasteDestCoords.address}
+                </p>
+              </div>
+            ) : pasteRouteLinkRaw.trim().length > 10 ? (
+              <p className="text-[11px] text-muted-foreground/70">
+                No se pudo reconocer la ruta. Verifica que sea un enlace de Google Maps.
+              </p>
+            ) : null}
+          </div>
         )}
 
-        <Separator />
+        {/* ── Tab Buscar ── */}
+        {addressMode === "buscar" && (
+          <>
+            <DndContext sensors={dndSensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+              <SortableContext items={wpIds} strategy={verticalListSortingStrategy}>
+                <div className="space-y-1">
+                  {waypoints.map((_, idx) => {
+                    const isFirst = idx === 0;
+                    const isLast  = idx === waypoints.length - 1;
+                    const label   = isFirst
+                      ? "Punto de salida"
+                      : isLast
+                        ? "Destino"
+                        : `Parada ${idx}`;
+                    return (
+                      <SortableWaypointRow
+                        key={wpIds[idx]}
+                        id={wpIds[idx]!}
+                        idx={idx}
+                        isFirst={isFirst}
+                        isLast={isLast}
+                        label={label}
+                        address={addresses[idx] ?? null}
+                        geocoder={geocoder}
+                        isPicking={pickingIndex === idx}
+                        onSelect={(lngLat, addr) => setWaypointAt(idx, lngLat, addr)}
+                        onPickOnMap={() => setPickingIndex((p) => p === idx ? null : idx)}
+                        onRemove={() => removeWaypoint(idx)}
+                        waypointCount={waypoints.length}
+                      />
+                    );
+                  })}
+                </div>
+              </SortableContext>
+            </DndContext>
+            {waypoints.length < MAX_WAYPOINTS && (
+              <button
+                type="button"
+                onClick={addWaypoint}
+                className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-xs text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground"
+              >
+                <Plus className="size-3.5" />
+                Añadir parada intermedia
+              </button>
+            )}
+          </>
+        )}
 
-        {/* Coordenadas exactas */}
-        <details className="group rounded-xl border border-border/50 bg-muted/30">
-          <summary className="flex cursor-pointer select-none items-center gap-1.5 px-3 py-2 text-xs text-muted-foreground transition-colors hover:text-foreground">
-            <ChevronRight className="size-3.5 transition-transform group-open:rotate-90" />
-            Coordenadas exactas
-          </summary>
-          <div className="space-y-2 px-3 pb-3">
+        {/* ── Tab Coordenadas ── */}
+        {addressMode === "coordenadas" && (
+          <div className="space-y-3">
             {waypoints.map((wp, idx) => {
               const isFirst = idx === 0;
               const isLast  = idx === waypoints.length - 1;
-              const label   = isFirst ? "Origen" : isLast ? "Destino" : `Parada ${idx}`;
+              const label   = isFirst ? "Punto de salida" : isLast ? "Destino" : `Parada ${idx}`;
               return (
                 <div key={idx}>
-                  <p className="mb-1 text-[11px] font-medium text-muted-foreground">{label}</p>
+                  <p className="mb-1.5 text-[11px] font-semibold text-muted-foreground">{label}</p>
                   <div className="grid grid-cols-2 gap-2">
                     <CoordinateInput
                       id={`wp-${idx}-lat`}
-                      label="Lat"
+                      label="Latitud"
                       value={wp ? wp[1] : 0}
                       onChange={(v) => updateWaypointCoord(idx, "lat", v)}
                     />
                     <CoordinateInput
                       id={`wp-${idx}-lng`}
-                      label="Lng"
+                      label="Longitud"
                       value={wp ? wp[0] : 0}
                       onChange={(v) => updateWaypointCoord(idx, "lng", v)}
                     />
@@ -530,10 +750,26 @@ function RoutePlannerContent({
                 </div>
               );
             })}
+            {waypoints.length < MAX_WAYPOINTS && (
+              <button
+                type="button"
+                onClick={addWaypoint}
+                className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-xs text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground"
+              >
+                <Plus className="size-3.5" />
+                Añadir parada intermedia
+              </button>
+            )}
           </div>
-        </details>
+        )}
 
-        <Button className="w-full" onClick={() => void handleSearch()} disabled={!canSearch}>
+        <Separator />
+
+        <Button
+          className="w-full"
+          onClick={() => void btnAction()}
+          disabled={btnDisabled}
+        >
           {loading ? (
             <LoaderCircle data-icon="inline-start" className="animate-spin" />
           ) : (
@@ -546,7 +782,6 @@ function RoutePlannerContent({
           <>
             <Separator className="my-1" />
 
-            {/* Selector de rutas alternativas */}
             {routes.length > 1 ? (
               <div className="flex gap-1">
                 {routes.map((_, idx) => (
@@ -596,6 +831,59 @@ function RoutePlannerContent({
             </div>
           </>
         ) : null}
+
+        {/* ── Conflictos con vías ECU911 ── */}
+        {viaConflicts.length > 0 ? (
+          <div className="overflow-hidden rounded-lg border border-orange-500/40 bg-orange-50/60 dark:bg-orange-950/30">
+            <button
+              type="button"
+              onClick={() => setConflictsOpen((o) => !o)}
+              className="flex w-full items-center gap-2 px-3 py-2 text-left"
+            >
+              <AlertTriangle className="size-4 shrink-0 text-orange-500" />
+              <span className="flex-1 text-xs font-semibold text-orange-700 dark:text-orange-400">
+                {viaConflicts.length} vía{viaConflicts.length !== 1 ? "s" : ""} con restricción en la ruta
+              </span>
+              {conflictsOpen ? (
+                <ChevronUp className="size-3.5 text-orange-500" />
+              ) : (
+                <ChevronDown className="size-3.5 text-orange-500" />
+              )}
+            </button>
+            {conflictsOpen ? (
+              <ul className="max-h-48 divide-y divide-orange-500/10 overflow-y-auto border-t border-orange-500/20">
+                {viaConflicts.map((m) => {
+                  const dotColor =
+                    m.via.estado_actual_id === 595
+                      ? "#dc2626"
+                      : m.via.estado_actual_id === 592
+                        ? "#f97316"
+                        : "#f59e0b";
+                  return (
+                    <li
+                      key={m.via.id}
+                      className="flex cursor-pointer items-start gap-2 px-3 py-2 hover:bg-orange-50 dark:hover:bg-orange-950/50"
+                      onClick={() => setSelectedVia(m)}
+                    >
+                      <span
+                        className="mt-1.5 size-2 shrink-0 rotate-45"
+                        style={{ backgroundColor: dotColor }}
+                      />
+                      <div className="min-w-0">
+                        <p className="truncate text-[11px] font-medium text-foreground">
+                          {m.via.descripcion}
+                        </p>
+                        <p className="text-[10px] text-muted-foreground">
+                          {m.via.EstadoActual.nombre} · {m.via.Provincia.descripcion}
+                        </p>
+                      </div>
+                    </li>
+                  );
+                })}
+              </ul>
+            ) : null}
+          </div>
+        ) : null}
       </div>
     );
   }
@@ -623,7 +911,7 @@ function RoutePlannerContent({
     return (
       <div className="flex h-full w-full overflow-hidden">
         <aside className="flex w-1/2 min-w-[320px] max-w-[560px] shrink-0 flex-col border-r bg-background">
-          <div className="flex items-center justify-between border-b px-4 py-3">
+          <div className="flex items-center justify-between px-4 py-3">
             <p className="text-sm font-semibold text-foreground">Planificador</p>
             <div className="flex items-center gap-1">
               <Button variant="ghost" size="icon" aria-label="Abrir guía" onClick={() => setHelpOpen(true)}>
@@ -634,6 +922,8 @@ function RoutePlannerContent({
               </Button>
             </div>
           </div>
+
+          {addressTabs}
 
           <div className="overflow-y-auto border-b p-4">
             {renderPlannerForm(true)}
@@ -663,9 +953,65 @@ function RoutePlannerContent({
                 onSelectIncident={handleSelectFromMap}
                 onSelectRoute={handleSelectRoute}
                 onMapClick={(lngLat) => { void handleMapClick(lngLat); }}
+                viaMarkers={viaMarkers}
+                onSelectVia={(m) => setSelectedVia(m)}
+                selectedViaId={selectedVia?.via.id ?? null}
               />
               {pickModeIndicator}
               {legendPill}
+              {/* Popup de vía ECU911 seleccionada */}
+              {selectedVia ? (
+                <div className="absolute bottom-16 left-1/2 z-20 w-72 -translate-x-1/2 rounded-xl border border-border/60 bg-background/90 shadow-xl backdrop-blur">
+                  <div className="flex items-start justify-between p-3">
+                    <div className="min-w-0 flex-1">
+                      <p className="text-xs font-semibold leading-snug text-foreground">
+                        {selectedVia.via.descripcion}
+                      </p>
+                      <p className="mt-0.5 text-[11px] text-muted-foreground">
+                        {selectedVia.via.Provincia.descripcion} · {selectedVia.via.Canton.descripcion}
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setSelectedVia(null)}
+                      className="ml-2 shrink-0 rounded-md p-0.5 text-muted-foreground hover:text-foreground"
+                    >
+                      <X className="size-3.5" />
+                    </button>
+                  </div>
+                  <div className="border-t border-border/40 px-3 py-2.5">
+                    <span
+                      className={cn(
+                        "inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold",
+                        selectedVia.via.estado_actual_id === 595
+                          ? "bg-red-100 text-red-700 dark:bg-red-950/40 dark:text-red-400"
+                          : selectedVia.via.estado_actual_id === 592
+                            ? "bg-orange-100 text-orange-700 dark:bg-orange-950/40 dark:text-orange-400"
+                            : "bg-amber-100 text-amber-700 dark:bg-amber-950/40 dark:text-amber-400",
+                      )}
+                    >
+                      {selectedVia.via.EstadoActual.nombre}
+                    </span>
+                    {selectedVia.via.observaciones ? (
+                      <p className="mt-2 text-[11px] leading-relaxed text-muted-foreground">
+                        {selectedVia.via.observaciones}
+                      </p>
+                    ) : null}
+                    {selectedVia.via.DetalleViaAlterna.length > 0 ? (
+                      <div className="mt-2">
+                        <p className="mb-1 text-[10px] font-semibold text-muted-foreground">
+                          Vías alternas:
+                        </p>
+                        {selectedVia.via.DetalleViaAlterna.map((alt) => (
+                          <p key={alt.id} className="text-[11px] text-foreground">
+                            {alt.Via.descripcion}
+                          </p>
+                        ))}
+                      </div>
+                    ) : null}
+                  </div>
+                </div>
+              ) : null}
             </>
           )}
           {mapOverlay}
@@ -690,13 +1036,16 @@ function RoutePlannerContent({
           onSelectIncident={handleSelectFromMap}
           onSelectRoute={handleSelectRoute}
           onMapClick={(lngLat) => { void handleMapClick(lngLat); }}
+          viaMarkers={viaMarkers}
+          onSelectVia={(m) => setSelectedVia(m)}
+          selectedViaId={selectedVia?.via.id ?? null}
         />
       </div>
 
       {pickModeIndicator}
 
       <aside className="absolute left-4 top-4 z-10 w-[min(20rem,calc(100vw-2rem))] rounded-2xl border border-border/60 bg-background/80 shadow-lg backdrop-blur">
-        <div className="flex items-center justify-between border-b border-border/50 px-4 py-2.5">
+        <div className="flex items-center justify-between px-4 py-2.5">
           <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Planificador</p>
           <Button
             variant="ghost"
@@ -708,6 +1057,7 @@ function RoutePlannerContent({
             <PanelLeft className="size-4" />
           </Button>
         </div>
+        {addressTabs}
         <div className="p-4">{renderPlannerForm()}</div>
       </aside>
 
@@ -763,6 +1113,59 @@ function RoutePlannerContent({
       </div>
 
       {legendPill}
+
+      {/* Popup de vía ECU911 seleccionada (modo pantalla completa) */}
+      {selectedVia ? (
+        <div className="absolute bottom-16 left-1/2 z-20 w-80 -translate-x-1/2 rounded-xl border border-border/60 bg-background/90 shadow-xl backdrop-blur">
+          <div className="flex items-start justify-between p-3">
+            <div className="min-w-0 flex-1">
+              <p className="text-xs font-semibold leading-snug text-foreground">
+                {selectedVia.via.descripcion}
+              </p>
+              <p className="mt-0.5 text-[11px] text-muted-foreground">
+                {selectedVia.via.Provincia.descripcion} · {selectedVia.via.Canton.descripcion}
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setSelectedVia(null)}
+              className="ml-2 shrink-0 rounded-md p-0.5 text-muted-foreground hover:text-foreground"
+            >
+              <X className="size-3.5" />
+            </button>
+          </div>
+          <div className="border-t border-border/40 px-3 py-2.5">
+            <span
+              className={cn(
+                "inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold",
+                selectedVia.via.estado_actual_id === 595
+                  ? "bg-red-100 text-red-700 dark:bg-red-950/40 dark:text-red-400"
+                  : selectedVia.via.estado_actual_id === 592
+                    ? "bg-orange-100 text-orange-700 dark:bg-orange-950/40 dark:text-orange-400"
+                    : "bg-amber-100 text-amber-700 dark:bg-amber-950/40 dark:text-amber-400",
+              )}
+            >
+              {selectedVia.via.EstadoActual.nombre}
+            </span>
+            {selectedVia.via.observaciones ? (
+              <p className="mt-2 text-[11px] leading-relaxed text-muted-foreground">
+                {selectedVia.via.observaciones}
+              </p>
+            ) : null}
+            {selectedVia.via.DetalleViaAlterna.length > 0 ? (
+              <div className="mt-2">
+                <p className="mb-1 text-[10px] font-semibold text-muted-foreground">Vías alternas:</p>
+                {selectedVia.via.DetalleViaAlterna.map((alt) => (
+                  <p key={alt.id} className="text-[11px] text-foreground">
+                    {alt.Via.descripcion}
+                  </p>
+                ))}
+              </div>
+            ) : null}
+          </div>
+        </div>
+      ) : null}
+
       {mapOverlay}
       {sharedDialogs}
     </div>
@@ -778,7 +1181,7 @@ interface SortableWaypointRowProps {
   isLast: boolean;
   label: string;
   address: string | null;
-  placesLib: google.maps.PlacesLibrary | null;
+  geocoder: google.maps.Geocoder | null;
   isPicking: boolean;
   waypointCount: number;
   onSelect: (lngLat: LngLat, address: string) => void;
@@ -787,7 +1190,7 @@ interface SortableWaypointRowProps {
 }
 
 function SortableWaypointRow({
-  id, idx, isFirst, isLast, label, address, placesLib,
+  id, idx, isFirst, isLast, label, address, geocoder,
   isPicking, waypointCount, onSelect, onPickOnMap, onRemove,
 }: SortableWaypointRowProps) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id });
@@ -838,7 +1241,7 @@ function SortableWaypointRow({
             idx={idx}
             placeholder={label}
             address={address}
-            placesLib={placesLib}
+            geocoder={geocoder}
             isPicking={isPicking}
             onSelect={onSelect}
             onPickOnMap={onPickOnMap}
@@ -860,11 +1263,16 @@ function SortableWaypointRow({
   );
 }
 
+interface GeoSuggestion {
+  address: string;
+  lngLat: LngLat;
+}
+
 interface WaypointInputProps {
   idx: number;
   placeholder: string;
   address: string | null;
-  placesLib: google.maps.PlacesLibrary | null;
+  geocoder: google.maps.Geocoder | null;
   isPicking: boolean;
   onSelect: (lngLat: LngLat, address: string) => void;
   onPickOnMap: () => void;
@@ -873,54 +1281,107 @@ interface WaypointInputProps {
 function WaypointInput({
   placeholder,
   address,
-  placesLib,
+  geocoder,
   isPicking,
   onSelect,
   onPickOnMap,
 }: WaypointInputProps) {
-  const inputRef = useRef<HTMLInputElement>(null);
-  const acRef    = useRef<google.maps.places.Autocomplete | null>(null);
+  const [value,       setValue]       = useState(address ?? "");
+  const [suggestions, setSuggestions] = useState<GeoSuggestion[]>([]);
+  const [searching,   setSearching]   = useState(false);
+  const debounceRef  = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
 
-  // Inicializar Autocomplete cuando la librería esté lista
+  // Sincronizar cuando la dirección cambia externamente (pick en mapa, URL, etc.)
   useEffect(() => {
-    if (!placesLib || !inputRef.current || acRef.current) return;
-
-    const ac = new placesLib.Autocomplete(inputRef.current, {
-      componentRestrictions: { country: "ec" },
-      fields: ["geometry.location", "formatted_address", "name"],
-    });
-    acRef.current = ac;
-
-    const listener = ac.addListener("place_changed", () => {
-      const place = ac.getPlace();
-      const loc   = place?.geometry?.location;
-      if (!loc) return;
-      const addr = place.formatted_address ?? place.name ?? "";
-      onSelect([loc.lng(), loc.lat()], addr);
-    });
-
-    return () => {
-      window.google?.maps.event.removeListener(listener);
-    };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [placesLib]);
-
-  // Sincronizar el valor del input cuando cambia la dirección externamente
-  useEffect(() => {
-    if (!inputRef.current) return;
-    const isFocused = document.activeElement === inputRef.current;
-    if (!isFocused) inputRef.current.value = address ?? "";
+    setValue(address ?? "");
+    setSuggestions([]);
   }, [address]);
 
+  // Cerrar dropdown al hacer clic fuera
+  useEffect(() => {
+    function onPointerDown(e: PointerEvent) {
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+        setSuggestions([]);
+      }
+    }
+    document.addEventListener("pointerdown", onPointerDown);
+    return () => document.removeEventListener("pointerdown", onPointerDown);
+  }, []);
+
+  function handleChange(text: string) {
+    setValue(text);
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+
+    if (!text.trim() || !geocoder) {
+      setSuggestions([]);
+      return;
+    }
+
+    debounceRef.current = setTimeout(() => {
+      setSearching(true);
+      void geocoder
+        .geocode({ address: text, region: "ec" })
+        .then((res) => {
+          setSuggestions(
+            res.results.slice(0, 5).map((r) => ({
+              address: r.formatted_address,
+              lngLat: [r.geometry.location.lng(), r.geometry.location.lat()] satisfies LngLat,
+            })),
+          );
+        })
+        .catch(() => setSuggestions([]))
+        .finally(() => setSearching(false));
+    }, 500);
+  }
+
+  function handleSuggestionClick(s: GeoSuggestion) {
+    setValue(s.address);
+    setSuggestions([]);
+    onSelect(s.lngLat, s.address);
+  }
+
+  function handleKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
+    if (e.key === "Escape") { setSuggestions([]); return; }
+    if (e.key === "Enter" && suggestions.length > 0) {
+      e.preventDefault();
+      handleSuggestionClick(suggestions[0]!);
+    }
+  }
+
   return (
-    <div className="flex min-w-0 flex-1 items-center gap-1">
-      <input
-        ref={inputRef}
-        type="text"
-        placeholder={placeholder}
-        defaultValue={address ?? ""}
-        className="min-w-0 flex-1 rounded-lg border border-transparent bg-muted/40 px-2.5 py-1.5 text-sm outline-none transition-[border,box-shadow] placeholder:text-muted-foreground/60 focus:border-ring focus:ring-2 focus:ring-ring/20"
-      />
+    <div ref={containerRef} className="relative flex min-w-0 flex-1 items-center gap-1">
+      <div className="relative min-w-0 flex-1">
+        <input
+          type="text"
+          value={value}
+          onChange={(e) => handleChange(e.target.value)}
+          onKeyDown={handleKeyDown}
+          placeholder={placeholder}
+          autoComplete="off"
+          className="w-full rounded-lg border border-transparent bg-muted/40 px-2.5 py-1.5 pr-7 text-sm outline-none transition-[border,box-shadow] placeholder:text-muted-foreground/60 focus:border-ring focus:ring-2 focus:ring-ring/20"
+        />
+        {searching && (
+          <LoaderCircle className="pointer-events-none absolute right-2 top-1/2 size-3.5 -translate-y-1/2 animate-spin text-muted-foreground" />
+        )}
+
+        {suggestions.length > 0 && (
+          <ul className="absolute left-0 top-full z-50 mt-1 w-full overflow-hidden rounded-lg border border-border/60 bg-popover shadow-lg">
+            {suggestions.map((s, i) => (
+              <li key={i}>
+                <button
+                  type="button"
+                  className="w-full px-3 py-2 text-left text-xs text-foreground hover:bg-muted/60 focus:bg-muted/60 focus:outline-none"
+                  onPointerDown={(e) => { e.preventDefault(); handleSuggestionClick(s); }}
+                >
+                  {s.address}
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+
       <Button
         variant={isPicking ? "secondary" : "ghost"}
         size="xs"
@@ -958,4 +1419,66 @@ function CoordinateInput({ id, label, value, onChange }: CoordinateInputProps) {
       />
     </div>
   );
+}
+
+// ─── Funciones auxiliares para resolución de ubicaciones ─────────────────────
+
+async function resolveLocationText(
+  text: string,
+  geocoder: google.maps.Geocoder | null,
+): Promise<{ lngLat: LngLat; address: string } | null> {
+  const t = text.trim();
+  if (!t) return null;
+
+  // Coordenadas: lat, lng (con o sin espacio)
+  const coordMatch = t.match(/^(-?\d+(?:\.\d+)?)[,\s]+(-?\d+(?:\.\d+)?)$/);
+  if (coordMatch) {
+    const lat = parseFloat(coordMatch[1]!);
+    const lng = parseFloat(coordMatch[2]!);
+    if (lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180) {
+      return { lngLat: [lng, lat], address: `${lat.toFixed(5)}, ${lng.toFixed(5)}` };
+    }
+  }
+
+  // URL de Google Maps con @lat,lng en el path (enlace de lugar)
+  try {
+    const url = new URL(t);
+    if (url.hostname.includes("google") || url.hostname.includes("goo.gl")) {
+      const m = url.pathname.match(/@(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)/);
+      if (m) {
+        const lat = parseFloat(m[1]!);
+        const lng = parseFloat(m[2]!);
+        return { lngLat: [lng, lat], address: `${lat.toFixed(5)}, ${lng.toFixed(5)}` };
+      }
+    }
+  } catch { /* no es una URL válida */ }
+
+  // Geocodificar como dirección de texto
+  if (geocoder) {
+    try {
+      const res = await geocoder.geocode({ address: t, region: "ec" });
+      const loc  = res.results[0]?.geometry?.location;
+      const addr = res.results[0]?.formatted_address ?? t;
+      if (loc) return { lngLat: [loc.lng(), loc.lat()], address: addr };
+    } catch { /* geocoding falló */ }
+  }
+
+  return null;
+}
+
+function extractRouteFromGoogleMapsUrl(text: string): { origin: string; destination: string } | null {
+  try {
+    const url = new URL(text.trim());
+    if (!url.hostname.includes("google")) return null;
+    const m = url.pathname.match(/\/maps\/dir\/([^?#]+)/);
+    if (!m) return null;
+    const segments = m[1]!
+      .split("/")
+      .map((s) => decodeURIComponent(s.replace(/\+/g, " ")).trim())
+      .filter((s) => s && !s.startsWith("@") && !s.startsWith("data="));
+    if (segments.length < 2) return null;
+    return { origin: segments[0]!, destination: segments[segments.length - 1]! };
+  } catch {
+    return null;
+  }
 }

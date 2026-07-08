@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useCallback, useState } from 'react';
 import { Map, Mountain, Flame, CloudRain, Route, BarChart2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { IncidentFab } from '@/components/incidents/IncidentFab';
@@ -10,6 +10,7 @@ import { CalorPanel } from '@/components/analysis/CalorPanel';
 import { ClimaPanel } from '@/components/analysis/ClimaPanel';
 import { ViaEstadoPanel } from '@/components/analysis/ViaEstadoPanel';
 import { AntStatsPanel } from '@/components/analysis/AntStatsPanel';
+import type { RouteCalculatedData } from '@/components/routes/RoutePlanner';
 import dynamic from 'next/dynamic';
 
 const RoutePlanner = dynamic(
@@ -28,17 +29,32 @@ const TABS: { id: Tab; label: string; icon: React.ElementType }[] = [
   { id: 'ant',        label: 'ANT',        icon: BarChart2 },
 ];
 
-const RIGHT_SLOTS: Partial<Record<Tab, React.ReactNode>> = {
-  altimetria: <AltimetriaPanel />,
-  calor:      <CalorPanel />,
-  clima:      <ClimaPanel />,
-  vias:       <ViaEstadoPanel />,
-  ant:        <AntStatsPanel />,
-};
-
 export default function MapaPage() {
-  const [activeTab, setActiveTab] = useState<Tab>('ruta');
-  const [hasRoute,  setHasRoute]  = useState(false);
+  const [activeTab,          setActiveTab]          = useState<Tab>('ruta');
+  const [routeData,          setRouteData]          = useState<RouteCalculatedData | null>(null);
+  const [conflictProvinces,  setConflictProvinces]  = useState<string[] | null>(null);
+  const [incidentRefreshKey, setIncidentRefreshKey] = useState(0);
+
+  const handleRouteCalculated = useCallback((data: RouteCalculatedData | null) => {
+    setRouteData(data);
+    if (!data) setConflictProvinces(null);
+  }, []);
+
+  const handleViaConflicts = useCallback((provinces: string[]) => {
+    setConflictProvinces(provinces);
+  }, []);
+
+  const handleIncidentCreated = useCallback(() => {
+    setIncidentRefreshKey((k) => k + 1);
+  }, []);
+
+  const RIGHT_SLOTS: Partial<Record<Tab, React.ReactNode>> = {
+    altimetria: <AltimetriaPanel routeCoords={routeData?.coords ?? null} />,
+    calor:      <CalorPanel filterProvinces={routeData ? conflictProvinces : null} />,
+    clima:      <ClimaPanel />,
+    vias:       <ViaEstadoPanel />,
+    ant:        <AntStatsPanel />,
+  };
 
   return (
     <div className="flex h-full flex-col overflow-hidden">
@@ -66,13 +82,15 @@ export default function MapaPage() {
       <div className="min-h-0 flex-1">
         <RoutePlanner
           rightSlot={RIGHT_SLOTS[activeTab]}
-          mapOverlay={activeTab === 'ruta' ? <IncidentFab /> : undefined}
-          onRouteCalculated={setHasRoute}
+          mapOverlay={activeTab === 'ruta' ? <IncidentFab onCreated={handleIncidentCreated} /> : undefined}
+          onRouteCalculated={handleRouteCalculated}
+          onViaConflictsChanged={handleViaConflicts}
+          incidentRefreshKey={incidentRefreshKey}
         />
       </div>
 
       {/* Timeline de ruta */}
-      <RouteTimeline hasRoute={hasRoute} />
+      <RouteTimeline routeData={routeData} />
     </div>
   );
 }

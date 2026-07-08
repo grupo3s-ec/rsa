@@ -4,7 +4,11 @@ import { useState } from 'react';
 import { Plus } from 'lucide-react';
 import { IncidentCreateDialog } from './IncidentCreateDialog';
 
-export function IncidentFab() {
+interface IncidentFabProps {
+  onCreated?: () => void;
+}
+
+export function IncidentFab({ onCreated }: IncidentFabProps = {}) {
   const [open, setOpen] = useState(false);
 
   return (
@@ -17,7 +21,7 @@ export function IncidentFab() {
       >
         <Plus className="size-6" />
       </button>
-      <IncidentCreateDialog open={open} onOpenChange={setOpen} />
+      <IncidentCreateDialog open={open} onOpenChange={setOpen} onCreated={onCreated} />
     </>
   );
 }

@@ -12,10 +12,17 @@ import { cn } from "@/lib/utils";
 import { severityMeta, typeMeta } from "@/lib/incidents/format";
 import type { LngLat, RouteLineString } from "@/lib/mapbox/directions";
 import type { Incident } from "@/types/incident";
+import type { ViaGeoMarker } from "@/types/ecu911";
 
 const QUITO_CENTER = { lat: -0.1807, lng: -78.4678 };
 // DEMO_MAP_ID habilita AdvancedMarker; en producción crear uno en Google Cloud Console.
 const MAP_ID = "DEMO_MAP_ID";
+
+const VIA_ESTADO_COLOR: Record<number, string> = {
+  592: '#f97316', // orange-500
+  594: '#f59e0b', // amber-500
+  595: '#dc2626', // red-600
+};
 
 interface RouteMapProps {
   waypoints: (LngLat | null)[];
@@ -28,6 +35,12 @@ interface RouteMapProps {
   onSelectIncident: (incident: Incident) => void;
   onSelectRoute: (idx: number) => void;
   onMapClick?: (lngLat: LngLat) => void;
+  /** Marcadores de vías con restricciones ECU911. */
+  viaMarkers?: ViaGeoMarker[];
+  /** Callback al hacer clic en un marcador de vía. */
+  onSelectVia?: (marker: ViaGeoMarker) => void;
+  /** ID de la vía actualmente seleccionada (para resaltar). */
+  selectedViaId?: string | null;
 }
 
 // ─── Auxiliares internos ──────────────────────────────────────────────────────
@@ -169,6 +182,9 @@ export default function RouteMap({
   onSelectIncident,
   onSelectRoute,
   onMapClick,
+  viaMarkers = [],
+  onSelectVia,
+  selectedViaId,
 }: RouteMapProps) {
   const selected = routes[selectedRouteIdx] ?? [];
   const { resolvedTheme } = useTheme();
@@ -232,6 +248,28 @@ export default function RouteMap({
                 {idx}
               </span>
             )}
+          </AdvancedMarker>
+        );
+      })}
+
+      {/* Vías ECU911 con restricciones */}
+      {viaMarkers.map((m) => {
+        const color = VIA_ESTADO_COLOR[m.via.estado_actual_id] ?? '#6b7280';
+        const isSelected = selectedViaId === m.via.id;
+        return (
+          <AdvancedMarker
+            key={m.via.id}
+            position={m.location}
+            onClick={() => onSelectVia?.(m)}
+            title={`${m.via.descripcion} — ${m.via.EstadoActual.nombre}`}
+          >
+            <div
+              className={cn(
+                'size-5 rotate-45 border-2 border-white shadow-lg cursor-pointer transition-transform hover:scale-125',
+                isSelected && 'scale-130 ring-2 ring-white/60 ring-offset-1',
+              )}
+              style={{ backgroundColor: color }}
+            />
           </AdvancedMarker>
         );
       })}

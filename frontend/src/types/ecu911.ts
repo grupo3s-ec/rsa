@@ -100,3 +100,8 @@ export interface Ecu911Response {
   total: number;
   code: number;
 }
+
+export interface ViaGeoMarker {
+  via: Ecu911Via;
+  location: { lat: number; lng: number };
+}

@@ -5,7 +5,7 @@ export type RiskLevel = 'muy_bajo' | 'bajo' | 'medio' | 'alto' | 'muy_alto' | 'e
  */
 const RISK_MATRIX: Record<number, Record<number, RiskLevel>> = {
   1: { 1: 'muy_bajo', 2: 'muy_bajo', 3: 'bajo',     4: 'medio',    5: 'medio'    },
-  2: { 1: 'muy_bajo', 2: 'bajo',     3: 'medio',    4: 'medio',    5: 'alto'     },
+  2: { 1: 'muy_bajo', 2: 'medio',    3: 'medio',    4: 'alto',     5: 'alto'     },
   3: { 1: 'bajo',     2: 'medio',    3: 'alto',     4: 'alto',     5: 'muy_alto' },
   4: { 1: 'medio',    2: 'alto',     3: 'alto',     4: 'muy_alto', 5: 'extremo'  },
   5: { 1: 'medio',    2: 'alto',     3: 'muy_alto', 4: 'extremo',  5: 'extremo'  },
