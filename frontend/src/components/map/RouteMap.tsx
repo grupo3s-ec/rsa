@@ -7,7 +7,7 @@ import {
   useMap,
 } from "@vis.gl/react-google-maps";
 import { useTheme } from "next-themes";
-import { Flag } from "lucide-react";
+import { Flag, CircleX, TriangleAlert, ShieldAlert } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { severityMeta, typeMeta } from "@/lib/incidents/format";
 import type { LngLat, RouteLineString } from "@/lib/mapbox/directions";
@@ -18,10 +18,10 @@ const QUITO_CENTER = { lat: -0.1807, lng: -78.4678 };
 // DEMO_MAP_ID habilita AdvancedMarker; en producción crear uno en Google Cloud Console.
 const MAP_ID = "DEMO_MAP_ID";
 
-const VIA_ESTADO_COLOR: Record<number, string> = {
-  592: '#f97316', // orange-500
-  594: '#f59e0b', // amber-500
-  595: '#dc2626', // red-600
+const VIA_ESTADO_META: Record<number, { color: string; icon: React.ElementType }> = {
+  592: { color: '#f97316', icon: ShieldAlert  }, // Restricción — naranja
+  594: { color: '#f59e0b', icon: TriangleAlert }, // Parcial — ámbar
+  595: { color: '#dc2626', icon: CircleX       }, // Cerrada — rojo
 };
 
 interface RouteMapProps {
@@ -254,7 +254,8 @@ export default function RouteMap({
 
       {/* Vías ECU911 con restricciones */}
       {viaMarkers.map((m) => {
-        const color = VIA_ESTADO_COLOR[m.via.estado_actual_id] ?? '#6b7280';
+        const meta = VIA_ESTADO_META[m.via.estado_actual_id] ?? { color: '#6b7280', icon: TriangleAlert };
+        const Icon = meta.icon;
         const isSelected = selectedViaId === m.via.id;
         return (
           <AdvancedMarker
@@ -263,13 +264,16 @@ export default function RouteMap({
             onClick={() => onSelectVia?.(m)}
             title={`${m.via.descripcion} — ${m.via.EstadoActual.nombre}`}
           >
-            <div
-              className={cn(
-                'size-5 rotate-45 border-2 border-white shadow-lg cursor-pointer transition-transform hover:scale-125',
-                isSelected && 'scale-130 ring-2 ring-white/60 ring-offset-1',
-              )}
-              style={{ backgroundColor: color }}
-            />
+            <div className={cn('flex flex-col items-center cursor-pointer transition-transform hover:scale-110', isSelected && 'scale-115')}>
+              <div
+                className="flex size-8 items-center justify-center rounded-full border-2 border-white text-white shadow-lg"
+                style={{ backgroundColor: meta.color }}
+              >
+                <Icon className="size-4" />
+              </div>
+              {/* tallo del pin */}
+              <div className="h-2 w-0.5 rounded-b-full" style={{ backgroundColor: meta.color }} />
+            </div>
           </AdvancedMarker>
         );
       })}
