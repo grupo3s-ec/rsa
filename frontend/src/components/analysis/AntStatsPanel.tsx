@@ -2,7 +2,7 @@
 
 import { ExternalLink, BarChart2 } from 'lucide-react';
 
-const ANT_URL = 'https://www.ant.gob.ec/estadisticas/';
+const ANT_URL = 'https://app.powerbi.com/view?r=eyJrIjoiMTJjMjUyZjQtNDMzZS00NmViLThiY2UtZDQwMDk2ZjYwMTFhIiwidCI6IjMwMGM3OTYyLTRmMzYtNDA5ZC04NDc0LTc2ZjRkNTBkZDI5ZiIsImMiOjR9&pageName=ReportSection97a60f7c854f06ea5bb5';
 
 export function AntStatsPanel() {
   return (
