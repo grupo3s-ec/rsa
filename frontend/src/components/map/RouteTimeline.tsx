@@ -110,8 +110,13 @@ async function fetchElevation(routeData: RouteCalculatedData) {
   const raw = (await res.json()) as Partial<GoogleElevationResponse> & { error?: string };
   if (!res.ok || !raw.results) throw new Error(raw.error ?? raw.error_message ?? raw.status ?? 'Error de elevación');
 
+  // Escalar km Haversine → distancia vial real reportada por Google Directions
+  const haversineTotal = samples[samples.length - 1]?.km ?? 0;
+  const roadTotalKm = routeData.distanceMeters / 1000;
+  const scale = haversineTotal > 0 ? roadTotalKm / haversineTotal : 1;
+
   const elevPoints: ElevPoint[] = raw.results.map((r, i) => ({
-    km: samples[i]!.km,
+    km: Math.round(samples[i]!.km * scale * 10) / 10,
     elevacion: Math.round(r.elevation),
   }));
   const incidentKms = routeData.incidents.map(inc => {
@@ -120,7 +125,7 @@ async function fetchElevation(routeData: RouteCalculatedData) {
       const d = haversineKm({ lat: inc.latitude, lng: inc.longitude }, { lat: s.point[1], lng: s.point[0] });
       if (d < bestDist) { bestDist = d; bestKm = s.km; }
     }
-    return bestKm;
+    return Math.round(bestKm * scale * 10) / 10;
   });
   return { elevPoints, incidentKms };
 }
