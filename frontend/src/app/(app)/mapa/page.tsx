@@ -1,13 +1,11 @@
 'use client';
 
 import { useCallback, useState } from 'react';
-import { Map, Mountain, Flame, CloudRain, Route, BarChart2 } from 'lucide-react';
+import { Map, Flame, Route, BarChart2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { IncidentFab } from '@/components/incidents/IncidentFab';
 import { RouteTimeline } from '@/components/map/RouteTimeline';
-import { AltimetriaPanel } from '@/components/analysis/AltimetriaPanel';
 import { CalorPanel } from '@/components/analysis/CalorPanel';
-import { ClimaPanel } from '@/components/analysis/ClimaPanel';
 import { ViaEstadoPanel } from '@/components/analysis/ViaEstadoPanel';
 import { AntStatsPanel } from '@/components/analysis/AntStatsPanel';
 import type { RouteCalculatedData } from '@/components/routes/RoutePlanner';
@@ -18,15 +16,13 @@ const RoutePlanner = dynamic(
   { ssr: false },
 );
 
-type Tab = 'ruta' | 'altimetria' | 'calor' | 'clima' | 'vias' | 'ant';
+type Tab = 'ruta' | 'calor' | 'vias' | 'ant';
 
 const TABS: { id: Tab; label: string; icon: React.ElementType }[] = [
-  { id: 'ruta',       label: 'Ruta',       icon: Map       },
-  { id: 'altimetria', label: 'Altimetría', icon: Mountain  },
-  { id: 'calor',      label: 'Calor',      icon: Flame     },
-  { id: 'clima',      label: 'Clima',      icon: CloudRain },
-  { id: 'vias',       label: 'Vías',       icon: Route     },
-  { id: 'ant',        label: 'ANT',        icon: BarChart2 },
+  { id: 'ruta',  label: 'Ruta',  icon: Map      },
+  { id: 'calor', label: 'Calor', icon: Flame    },
+  { id: 'vias',  label: 'Vías',  icon: Route    },
+  { id: 'ant',   label: 'ANT',   icon: BarChart2 },
 ];
 
 export default function MapaPage() {
@@ -49,11 +45,9 @@ export default function MapaPage() {
   }, []);
 
   const RIGHT_SLOTS: Partial<Record<Tab, React.ReactNode>> = {
-    altimetria: <AltimetriaPanel routeCoords={routeData?.coords ?? null} />,
-    calor:      <CalorPanel filterProvinces={routeData ? conflictProvinces : null} />,
-    clima:      <ClimaPanel routeData={routeData} />,
-    vias:       <ViaEstadoPanel />,
-    ant:        <AntStatsPanel />,
+    calor: <CalorPanel filterProvinces={routeData ? conflictProvinces : null} />,
+    vias:  <ViaEstadoPanel />,
+    ant:   <AntStatsPanel />,
   };
 
   return (
