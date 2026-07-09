@@ -4,7 +4,7 @@ import type { Ecu911Response } from '@/types/ecu911';
 // Excluye estado_actual_id=593 (HABILITADA) → solo vías con problemas
 const ECU911_URL =
   'https://ecu911.gob.ec/Services/WSVias/ViasWeb.php' +
-  '?estado=A&and:%3C%3E:EstadoActual-id=593&order=Provincia-descripcion&limit=200&start=0';
+  '?estado=A&and:%3C%3E:EstadoActual-id=593&order=modified+DESC&limit=200&start=0';
 
 export async function GET(): Promise<NextResponse> {
   try {

@@ -59,7 +59,9 @@ function ViaCard({ via }: { via: Ecu911Via }) {
         <div className="flex items-center gap-2 text-[11px] text-muted-foreground mb-2">
           <span className={cn('size-1.5 rounded-full shrink-0', meta.dot)} />
           <span>{via.Provincia.descripcion} · {via.Canton.descripcion}</span>
-          <span className="ml-auto">{relativeTime(via.modified)}</span>
+          <span className="ml-auto shrink-0" title={via.modified}>
+            {relativeTime(via.modified)} · {new Date(via.modified + 'Z').toLocaleString('es-EC', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}
+          </span>
         </div>
 
         <p className="text-xs text-muted-foreground leading-relaxed line-clamp-2">
@@ -156,7 +158,9 @@ export function ViaEstadoPanel() {
           </h2>
           <div className="flex items-center gap-2">
             {fetchedAt && (
-              <span className="text-[10px] text-muted-foreground">{relativeTime(fetchedAt)}</span>
+              <span className="text-[10px] text-muted-foreground" title={`Consultado: ${new Date(fetchedAt).toLocaleString('es-EC')}`}>
+                Fuente ECU911 · {relativeTime(fetchedAt)}
+              </span>
             )}
             <button
               type="button"
@@ -169,7 +173,7 @@ export function ViaEstadoPanel() {
           </div>
         </div>
         <p className="text-[11px] text-muted-foreground">
-          Vías nacionales con restricciones activas
+          Vías nacionales con restricciones activas · orden: más reciente primero
         </p>
 
         {/* Filtros de estado */}
