@@ -127,12 +127,15 @@ function RoutePlannerContent({
   incidentRefreshKey?: number;
 }) {
   const geocodingLib = useMapsLibrary("geocoding");
+  const placesLib    = useMapsLibrary("places");
   const apiIsLoaded  = useApiIsLoaded();
 
   const [directionsService, setDirectionsService] =
     useState<google.maps.DirectionsService | null>(null);
   const [geocoder, setGeocoder] =
     useState<google.maps.Geocoder | null>(null);
+  const [autocompleteService, setAutocompleteService] =
+    useState<google.maps.places.AutocompleteService | null>(null);
 
   // DirectionsService es parte del core de Maps JS — espera a que la API esté cargada
   useEffect(() => {
@@ -142,6 +145,9 @@ function RoutePlannerContent({
   useEffect(() => {
     if (geocodingLib) setGeocoder(new geocodingLib.Geocoder());
   }, [geocodingLib]);
+  useEffect(() => {
+    if (placesLib) setAutocompleteService(new placesLib.AutocompleteService());
+  }, [placesLib]);
 
   const [waypoints, setWaypoints] = useState<(LngLat | null)[]>([null, null]);
   const [addresses, setAddresses] = useState<(string | null)[]>([null, null]);
@@ -724,6 +730,7 @@ function RoutePlannerContent({
                         label={label}
                         address={addresses[idx] ?? null}
                         geocoder={geocoder}
+                        autocomplete={autocompleteService}
                         isPicking={pickingIndex === idx}
                         onSelect={(lngLat, addr) => setWaypointAt(idx, lngLat, addr)}
                         onPickOnMap={() => setPickingIndex((p) => p === idx ? null : idx)}
@@ -1207,6 +1214,7 @@ interface SortableWaypointRowProps {
   label: string;
   address: string | null;
   geocoder: google.maps.Geocoder | null;
+  autocomplete: google.maps.places.AutocompleteService | null;
   isPicking: boolean;
   waypointCount: number;
   onSelect: (lngLat: LngLat, address: string) => void;
@@ -1215,7 +1223,7 @@ interface SortableWaypointRowProps {
 }
 
 function SortableWaypointRow({
-  id, idx, isFirst, isLast, label, address, geocoder,
+  id, idx, isFirst, isLast, label, address, geocoder, autocomplete,
   isPicking, waypointCount, onSelect, onPickOnMap, onRemove,
 }: SortableWaypointRowProps) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id });
@@ -1267,6 +1275,7 @@ function SortableWaypointRow({
             placeholder={label}
             address={address}
             geocoder={geocoder}
+            autocomplete={autocomplete}
             isPicking={isPicking}
             onSelect={onSelect}
             onPickOnMap={onPickOnMap}
@@ -1290,7 +1299,7 @@ function SortableWaypointRow({
 
 interface GeoSuggestion {
   address: string;
-  lngLat: LngLat;
+  placeId: string;
 }
 
 interface WaypointInputProps {
@@ -1298,6 +1307,7 @@ interface WaypointInputProps {
   placeholder: string;
   address: string | null;
   geocoder: google.maps.Geocoder | null;
+  autocomplete: google.maps.places.AutocompleteService | null;
   isPicking: boolean;
   onSelect: (lngLat: LngLat, address: string) => void;
   onPickOnMap: () => void;
@@ -1307,6 +1317,7 @@ function WaypointInput({
   placeholder,
   address,
   geocoder,
+  autocomplete,
   isPicking,
   onSelect,
   onPickOnMap,
@@ -1338,32 +1349,45 @@ function WaypointInput({
     setValue(text);
     if (debounceRef.current) clearTimeout(debounceRef.current);
 
-    if (!text.trim() || !geocoder) {
+    if (!text.trim() || !autocomplete) {
       setSuggestions([]);
       return;
     }
 
     debounceRef.current = setTimeout(() => {
       setSearching(true);
-      void geocoder
-        .geocode({ address: text, region: "ec" })
+      void autocomplete
+        .getPlacePredictions({
+          input: text,
+          componentRestrictions: { country: 'ec' },
+          types: ['geocode', 'establishment'],
+        })
         .then((res) => {
           setSuggestions(
-            res.results.slice(0, 5).map((r) => ({
-              address: r.formatted_address,
-              lngLat: [r.geometry.location.lng(), r.geometry.location.lat()] satisfies LngLat,
+            res.predictions.slice(0, 6).map((p) => ({
+              address: p.description,
+              placeId: p.place_id,
             })),
           );
         })
         .catch(() => setSuggestions([]))
         .finally(() => setSearching(false));
-    }, 500);
+    }, 300);
   }
 
   function handleSuggestionClick(s: GeoSuggestion) {
     setValue(s.address);
     setSuggestions([]);
-    onSelect(s.lngLat, s.address);
+    if (!geocoder) return;
+    void geocoder
+      .geocode({ placeId: s.placeId })
+      .then((res) => {
+        const r = res.results[0];
+        if (!r) return;
+        const lngLat: LngLat = [r.geometry.location.lng(), r.geometry.location.lat()];
+        onSelect(lngLat, s.address);
+      })
+      .catch(() => { /* falla silenciosamente */ });
   }
 
   function handleKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
