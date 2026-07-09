@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { RefreshCw, Route, AlertTriangle, ChevronDown, ChevronUp } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { relativeTime } from '@/lib/ui/relative-time';
@@ -59,8 +59,8 @@ function ViaCard({ via }: { via: Ecu911Via }) {
         <div className="flex items-center gap-2 text-[11px] text-muted-foreground mb-2">
           <span className={cn('size-1.5 rounded-full shrink-0', meta.dot)} />
           <span>{via.Provincia.descripcion} · {via.Canton.descripcion}</span>
-          <span className="ml-auto shrink-0" title={via.modified}>
-            {relativeTime(via.modified)} · {new Date(via.modified + 'Z').toLocaleString('es-EC', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}
+          <span className="ml-auto shrink-0 text-right" title={via.modified}>
+            {relativeTime(via.modified)} · {new Date(via.modified.replace(' ', 'T')).toLocaleString('es-EC', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}
           </span>
         </div>
 
@@ -108,6 +108,19 @@ export function ViaEstadoPanel() {
   const [fetchedAt,   setFetchedAt]   = useState<string | null>(null);
   const [filter,      setFilter]      = useState<FilterEstado>('todas');
   const [search,      setSearch]      = useState('');
+  const [clock,       setClock]       = useState('');
+  const clockRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // Reloj en vivo (igual que ECU911)
+  useEffect(() => {
+    const tick = () => setClock(new Date().toLocaleString('es-EC', {
+      day: '2-digit', month: '2-digit', year: 'numeric',
+      hour: '2-digit', minute: '2-digit', second: '2-digit',
+    }));
+    tick();
+    clockRef.current = setInterval(tick, 1000);
+    return () => { if (clockRef.current) clearInterval(clockRef.current); };
+  }, []);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -157,11 +170,6 @@ export function ViaEstadoPanel() {
             Estado de Vías · ECU911
           </h2>
           <div className="flex items-center gap-2">
-            {fetchedAt && (
-              <span className="text-[10px] text-muted-foreground" title={`Consultado: ${new Date(fetchedAt).toLocaleString('es-EC')}`}>
-                Fuente ECU911 · {relativeTime(fetchedAt)}
-              </span>
-            )}
             <button
               type="button"
               onClick={() => { void load(); }}
@@ -172,9 +180,16 @@ export function ViaEstadoPanel() {
             </button>
           </div>
         </div>
-        <p className="text-[11px] text-muted-foreground">
-          Vías nacionales con restricciones activas · orden: más reciente primero
-        </p>
+
+        {/* Reloj en vivo + última consulta (igual que ECU911) */}
+        <div className="flex items-center justify-between mb-2">
+          <p className="text-[11px] font-mono font-medium text-foreground/70 tabular-nums">{clock}</p>
+          {fetchedAt && (
+            <p className="text-[10px] text-muted-foreground">
+              Fuente ECU911 · última consulta {relativeTime(fetchedAt)}
+            </p>
+          )}
+        </div>
 
         {/* Filtros de estado */}
         <div className="flex gap-1.5 mt-2.5 flex-wrap">
