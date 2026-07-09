@@ -620,7 +620,7 @@ function RoutePlannerContent({
 
   const addressTabs = (
     <div className="flex border-b border-border/50">
-      {(["url"] as const).map((tab) => {
+      {(["url", "buscar"] as const).map((tab) => {
         const labels   = { url: "URL", buscar: "Buscar", coordenadas: "Coords" } as const;
         const tabIcons = {
           url:          <Link2      className="size-3" />,
