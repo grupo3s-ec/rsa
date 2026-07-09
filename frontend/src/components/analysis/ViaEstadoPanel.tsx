@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { RefreshCw, Route, AlertTriangle, ChevronDown, ChevronUp } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { relativeTime } from '@/lib/ui/relative-time';
@@ -108,19 +108,6 @@ export function ViaEstadoPanel() {
   const [fetchedAt,   setFetchedAt]   = useState<string | null>(null);
   const [filter,      setFilter]      = useState<FilterEstado>('todas');
   const [search,      setSearch]      = useState('');
-  const [clock,       setClock]       = useState('');
-  const clockRef = useRef<ReturnType<typeof setInterval> | null>(null);
-
-  // Reloj en vivo (igual que ECU911)
-  useEffect(() => {
-    const tick = () => setClock(new Date().toLocaleString('es-EC', {
-      day: '2-digit', month: '2-digit', year: 'numeric',
-      hour: '2-digit', minute: '2-digit', second: '2-digit',
-    }));
-    tick();
-    clockRef.current = setInterval(tick, 1000);
-    return () => { if (clockRef.current) clearInterval(clockRef.current); };
-  }, []);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -140,9 +127,9 @@ export function ViaEstadoPanel() {
 
   useEffect(() => { void load(); }, [load]);
 
-  // Auto-refresh cada 5 minutos
+  // Auto-refresh cada 60 segundos
   useEffect(() => {
-    const id = setInterval(() => { void load(); }, 5 * 60 * 1000);
+    const id = setInterval(() => { void load(); }, 60 * 1000);
     return () => clearInterval(id);
   }, [load]);
 
@@ -181,15 +168,11 @@ export function ViaEstadoPanel() {
           </div>
         </div>
 
-        {/* Reloj en vivo + última consulta (igual que ECU911) */}
-        <div className="flex items-center justify-between mb-2">
-          <p className="text-[11px] font-mono font-medium text-foreground/70 tabular-nums">{clock}</p>
-          {fetchedAt && (
-            <p className="text-[10px] text-muted-foreground">
-              Fuente ECU911 · última consulta {relativeTime(fetchedAt)}
-            </p>
-          )}
-        </div>
+        {fetchedAt && (
+          <p className="text-[10px] text-muted-foreground mb-1">
+            Misma fuente que ecu911.gob.ec · consultado {relativeTime(fetchedAt)}
+          </p>
+        )}
 
         {/* Filtros de estado */}
         <div className="flex gap-1.5 mt-2.5 flex-wrap">

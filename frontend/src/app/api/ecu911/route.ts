@@ -26,7 +26,7 @@ export async function GET(): Promise<NextResponse> {
     const data = (await res.json()) as Ecu911Response;
 
     return NextResponse.json(data, {
-      headers: { 'Cache-Control': 'public, max-age=300' },
+      headers: { 'Cache-Control': 'no-store' },
     });
   } catch (err) {
     const msg = err instanceof Error ? err.message : 'Error desconocido';
