@@ -11,19 +11,20 @@ import {
   XAxis, YAxis,
 } from 'recharts';
 import {
-  AlertTriangle, ChevronDown, ChevronUp, LoaderCircle,
+  AlertTriangle, Bell, ChevronDown, ChevronUp, LoaderCircle,
   Mountain, CloudRain, Route, History,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { subsampleRoute, haversineKm } from '@/lib/geo';
-import { formatDistance, formatDuration } from '@/lib/incidents/format';
+import { formatDistance, formatDuration, severityMeta, typeMeta } from '@/lib/incidents/format';
 import { getPerfilClimatico, MES_NOMBRE } from '@/lib/inamhi';
 import { DATOS_PRECIPITACION, ESTACIONES_META } from '@/lib/precipitacion-data';
 import type { RouteCalculatedData } from '@/components/routes/RoutePlanner';
+import type { Incident } from '@/types/incident';
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
 
-type TimelineTab = 'altimetria' | 'precipitacion';
+type TimelineTab = 'alertas' | 'altimetria' | 'precipitacion';
 interface ElevPoint { km: number; elevacion: number; }
 interface GoogleElevationResponse {
   results: Array<{ elevation: number }>;
@@ -124,11 +125,15 @@ async function fetchElevation(routeData: RouteCalculatedData) {
 
 // ─── Componente ───────────────────────────────────────────────────────────────
 
-interface Props { routeData: RouteCalculatedData | null; }
+interface Props {
+  routeData: RouteCalculatedData | null;
+  onSelectIncident?: (incident: Incident) => void;
+  selectedIncidentId?: number | null;
+}
 
-export function RouteTimeline({ routeData }: Props) {
+export function RouteTimeline({ routeData, onSelectIncident, selectedIncidentId }: Props) {
   const [open,         setOpen]         = useState(true);
-  const [tab,          setTab]          = useState<TimelineTab>('altimetria');
+  const [tab,          setTab]          = useState<TimelineTab>('alertas');
   const [showHistorial,setShowHistorial]= useState(false);
   const [elevPoints,   setElevPoints]   = useState<ElevPoint[]>([]);
   const [incidentKms,  setIncidentKms]  = useState<number[]>([]);
@@ -189,6 +194,17 @@ export function RouteTimeline({ routeData }: Props) {
 
         {/* Tabs */}
         <div className="flex items-center gap-0.5 rounded-lg border border-border/50 bg-muted/40 p-0.5">
+          <button type="button" onClick={() => setTab('alertas')}
+            className={cn('relative flex items-center gap-1 rounded-md px-2 py-0.5 text-[11px] font-medium transition-colors',
+              tab === 'alertas' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground')}>
+            <Bell className="size-3" /> Alertas
+            {(routeData?.incidents.length ?? 0) > 0 && (
+              <span className={cn('ml-0.5 rounded-full px-1 text-[9px] font-bold',
+                (routeData?.incidents.some(i => i.severity === 'critical')) ? 'bg-red-500 text-white' : 'bg-amber-500 text-white')}>
+                {routeData!.incidents.length}
+              </span>
+            )}
+          </button>
           <button type="button" onClick={() => { setTab('altimetria'); setShowHistorial(false); }}
             className={cn('flex items-center gap-1 rounded-md px-2 py-0.5 text-[11px] font-medium transition-colors',
               tab === 'altimetria' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground')}>
@@ -261,7 +277,56 @@ export function RouteTimeline({ routeData }: Props) {
 
       {/* ── Contenido ── */}
       {open && (
-        tab === 'altimetria' ? (
+        tab === 'alertas' ? (
+          <div className="h-[calc(22vh-2.25rem)] min-h-[calc(9rem-2.25rem)] overflow-y-auto px-3 py-2">
+            {!routeData ? (
+              <div className="flex h-full items-center justify-center gap-2 text-muted-foreground/60">
+                <Route className="size-4 shrink-0" />
+                <p className="text-sm">Calcula una ruta para ver las alertas en camino</p>
+              </div>
+            ) : routeData.incidents.length === 0 ? (
+              <div className="flex h-full items-center justify-center gap-2 text-muted-foreground/60">
+                <span className="text-lg">✅</span>
+                <p className="text-sm">Ruta despejada — sin incidentes reportados</p>
+              </div>
+            ) : (
+              <div className="flex gap-2 h-full">
+                {routeData.incidents.map((incident) => {
+                  const sev  = severityMeta[incident.severity];
+                  const typ  = typeMeta[incident.type];
+                  const Icon = typ.icon;
+                  const isSelected = selectedIncidentId === incident.id;
+                  return (
+                    <button
+                      key={incident.id}
+                      type="button"
+                      onClick={() => onSelectIncident?.(incident)}
+                      className={cn(
+                        'flex shrink-0 flex-col items-start gap-1 rounded-xl border border-border/50 bg-muted/30 px-3 py-2 text-left transition-colors hover:bg-muted/60 w-44',
+                        isSelected && 'ring-2 ring-ring/40 bg-muted/60',
+                      )}
+                    >
+                      <span className="flex items-center gap-1.5">
+                        <span className="flex size-6 items-center justify-center rounded-full text-white shadow-sm shrink-0"
+                          style={{ backgroundColor: sev.hex }}>
+                          <Icon className="size-3" />
+                        </span>
+                        <span className={cn('text-[9px] font-bold uppercase tracking-wide rounded-full px-1.5 py-0.5', sev.textClass,
+                          incident.severity === 'critical' && 'bg-red-500/10',
+                          incident.severity === 'high'     && 'bg-orange-500/10',
+                          incident.severity === 'medium'   && 'bg-amber-500/10',
+                          incident.severity === 'low'      && 'bg-emerald-500/10',
+                        )}>{sev.label}</span>
+                      </span>
+                      <p className="line-clamp-2 text-[11px] font-medium leading-snug text-foreground">{incident.title}</p>
+                      <p className="text-[10px] text-muted-foreground">{typ.label}</p>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        ) : tab === 'altimetria' ? (
           routeData && elevPoints.length > 0 ? (
             <div className="h-[calc(22vh-2.25rem)] min-h-[calc(9rem-2.25rem)] px-2 pb-1 pt-2">
               <ResponsiveContainer width="100%" height="100%">

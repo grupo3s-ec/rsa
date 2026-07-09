@@ -957,19 +957,8 @@ function RoutePlannerContent({
 
           {addressTabs}
 
-          <div className="overflow-y-auto border-b p-4">
+          <div className="overflow-y-auto p-4">
             {renderPlannerForm(true)}
-          </div>
-
-          <div className="min-h-0 flex-1 overflow-hidden">
-            <IncidentSidebar
-              incidents={incidents}
-              loading={loading}
-              error={error}
-              hasSearched={searched}
-              selectedIncidentId={selectedIncident?.id ?? null}
-              onSelectIncident={handleSelectFromList}
-            />
           </div>
         </aside>
 
@@ -1313,6 +1302,8 @@ interface WaypointInputProps {
   onPickOnMap: () => void;
 }
 
+let _cachedUserLocation: { lat: number; lng: number } | null = null;
+
 function WaypointInput({
   placeholder,
   address,
@@ -1322,11 +1313,26 @@ function WaypointInput({
   onSelect,
   onPickOnMap,
 }: WaypointInputProps) {
-  const [value,       setValue]       = useState(address ?? "");
-  const [suggestions, setSuggestions] = useState<GeoSuggestion[]>([]);
-  const [searching,   setSearching]   = useState(false);
+  const [value,        setValue]        = useState(address ?? "");
+  const [suggestions,  setSuggestions]  = useState<GeoSuggestion[]>([]);
+  const [searching,    setSearching]    = useState(false);
+  const [userLocation, setUserLocation] = useState<{ lat: number; lng: number } | null>(_cachedUserLocation);
   const debounceRef  = useRef<ReturnType<typeof setTimeout> | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (_cachedUserLocation) { setUserLocation(_cachedUserLocation); return; }
+    if (!navigator.geolocation) return;
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        const loc = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+        _cachedUserLocation = loc;
+        setUserLocation(loc);
+      },
+      () => { /* permiso denegado o no disponible */ },
+      { maximumAge: 300_000, timeout: 5_000 },
+    );
+  }, []);
 
   // Sincronizar cuando la dirección cambia externamente (pick en mapa, URL, etc.)
   useEffect(() => {
@@ -1361,6 +1367,7 @@ function WaypointInput({
           input: text,
           componentRestrictions: { country: 'ec' },
           types: ['geocode', 'establishment'],
+          ...(userLocation ? { location: new google.maps.LatLng(userLocation.lat, userLocation.lng), radius: 40_000 } : {}),
         })
         .then((res) => {
           setSuggestions(
