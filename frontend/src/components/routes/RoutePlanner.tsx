@@ -101,12 +101,30 @@ interface RoutePlannerProps {
   onViaConflictsChanged?: (provinces: string[]) => void;
   /** Incrementar para forzar recarga de incidentes (ej. después de crear uno nuevo). */
   incidentRefreshKey?: number;
+  /** Activa un modo de selección en el mapa ajeno al planificador (ej. ubicación de un incidente). */
+  externalPickActive?: boolean;
+  /** Texto mostrado en el indicador flotante mientras `externalPickActive` está activo. */
+  externalPickLabel?: string;
+  /** Se dispara con las coordenadas del click cuando `externalPickActive` está activo. */
+  onExternalPick?: (lngLat: LngLat) => void;
+  /** Se dispara al cancelar el modo de selección externo. */
+  onExternalPickCancel?: () => void;
 }
 
-export function RoutePlanner({ rightSlot, mapOverlay, onRouteCalculated, onViaConflictsChanged, incidentRefreshKey }: RoutePlannerProps = {}) {
+export function RoutePlanner({ rightSlot, mapOverlay, onRouteCalculated, onViaConflictsChanged, incidentRefreshKey, externalPickActive, externalPickLabel, onExternalPick, onExternalPickCancel }: RoutePlannerProps = {}) {
   return (
     <APIProvider apiKey={GOOGLE_MAPS_API_KEY} libraries={["geocoding"]}>
-      <RoutePlannerContent rightSlot={rightSlot} mapOverlay={mapOverlay} onRouteCalculated={onRouteCalculated} onViaConflictsChanged={onViaConflictsChanged} incidentRefreshKey={incidentRefreshKey} />
+      <RoutePlannerContent
+        rightSlot={rightSlot}
+        mapOverlay={mapOverlay}
+        onRouteCalculated={onRouteCalculated}
+        onViaConflictsChanged={onViaConflictsChanged}
+        incidentRefreshKey={incidentRefreshKey}
+        externalPickActive={externalPickActive}
+        externalPickLabel={externalPickLabel}
+        onExternalPick={onExternalPick}
+        onExternalPickCancel={onExternalPickCancel}
+      />
     </APIProvider>
   );
 }
@@ -119,12 +137,20 @@ function RoutePlannerContent({
   onRouteCalculated,
   onViaConflictsChanged,
   incidentRefreshKey,
+  externalPickActive = false,
+  externalPickLabel = "el punto",
+  onExternalPick,
+  onExternalPickCancel,
 }: {
   rightSlot?: React.ReactNode;
   mapOverlay?: React.ReactNode;
   onRouteCalculated?: (data: RouteCalculatedData | null) => void;
   onViaConflictsChanged?: (provinces: string[]) => void;
   incidentRefreshKey?: number;
+  externalPickActive?: boolean;
+  externalPickLabel?: string;
+  onExternalPick?: (lngLat: LngLat) => void;
+  onExternalPickCancel?: () => void;
 }) {
   const geocodingLib = useMapsLibrary("geocoding");
   const placesLib    = useMapsLibrary("places");
@@ -268,7 +294,7 @@ function RoutePlannerContent({
     [incidents],
   );
 
-  const activePickMode = pickingIndex !== null;
+  const activePickMode = pickingIndex !== null || externalPickActive;
 
   // ─── Mutaciones de waypoints ──────────────────────────────────────────────
 
@@ -345,14 +371,20 @@ function RoutePlannerContent({
             // ignorar — las coordenadas ya están guardadas
           }
         }
+        return;
+      }
+
+      if (externalPickActive) {
+        onExternalPick?.(lngLat);
       }
     },
-    [pickingIndex, geocoder],
+    [pickingIndex, geocoder, externalPickActive, onExternalPick],
   );
 
   const cancelPickMode = useCallback(() => {
-    setPickingIndex(null);
-  }, []);
+    if (pickingIndex !== null) { setPickingIndex(null); return; }
+    if (externalPickActive) onExternalPickCancel?.();
+  }, [pickingIndex, externalPickActive, onExternalPickCancel]);
 
   // ─── Calcular ruta con Google Directions ─────────────────────────────────
 
@@ -598,7 +630,9 @@ function RoutePlannerContent({
     ? "el punto de salida"
     : pickingIndex === waypoints.length - 1
       ? "el destino"
-      : `la parada ${pickingIndex ?? ""}`;
+      : pickingIndex !== null
+        ? `la parada ${pickingIndex}`
+        : externalPickLabel;
 
   const pickModeIndicator = activePickMode ? (
     <div className="pointer-events-none absolute inset-x-0 top-4 z-20 flex justify-center">

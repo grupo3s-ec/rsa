@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Select } from '@base-ui/react/select';
 import { Popover } from '@base-ui/react/popover';
-import { Camera, Check, ChevronsUpDown, HelpCircle, Locate, X } from 'lucide-react';
+import { Camera, Check, ChevronsUpDown, HelpCircle, MapPin, X } from 'lucide-react';
 import { toast } from 'sonner';
 import {
   Dialog,
@@ -18,27 +18,57 @@ import { RiskMatrixLegend } from '@/components/incidents/RiskMatrixLegend';
 import { conditionMeta, severityMeta } from '@/lib/incidents/format';
 import { createIncident, getHazardTypes, uploadIncidentPhoto } from '@/services/incidents.service';
 import type { HazardType, IncidentSeverity } from '@/types/incident';
+import type { LngLat } from '@/lib/mapbox/directions';
 
 export interface IncidentCreateDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onCreated?: () => void;
+  /** Pide al padre activar el modo "click en el mapa" para marcar la ubicación. */
+  onRequestPickLocation?: () => void;
+  /** true mientras el padre está esperando un click en el mapa (dialog cerrado). */
+  pickActive?: boolean;
+  /** Coordenadas resultantes de ese modo, o null si no hay ninguna pendiente. */
+  pickedCoords?: LngLat | null;
+  /** Confirma al padre que ya se consumieron `pickedCoords`. */
+  onPickedCoordsConsumed?: () => void;
 }
 
 /** Orden de urgencia para los grupos del select: Alta → Media → Baja. */
 const SEVERITY_GROUP_ORDER: IncidentSeverity[] = ['high', 'medium', 'low'];
 
-export function IncidentCreateDialog({ open, onOpenChange, onCreated }: IncidentCreateDialogProps) {
-  const [hazardTypes,   setHazardTypes]   = useState<HazardType[]>([]);
-  const [loadingTypes,  setLoadingTypes]  = useState(false);
-  const [hazardTypeId,  setHazardTypeId]  = useState<number | null>(null);
-  const [title,         setTitle]         = useState('');
-  const [description,   setDescription]   = useState('');
-  const [coords,        setCoords]        = useState<{ lat: number; lng: number } | null>(null);
-  const [locating,      setLocating]      = useState(false);
-  const [saving,        setSaving]        = useState(false);
-  const [photoFile,     setPhotoFile]     = useState<File | null>(null);
+export function IncidentCreateDialog({
+  open,
+  onOpenChange,
+  onCreated,
+  onRequestPickLocation,
+  pickActive = false,
+  pickedCoords,
+  onPickedCoordsConsumed,
+}: IncidentCreateDialogProps) {
+  const [hazardTypes,  setHazardTypes]  = useState<HazardType[]>([]);
+  const [loadingTypes, setLoadingTypes] = useState(false);
+  const [hazardTypeId, setHazardTypeId] = useState<number | null>(null);
+  const [title,        setTitle]        = useState('');
+  const [description,  setDescription]  = useState('');
+  const [coords,        setCoords]      = useState<{ lat: number; lng: number } | null>(null);
+  const [saving,        setSaving]      = useState(false);
+  const [photoFile,     setPhotoFile]   = useState<File | null>(null);
   const photoRef = useRef<HTMLInputElement>(null);
+  const wasPickActive = useRef(false);
+
+  // Coordenadas marcadas en el mapa — el dialog está cerrado mientras se espera el click.
+  useEffect(() => {
+    if (!pickedCoords) return;
+    setCoords({ lat: pickedCoords[1], lng: pickedCoords[0] });
+    onPickedCoordsConsumed?.();
+  }, [pickedCoords, onPickedCoordsConsumed]);
+
+  // Al terminar el modo "marcar en el mapa" (con o sin selección), reabrir el dialog.
+  useEffect(() => {
+    if (wasPickActive.current && !pickActive) onOpenChange(true);
+    wasPickActive.current = pickActive;
+  }, [pickActive, onOpenChange]);
 
   useEffect(() => {
     if (!open || hazardTypes.length > 0) return;
@@ -69,30 +99,14 @@ export function IncidentCreateDialog({ open, onOpenChange, onCreated }: Incident
     setPhotoFile(null);
   }
 
-  function detectLocation() {
-    if (!navigator.geolocation) { toast.error('Geolocalización no disponible'); return; }
-    setLocating(true);
-    navigator.geolocation.getCurrentPosition(
-      pos => {
-        setCoords({ lat: pos.coords.latitude, lng: pos.coords.longitude });
-        setLocating(false);
-      },
-      (err) => {
-        const msg = err.code === 1
-          ? 'Permiso de ubicación denegado. Revisa la configuración del navegador.'
-          : err.code === 3
-          ? 'Tiempo de espera agotado. Intenta en una zona con mejor señal.'
-          : 'No se pudo obtener la ubicación.';
-        toast.error(msg);
-        setLocating(false);
-      },
-      { enableHighAccuracy: true, timeout: 10_000 },
-    );
+  function handlePickLocation() {
+    onOpenChange(false);
+    onRequestPickLocation?.();
   }
 
   async function handleSubmit(e: React.FormEvent): Promise<void> {
     e.preventDefault();
-    if (!coords) { toast.error('Detecta tu ubicación antes de continuar'); return; }
+    if (!coords) { toast.error('Marca la ubicación en el mapa antes de continuar'); return; }
     if (!hazardTypeId) { toast.error('Selecciona el tipo de incidente'); return; }
     if (!title.trim()) return;
 
@@ -126,7 +140,7 @@ export function IncidentCreateDialog({ open, onOpenChange, onCreated }: Incident
   }
 
   return (
-    <Dialog open={open} onOpenChange={(v) => { if (!v) reset(); onOpenChange(v); }}>
+    <Dialog open={open} onOpenChange={(v) => { if (!v && !pickActive) reset(); onOpenChange(v); }}>
       <DialogContent className="max-h-[92dvh] overflow-y-auto sm:max-w-md">
         <DialogHeader>
           <DialogTitle>Reportar novedad</DialogTitle>
@@ -242,17 +256,13 @@ export function IncidentCreateDialog({ open, onOpenChange, onCreated }: Incident
               type="button"
               variant="outline"
               className="h-11 w-full justify-start gap-2 text-sm"
-              onClick={detectLocation}
-              disabled={locating}
+              onClick={handlePickLocation}
             >
-              {locating
-                ? <span className="size-4 shrink-0 animate-spin rounded-full border-2 border-current border-t-transparent" />
-                : <Locate className="size-4 shrink-0" />
-              }
+              <MapPin className="size-4 shrink-0" />
               <span className="flex-1 truncate text-left font-mono text-xs">
                 {coords
                   ? `${coords.lat.toFixed(5)}, ${coords.lng.toFixed(5)}`
-                  : locating ? 'Detectando…' : 'Detectar mi ubicación'
+                  : 'Marcar en el mapa'
                 }
               </span>
               {coords && <span className="text-xs text-emerald-500">✓</span>}

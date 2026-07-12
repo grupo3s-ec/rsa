@@ -10,6 +10,7 @@ import { ViaEstadoPanel } from '@/components/analysis/ViaEstadoPanel';
 import { AntStatsPanel } from '@/components/analysis/AntStatsPanel';
 import { EvaluacionRiesgoPanel } from '@/components/analysis/EvaluacionRiesgoPanel';
 import type { RouteCalculatedData } from '@/components/routes/RoutePlanner';
+import type { LngLat } from '@/lib/mapbox/directions';
 import dynamic from 'next/dynamic';
 
 const RoutePlanner = dynamic(
@@ -32,6 +33,8 @@ export default function MapaPage() {
   const [routeData,          setRouteData]          = useState<RouteCalculatedData | null>(null);
   const [conflictProvinces,  setConflictProvinces]  = useState<string[] | null>(null);
   const [incidentRefreshKey, setIncidentRefreshKey] = useState(0);
+  const [incidentPickActive, setIncidentPickActive] = useState(false);
+  const [pickedIncidentCoords, setPickedIncidentCoords] = useState<LngLat | null>(null);
 
   const handleRouteCalculated = useCallback((data: RouteCalculatedData | null) => {
     setRouteData(data);
@@ -79,10 +82,25 @@ export default function MapaPage() {
       <div className="min-h-0 flex-1">
         <RoutePlanner
           rightSlot={RIGHT_SLOTS[activeTab]}
-          mapOverlay={activeTab === 'ruta' ? <IncidentFab onCreated={handleIncidentCreated} /> : undefined}
+          mapOverlay={activeTab === 'ruta' ? (
+            <IncidentFab
+              onCreated={handleIncidentCreated}
+              onRequestPickLocation={() => setIncidentPickActive(true)}
+              pickActive={incidentPickActive}
+              pickedCoords={pickedIncidentCoords}
+              onPickedCoordsConsumed={() => setPickedIncidentCoords(null)}
+            />
+          ) : undefined}
           onRouteCalculated={handleRouteCalculated}
           onViaConflictsChanged={handleViaConflicts}
           incidentRefreshKey={incidentRefreshKey}
+          externalPickActive={incidentPickActive}
+          externalPickLabel="la ubicación del incidente"
+          onExternalPick={(lngLat) => {
+            setPickedIncidentCoords(lngLat);
+            setIncidentPickActive(false);
+          }}
+          onExternalPickCancel={() => setIncidentPickActive(false)}
         />
       </div>
 
