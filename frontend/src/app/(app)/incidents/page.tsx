@@ -13,10 +13,10 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { IncidentDetailDialog } from "@/components/incidents/IncidentDetailDialog";
 import { cn } from "@/lib/utils";
 import {
+  conditionMeta,
   formatDateEs,
   severityMeta,
   statusMeta,
-  typeMeta,
 } from "@/lib/incidents/format";
 import { getIncidents } from "@/services/incidents.service";
 import type {
@@ -261,7 +261,7 @@ interface IncidentRowProps {
 /** Fila del feed: señales por color y posición, sin texto redundante. */
 function IncidentRow({ incident, onSelect }: IncidentRowProps) {
   const severity = severityMeta[incident.severity];
-  const TypeIcon = typeMeta[incident.type].icon;
+  const TypeIcon = conditionMeta[incident.condition ?? 'fisica'].icon;
 
   return (
     <li>
@@ -276,7 +276,7 @@ function IncidentRow({ incident, onSelect }: IncidentRowProps) {
         />
         <TypeIcon
           className={cn("size-4 shrink-0", severity.textClass)}
-          aria-label={typeMeta[incident.type].label}
+          aria-label={incident.type}
         />
         <span className="min-w-0 flex-1 truncate text-sm font-medium">
           {incident.title}

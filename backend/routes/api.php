@@ -8,6 +8,7 @@ use App\Http\Controllers\Api\Admin\ReportController;
 use App\Http\Controllers\Api\Admin\UserController as AdminUserController;
 use App\Http\Controllers\Api\Admin\VehicleController as AdminVehicleController;
 use App\Http\Controllers\Api\AuthController;
+use App\Http\Controllers\Api\HazardTypeController;
 use App\Http\Controllers\Api\IncidentController;
 use App\Http\Controllers\Api\IncidentMediaController;
 use App\Http\Controllers\Api\RouteIncidentController;
@@ -24,6 +25,9 @@ Route::middleware('auth:sanctum')->group(function () {
 
     Route::post('/auth/logout', [AuthController::class, 'logout']);
     Route::get('/auth/me',     [AuthController::class, 'me']);
+
+    // Catálogo de peligros (para el select de tipo de incidente)
+    Route::get('/hazard-types', [HazardTypeController::class, 'index']);
 
     // Incidentes
     Route::get('/incidents',              [IncidentController::class, 'index']);

@@ -1,13 +1,14 @@
 'use client';
 
 import { useCallback, useState } from 'react';
-import { Map, Flame, Route, BarChart2 } from 'lucide-react';
+import { Map, Flame, Route, BarChart2, ShieldCheck } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { IncidentFab } from '@/components/incidents/IncidentFab';
 import { RouteTimeline } from '@/components/map/RouteTimeline';
 import { CalorPanel } from '@/components/analysis/CalorPanel';
 import { ViaEstadoPanel } from '@/components/analysis/ViaEstadoPanel';
 import { AntStatsPanel } from '@/components/analysis/AntStatsPanel';
+import { EvaluacionRiesgoPanel } from '@/components/analysis/EvaluacionRiesgoPanel';
 import type { RouteCalculatedData } from '@/components/routes/RoutePlanner';
 import dynamic from 'next/dynamic';
 
@@ -16,13 +17,14 @@ const RoutePlanner = dynamic(
   { ssr: false },
 );
 
-type Tab = 'ruta' | 'calor' | 'vias' | 'ant';
+type Tab = 'ruta' | 'calor' | 'vias' | 'ant' | 'riesgo';
 
 const TABS: { id: Tab; label: string; icon: React.ElementType }[] = [
-  { id: 'ruta',  label: 'Ruta',  icon: Map      },
-  { id: 'calor', label: 'Calor', icon: Flame    },
-  { id: 'vias',  label: 'Vías',  icon: Route    },
-  { id: 'ant',   label: 'ANT',   icon: BarChart2 },
+  { id: 'ruta',   label: 'Ruta',   icon: Map         },
+  { id: 'calor',  label: 'Calor',  icon: Flame       },
+  { id: 'vias',   label: 'Vías',   icon: Route       },
+  { id: 'ant',    label: 'ANT',    icon: BarChart2   },
+  { id: 'riesgo', label: 'Riesgo', icon: ShieldCheck },
 ];
 
 export default function MapaPage() {
@@ -45,9 +47,10 @@ export default function MapaPage() {
   }, []);
 
   const RIGHT_SLOTS: Partial<Record<Tab, React.ReactNode>> = {
-    calor: <CalorPanel filterProvinces={routeData ? conflictProvinces : null} />,
-    vias:  <ViaEstadoPanel />,
-    ant:   <AntStatsPanel />,
+    calor:  <CalorPanel filterProvinces={routeData ? conflictProvinces : null} />,
+    vias:   <ViaEstadoPanel />,
+    ant:    <AntStatsPanel />,
+    riesgo: <EvaluacionRiesgoPanel />,
   };
 
   return (

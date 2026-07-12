@@ -5,19 +5,15 @@
  */
 
 import {
-  Ban,
-  CarFront,
+  CloudFog,
   Construction,
-  LifeBuoy,
-  Mountain,
-  ShieldCheck,
-  TriangleAlert,
+  ShieldAlert,
   type LucideIcon,
 } from "lucide-react";
 import type {
+  IncidentCondition,
   IncidentSeverity,
   IncidentStatus,
-  IncidentType,
 } from "@/types/incident";
 
 interface SeverityMeta {
@@ -64,19 +60,16 @@ export const severityMeta: Record<IncidentSeverity, SeverityMeta> = {
   },
 };
 
-interface TypeMeta {
+interface ConditionMeta {
   label: string;
   icon: LucideIcon;
 }
 
-export const typeMeta: Record<IncidentType, TypeMeta> = {
-  accident: { label: "Siniestro", icon: CarFront },
-  road_damage: { label: "Daño en vía", icon: Construction },
-  landslide: { label: "Derrumbe", icon: Mountain },
-  closure: { label: "Cierre", icon: Ban },
-  risk: { label: "Riesgo", icon: TriangleAlert },
-  checkpoint: { label: "Control", icon: ShieldCheck },
-  assistance: { label: "Asistencia", icon: LifeBuoy },
+/** Ícono/etiqueta por Condición (Física/Natural/Entorno-Riesgo Público) — el "Tipo de Condición" en sí se muestra como texto. */
+export const conditionMeta: Record<IncidentCondition, ConditionMeta> = {
+  fisica: { label: "Física", icon: Construction },
+  natural: { label: "Natural", icon: CloudFog },
+  entorno_riesgo_publico: { label: "Entorno / Riesgo público", icon: ShieldAlert },
 };
 
 export const statusMeta: Record<IncidentStatus, { label: string }> = {

@@ -2,6 +2,7 @@
 
 namespace Database\Factories;
 
+use App\Models\HazardType;
 use Illuminate\Database\Eloquent\Factories\Factory;
 
 /**
@@ -14,6 +15,10 @@ class IncidentFactory extends Factory
      */
     public function definition(): array
     {
+        // Reutiliza un hazard type ya sembrado si existe, en vez de crear uno nuevo
+        // por cada incidente (evita ensuciar el catálogo cuando se llama junto al seeder).
+        $hazardType = HazardType::query()->inRandomOrder()->first() ?? HazardType::factory()->create();
+
         return [
             'title' => fake()->randomElement([
                 'Accidente en vía principal',
@@ -22,16 +27,11 @@ class IncidentFactory extends Factory
                 'Cierre parcial de vía',
                 'Punto crítico operativo',
             ]),
-            'type' => fake()->randomElement([
-                'accident',
-                'road_damage',
-                'landslide',
-                'closure',
-                'risk',
-                'checkpoint',
-                'assistance',
-            ]),
-            'severity' => fake()->randomElement(['low', 'medium', 'high', 'critical']),
+            'hazard_type_id' => $hazardType->id,
+            'type' => $hazardType->name,
+            'severity' => $hazardType->severity,
+            'condition' => $hazardType->condition,
+            'risks' => $hazardType->risks,
             'description' => fake()->sentence(18),
             'latitude' => fake()->randomFloat(7, -0.35, -0.05),
             'longitude' => fake()->randomFloat(7, -78.65, -78.35),

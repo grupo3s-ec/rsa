@@ -14,13 +14,13 @@ import {
 } from 'recharts';
 import { AlertTriangle, CheckCircle2, RefreshCw, Route, Truck, Users } from 'lucide-react';
 import { getDashboardStats } from '@/lib/api/admin';
-import { severityMeta, typeMeta, statusMeta } from '@/lib/incidents/format';
+import { severityMeta, statusMeta } from '@/lib/incidents/format';
 import { Skeleton } from '@/components/ui/skeleton';
 import { SeverityBadge } from '@/components/incidents/SeverityBadge';
 import { useCountUp } from '@/lib/ui/use-count-up';
 import { relativeTime } from '@/lib/ui/relative-time';
 import type { DashboardStats } from '@/types/dashboard';
-import type { IncidentSeverity, IncidentStatus, IncidentType } from '@/types/incident';
+import type { IncidentSeverity, IncidentStatus } from '@/types/incident';
 
 // ── Color para estado ─────────────────────────────────────────────────────────
 
@@ -115,8 +115,8 @@ export default function DashboardPage() {
     .map(key => ({ key, name: statusMeta[key].label, value: stats.incidents.by_status[key] ?? 0, hex: STATUS_HEX[key] }))
     .filter(d => d.value > 0);
 
-  const typeData = (Object.keys(typeMeta) as IncidentType[])
-    .map(key => ({ name: typeMeta[key].label, value: stats.incidents.by_type[key] ?? 0 }))
+  const typeData = Object.keys(stats.incidents.by_type)
+    .map(name => ({ name, value: stats.incidents.by_type[name] ?? 0 }))
     .filter(d => d.value > 0);
 
   const openCount       = stats.incidents.by_status['open'] ?? 0;

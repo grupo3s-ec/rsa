@@ -1,11 +1,7 @@
-export const INCIDENT_TYPES = [
-  "accident",
-  "road_damage",
-  "landslide",
-  "closure",
-  "risk",
-  "checkpoint",
-  "assistance",
+export const INCIDENT_CONDITIONS = [
+  "fisica",
+  "natural",
+  "entorno_riesgo_publico",
 ] as const;
 
 export const INCIDENT_SEVERITIES = [
@@ -28,16 +24,29 @@ export const INCIDENT_SOURCES = [
   "geotab",
 ] as const;
 
-export type IncidentType = (typeof INCIDENT_TYPES)[number];
+export type IncidentCondition = (typeof INCIDENT_CONDITIONS)[number];
 export type IncidentSeverity = (typeof INCIDENT_SEVERITIES)[number];
 export type IncidentStatus = (typeof INCIDENT_STATUSES)[number];
 export type IncidentSource = (typeof INCIDENT_SOURCES)[number];
 
+/** Catálogo de peligros — cada fila es un "Tipo de Condición" reportable, con su Condición, Riesgos y Severidad ya fijos. */
+export interface HazardType {
+  id: number;
+  condition: IncidentCondition;
+  name: string;
+  risks: string | null;
+  severity: IncidentSeverity;
+}
+
 export interface Incident {
   id: number;
   title: string;
-  type: IncidentType;
+  /** Nombre legible del hazard type seleccionado (denormalizado, ej. "Curva peligrosa"). */
+  type: string;
   severity: IncidentSeverity;
+  hazard_type_id: number | null;
+  condition: IncidentCondition | null;
+  risks: string | null;
   description: string | null;
   latitude: number;
   longitude: number;
@@ -114,8 +123,7 @@ export interface IncidentHistoryEntry {
 
 export interface CreateIncidentPayload {
   title: string;
-  type: IncidentType;
-  severity: IncidentSeverity;
+  hazard_type_id: number;
   description: string | null;
   latitude: number;
   longitude: number;

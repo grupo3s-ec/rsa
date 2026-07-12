@@ -9,7 +9,7 @@ import {
 import { useTheme } from "next-themes";
 import { Flag, CircleX, TriangleAlert, ShieldAlert } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { severityMeta, typeMeta } from "@/lib/incidents/format";
+import { conditionMeta, severityMeta } from "@/lib/incidents/format";
 import type { LngLat, RouteLineString } from "@/lib/mapbox/directions";
 import type { Incident } from "@/types/incident";
 import type { ViaGeoMarker } from "@/types/ecu911";
@@ -280,7 +280,7 @@ export default function RouteMap({
 
       {/* Incidentes */}
       {incidents.map((incident) => {
-        const TypeIcon = typeMeta[incident.type].icon;
+        const TypeIcon = conditionMeta[incident.condition ?? 'fisica'].icon;
         const severity = severityMeta[incident.severity];
         const isSelected = selectedIncidentId === incident.id;
         const isCritical = incident.severity === "critical";

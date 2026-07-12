@@ -15,11 +15,11 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { ExternalLink, Film, ImageOff, MapPin, Plus, Upload, VideoOff, X } from 'lucide-react';
 import { SeverityBadge } from '@/components/incidents/SeverityBadge';
 import {
+  conditionMeta,
   formatDateEs,
   severityMeta,
   statusMeta,
   toEmbedUrl,
-  typeMeta,
 } from '@/lib/incidents/format';
 import { toast } from 'sonner';
 import {
@@ -206,8 +206,7 @@ export function IncidentDetailDialog({
   // pero sí constantes declaradas tras la guarda de null.
   const inc      = local;
   const severity = severityMeta[inc.severity];
-  const type     = typeMeta[inc.type];
-  const TypeIcon = type.icon;
+  const TypeIcon = conditionMeta[inc.condition ?? 'fisica'].icon;
   const actions  = STATUS_TRANSITIONS[inc.status];
 
   // ── Handlers ─────────────────────────────────────────────────────────────────
@@ -287,7 +286,7 @@ export function IncidentDetailDialog({
               <DialogTitle className="leading-snug">{inc.title}</DialogTitle>
               <DialogDescription className="flex flex-wrap items-center gap-2">
                 <SeverityBadge severity={inc.severity} />
-                <span className="text-xs">{type.label}</span>
+                <span className="text-xs">{inc.type}</span>
               </DialogDescription>
             </div>
           </div>
@@ -299,6 +298,14 @@ export function IncidentDetailDialog({
         {/* Descripción */}
         {inc.description && (
           <p className="text-sm leading-relaxed text-foreground/90">{inc.description}</p>
+        )}
+
+        {/* Riesgos asociados al tipo de condición */}
+        {inc.risks && (
+          <p className="text-xs text-muted-foreground">
+            <span className="font-medium text-foreground/80">Riesgos: </span>
+            {inc.risks}
+          </p>
         )}
 
         <Separator />
@@ -313,6 +320,7 @@ export function IncidentDetailDialog({
             }`} />
             {statusMeta[inc.status].label}
           </span>
+          {inc.condition && <span>{conditionMeta[inc.condition].label}</span>}
           <span>{SOURCE_LABELS[inc.source]}</span>
           <span>{formatDateEs(inc.occurred_at)}</span>
           <span className="flex items-center gap-1 font-mono">

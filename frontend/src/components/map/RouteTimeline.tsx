@@ -16,7 +16,7 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { subsampleRoute, haversineKm } from '@/lib/geo';
-import { formatDistance, formatDuration, severityMeta, typeMeta } from '@/lib/incidents/format';
+import { conditionMeta, formatDistance, formatDuration, severityMeta } from '@/lib/incidents/format';
 import { getPerfilClimatico, MES_NOMBRE } from '@/lib/inamhi';
 import { DATOS_PRECIPITACION, ESTACIONES_META } from '@/lib/precipitacion-data';
 import type { RouteCalculatedData } from '@/components/routes/RoutePlanner';
@@ -153,6 +153,23 @@ export function RouteTimeline({ routeData, onSelectIncident, selectedIncidentId 
       .finally(() => setLoading(false));
   }, [routeData]);
 
+  // Posición km de cada incidente sobre la ruta
+  const incidentPositions = useMemo(() => {
+    if (!routeData || routeData.incidents.length === 0) return [];
+    const samples = subsampleRoute(routeData.coords, 150);
+    const haversineTotal = samples[samples.length - 1]?.km ?? 0;
+    const roadTotalKm    = routeData.distanceMeters / 1000;
+    const scale          = haversineTotal > 0 ? roadTotalKm / haversineTotal : 1;
+    return routeData.incidents.map(inc => {
+      let bestKm = 0, bestDist = Infinity;
+      for (const s of samples) {
+        const d = haversineKm({ lat: inc.latitude, lng: inc.longitude }, { lat: s.point[1], lng: s.point[0] });
+        if (d < bestDist) { bestDist = d; bestKm = s.km; }
+      }
+      return { inc, km: Math.round(bestKm * scale * 10) / 10 };
+    }).sort((a, b) => a.km - b.km);
+  }, [routeData]);
+
   // Perfil de precipitación por km (datos INAMHI, mes actual)
   const precipKmData = useMemo(() => {
     if (!routeData) return [];
@@ -278,7 +295,7 @@ export function RouteTimeline({ routeData, onSelectIncident, selectedIncidentId 
       {/* ── Contenido ── */}
       {open && (
         tab === 'alertas' ? (
-          <div className="h-[calc(22vh-2.25rem)] min-h-[calc(9rem-2.25rem)] overflow-y-auto px-3 py-2">
+          <div className="h-[calc(22vh-2.25rem)] min-h-[calc(9rem-2.25rem)] flex flex-col px-4 py-3 gap-2">
             {!routeData ? (
               <div className="flex h-full items-center justify-center gap-2 text-muted-foreground/60">
                 <Route className="size-4 shrink-0" />
@@ -289,42 +306,102 @@ export function RouteTimeline({ routeData, onSelectIncident, selectedIncidentId 
                 <span className="text-lg">✅</span>
                 <p className="text-sm">Ruta despejada — sin incidentes reportados</p>
               </div>
-            ) : (
-              <div className="flex gap-2 h-full">
-                {routeData.incidents.map((incident) => {
-                  const sev  = severityMeta[incident.severity];
-                  const typ  = typeMeta[incident.type];
-                  const Icon = typ.icon;
-                  const isSelected = selectedIncidentId === incident.id;
-                  return (
-                    <button
-                      key={incident.id}
-                      type="button"
-                      onClick={() => onSelectIncident?.(incident)}
-                      className={cn(
-                        'flex shrink-0 flex-col items-start gap-1 rounded-xl border border-border/50 bg-muted/30 px-3 py-2 text-left transition-colors hover:bg-muted/60 w-44',
-                        isSelected && 'ring-2 ring-ring/40 bg-muted/60',
-                      )}
-                    >
-                      <span className="flex items-center gap-1.5">
-                        <span className="flex size-6 items-center justify-center rounded-full text-white shadow-sm shrink-0"
-                          style={{ backgroundColor: sev.hex }}>
-                          <Icon className="size-3" />
-                        </span>
-                        <span className={cn('text-[9px] font-bold uppercase tracking-wide rounded-full px-1.5 py-0.5', sev.textClass,
-                          incident.severity === 'critical' && 'bg-red-500/10',
-                          incident.severity === 'high'     && 'bg-orange-500/10',
-                          incident.severity === 'medium'   && 'bg-amber-500/10',
-                          incident.severity === 'low'      && 'bg-emerald-500/10',
-                        )}>{sev.label}</span>
-                      </span>
-                      <p className="line-clamp-2 text-[11px] font-medium leading-snug text-foreground">{incident.title}</p>
-                      <p className="text-[10px] text-muted-foreground">{typ.label}</p>
-                    </button>
-                  );
-                })}
-              </div>
-            )}
+            ) : (() => {
+              const totalKm = routeData.distanceMeters / 1000;
+              return (
+                <>
+                  {/* Trazado de ruta con pines posicionados por km */}
+                  <div className="relative pt-8 pb-4 shrink-0">
+                    {/* Línea de ruta */}
+                    <div className="relative h-1.5 rounded-full bg-border/50 mx-1">
+                      <div className="absolute inset-0 rounded-full bg-gradient-to-r from-primary/50 via-primary/30 to-primary/20" />
+                      {/* Punto de inicio */}
+                      <span className="absolute -left-1 top-1/2 -translate-y-1/2 size-3 rounded-full bg-emerald-500 border-2 border-background shadow-sm" />
+                      {/* Punto de fin */}
+                      <span className="absolute -right-1 top-1/2 -translate-y-1/2 size-3 rounded-full bg-slate-700 dark:bg-slate-300 border-2 border-background shadow-sm" />
+
+                      {/* Pines de incidentes */}
+                      {incidentPositions.map(({ inc, km }, idx) => {
+                        const sev  = severityMeta[inc.severity];
+                        const Icon = conditionMeta[inc.condition ?? 'fisica'].icon;
+                        const pct  = Math.min(98, Math.max(2, (km / totalKm) * 100));
+                        const isSelected = selectedIncidentId === inc.id;
+                        // Alterna arriba/abajo para incidentes solapados
+                        const up = idx % 2 === 0;
+                        return (
+                          <button
+                            key={inc.id}
+                            type="button"
+                            title={`km ${km} · ${inc.title}`}
+                            onClick={() => onSelectIncident?.(inc)}
+                            className={cn(
+                              'absolute -translate-x-1/2 flex flex-col items-center transition-transform hover:scale-110 focus:outline-none',
+                              up ? 'bottom-[calc(50%+2px)]' : 'top-[calc(50%+2px)]',
+                              isSelected && 'scale-125',
+                            )}
+                            style={{ left: `${pct}%` }}
+                          >
+                            {up && (
+                              <>
+                                <span className="flex size-6 items-center justify-center rounded-full border-2 border-background text-white shadow-md"
+                                  style={{ backgroundColor: sev.hex }}>
+                                  <Icon className="size-3" />
+                                </span>
+                                <span className="w-px h-2 opacity-60" style={{ backgroundColor: sev.hex }} />
+                              </>
+                            )}
+                            {!up && (
+                              <>
+                                <span className="w-px h-2 opacity-60" style={{ backgroundColor: sev.hex }} />
+                                <span className="flex size-6 items-center justify-center rounded-full border-2 border-background text-white shadow-md"
+                                  style={{ backgroundColor: sev.hex }}>
+                                  <Icon className="size-3" />
+                                </span>
+                              </>
+                            )}
+                          </button>
+                        );
+                      })}
+                    </div>
+
+                    {/* Eje km */}
+                    <div className="flex justify-between mt-1.5 text-[10px] text-muted-foreground px-1">
+                      <span>0 km</span>
+                      <span>{Math.round(totalKm / 2)} km</span>
+                      <span>{Math.round(totalKm)} km</span>
+                    </div>
+                  </div>
+
+                  {/* Lista compacta ordenada por km */}
+                  <div className="flex-1 min-h-0 overflow-y-auto space-y-1">
+                    {incidentPositions.map(({ inc, km }) => {
+                      const sev  = severityMeta[inc.severity];
+                      const Icon = conditionMeta[inc.condition ?? 'fisica'].icon;
+                      const isSelected = selectedIncidentId === inc.id;
+                      return (
+                        <button
+                          key={inc.id}
+                          type="button"
+                          onClick={() => onSelectIncident?.(inc)}
+                          className={cn(
+                            'flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left transition-colors hover:bg-muted/60',
+                            isSelected && 'bg-muted/60 ring-1 ring-ring/30',
+                          )}
+                        >
+                          <span className="flex size-5 shrink-0 items-center justify-center rounded-full text-white"
+                            style={{ backgroundColor: sev.hex }}>
+                            <Icon className="size-2.5" />
+                          </span>
+                          <span className="text-[10px] font-medium text-muted-foreground tabular-nums w-12 shrink-0">km {km}</span>
+                          <span className="flex-1 truncate text-[11px] font-medium text-foreground">{inc.title}</span>
+                          <span className={cn('shrink-0 text-[9px] font-semibold uppercase', sev.textClass)}>{sev.label}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </>
+              );
+            })()}
           </div>
         ) : tab === 'altimetria' ? (
           routeData && elevPoints.length > 0 ? (
@@ -332,9 +409,24 @@ export function RouteTimeline({ routeData, onSelectIncident, selectedIncidentId 
               <ResponsiveContainer width="100%" height="100%">
                 <AreaChart data={elevPoints} margin={{ top: 4, right: 16, bottom: 0, left: 0 }}>
                   <defs>
-                    <linearGradient id="tlElevGradient" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%"  stopColor="var(--color-primary)" stopOpacity={0.3} />
-                      <stop offset="95%" stopColor="var(--color-primary)" stopOpacity={0.02} />
+                    {/*
+                      Paleta estilo mapa topográfico físico:
+                      cima (top SVG = elevación alta) → falda → valle (bottom SVG = base)
+                      rojo-naranja: >3500 m (páramo/nieve)
+                      ámbar:        2000-3500 m (sierra alta)
+                      verde olivo:  1000-2000 m (sierra media/valles)
+                      verde:        500-1000 m  (estribaciones)
+                      cian→azul:    <500 m      (costa/amazonia baja)
+                    */}
+                    <linearGradient id="tlElevTopoFill" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="0%"   stopColor="#dc2626" stopOpacity={0.92} />
+                      <stop offset="12%"  stopColor="#ea580c" stopOpacity={0.88} />
+                      <stop offset="28%"  stopColor="#d97706" stopOpacity={0.82} />
+                      <stop offset="44%"  stopColor="#84cc16" stopOpacity={0.72} />
+                      <stop offset="60%"  stopColor="#16a34a" stopOpacity={0.62} />
+                      <stop offset="76%"  stopColor="#0891b2" stopOpacity={0.48} />
+                      <stop offset="90%"  stopColor="#1d4ed8" stopOpacity={0.25} />
+                      <stop offset="100%" stopColor="#1d4ed8" stopOpacity={0.04} />
                     </linearGradient>
                   </defs>
                   <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" strokeOpacity={0.35} />
@@ -344,11 +436,12 @@ export function RouteTimeline({ routeData, onSelectIncident, selectedIncidentId 
                     tickFormatter={(v: number) => `${(v / 1000).toFixed(1)}k`} axisLine={false} tickLine={false} width={36} />
                   <Tooltip content={<ElevTooltip />} />
                   {incidentKms.map((km, i) => (
-                    <ReferenceLine key={i} x={km} stroke="hsl(var(--destructive))" strokeDasharray="3 2" strokeOpacity={0.65} strokeWidth={1.5} />
+                    <ReferenceLine key={i} x={km} stroke="rgba(255,255,255,0.75)" strokeDasharray="3 2" strokeOpacity={1} strokeWidth={1.5} />
                   ))}
-                  <Area type="monotone" dataKey="elevacion" stroke="hsl(var(--primary))" strokeWidth={1.5}
-                    fill="url(#tlElevGradient)" dot={false}
-                    activeDot={{ r: 4, fill: 'hsl(var(--primary))', stroke: 'hsl(var(--background))', strokeWidth: 2 }} />
+                  <Area type="monotone" dataKey="elevacion"
+                    stroke="rgba(255,255,255,0.82)" strokeWidth={1.8}
+                    fill="url(#tlElevTopoFill)" dot={false}
+                    activeDot={{ r: 4, fill: '#ffffff', stroke: '#ea580c', strokeWidth: 2 }} />
                 </AreaChart>
               </ResponsiveContainer>
             </div>

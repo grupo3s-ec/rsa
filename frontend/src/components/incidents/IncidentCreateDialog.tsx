@@ -1,7 +1,8 @@
 'use client';
 
-import { useRef, useState } from 'react';
-import { Camera, Locate, X } from 'lucide-react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { Select } from '@base-ui/react/select';
+import { Camera, Check, ChevronsUpDown, Locate, X } from 'lucide-react';
 import { toast } from 'sonner';
 import {
   Dialog,
@@ -11,10 +12,10 @@ import {
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { severityMeta, typeMeta } from '@/lib/incidents/format';
-import { createIncident, uploadIncidentPhoto } from '@/services/incidents.service';
-import { INCIDENT_SEVERITIES, INCIDENT_TYPES } from '@/types/incident';
-import type { IncidentSeverity, IncidentType } from '@/types/incident';
+import { SeverityBadge } from '@/components/incidents/SeverityBadge';
+import { conditionMeta, severityMeta } from '@/lib/incidents/format';
+import { createIncident, getHazardTypes, uploadIncidentPhoto } from '@/services/incidents.service';
+import type { HazardType, IncidentSeverity } from '@/types/incident';
 import { RiskMatrixSelector } from './RiskMatrixSelector';
 
 export interface IncidentCreateDialogProps {
@@ -23,18 +24,43 @@ export interface IncidentCreateDialogProps {
   onCreated?: () => void;
 }
 
+/** Orden de urgencia para los grupos del select: Alta → Media → Baja. */
+const SEVERITY_GROUP_ORDER: IncidentSeverity[] = ['high', 'medium', 'low'];
+
 export function IncidentCreateDialog({ open, onOpenChange, onCreated }: IncidentCreateDialogProps) {
-  const [type,        setType]        = useState<IncidentType>('accident');
-  const [severity,    setSeverity]    = useState<IncidentSeverity>('medium');
-  const [title,       setTitle]       = useState('');
-  const [description, setDescription] = useState('');
-  const [coords,      setCoords]      = useState<{ lat: number; lng: number } | null>(null);
-  const [locating,    setLocating]    = useState(false);
-  const [saving,      setSaving]      = useState(false);
-  const [photoFile,   setPhotoFile]   = useState<File | null>(null);
-  const [probability, setProbability] = useState<number | null>(null);
-  const [impact,      setImpact]      = useState<number | null>(null);
+  const [hazardTypes,   setHazardTypes]   = useState<HazardType[]>([]);
+  const [loadingTypes,  setLoadingTypes]  = useState(false);
+  const [hazardTypeId,  setHazardTypeId]  = useState<number | null>(null);
+  const [title,         setTitle]         = useState('');
+  const [description,   setDescription]   = useState('');
+  const [coords,        setCoords]        = useState<{ lat: number; lng: number } | null>(null);
+  const [locating,      setLocating]      = useState(false);
+  const [saving,        setSaving]        = useState(false);
+  const [photoFile,     setPhotoFile]     = useState<File | null>(null);
+  const [probability,   setProbability]   = useState<number | null>(null);
+  const [impact,        setImpact]        = useState<number | null>(null);
   const photoRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (!open || hazardTypes.length > 0) return;
+    setLoadingTypes(true);
+    getHazardTypes()
+      .then(({ data }) => setHazardTypes(data))
+      .catch(() => toast.error('No se pudo cargar el catálogo de peligros'))
+      .finally(() => setLoadingTypes(false));
+  }, [open, hazardTypes.length]);
+
+  const groupedHazardTypes = useMemo(() => {
+    const groups = new Map<IncidentSeverity, HazardType[]>();
+    for (const severity of SEVERITY_GROUP_ORDER) groups.set(severity, []);
+    for (const hazardType of hazardTypes) {
+      groups.get(hazardType.severity)?.push(hazardType);
+    }
+    for (const list of groups.values()) list.sort((a, b) => a.name.localeCompare(b.name, 'es'));
+    return groups;
+  }, [hazardTypes]);
+
+  const selectedHazardType = hazardTypes.find(h => h.id === hazardTypeId) ?? null;
 
   function handleMatrixChange(p: number, i: number) {
     if (probability === p && impact === i) {
@@ -47,8 +73,7 @@ export function IncidentCreateDialog({ open, onOpenChange, onCreated }: Incident
   }
 
   function reset() {
-    setType('accident');
-    setSeverity('medium');
+    setHazardTypeId(null);
     setTitle('');
     setDescription('');
     setCoords(null);
@@ -81,14 +106,14 @@ export function IncidentCreateDialog({ open, onOpenChange, onCreated }: Incident
   async function handleSubmit(e: React.FormEvent): Promise<void> {
     e.preventDefault();
     if (!coords) { toast.error('Detecta tu ubicación antes de continuar'); return; }
+    if (!hazardTypeId) { toast.error('Selecciona el tipo de incidente'); return; }
     if (!title.trim()) return;
 
     setSaving(true);
     try {
       const { data: incident } = await createIncident({
         title:       title.trim(),
-        type,
-        severity,
+        hazard_type_id: hazardTypeId,
         description: description.trim() || null,
         latitude:    coords.lat,
         longitude:   coords.lng,
@@ -124,61 +149,74 @@ export function IncidentCreateDialog({ open, onOpenChange, onCreated }: Incident
 
         <form onSubmit={(e) => { void handleSubmit(e); }} className="space-y-5 pb-2">
 
-          {/* Tipo */}
+          {/* Tipo de incidente */}
           <div className="space-y-2">
-            <p className="text-xs font-medium text-muted-foreground">Tipo</p>
-            <div className="grid grid-cols-4 gap-1.5">
-              {INCIDENT_TYPES.map(t => {
-                const meta = typeMeta[t];
-                const Icon = meta.icon;
-                const active = type === t;
-                return (
-                  <button
-                    key={t}
-                    type="button"
-                    onClick={() => setType(t)}
-                    className={`flex flex-col items-center gap-1.5 rounded-xl py-3 px-1 text-[10px] font-medium leading-tight transition-colors ${
-                      active
-                        ? 'bg-primary/10 text-primary ring-1 ring-primary/30'
-                        : 'bg-muted/40 text-muted-foreground hover:bg-muted'
-                    }`}
-                  >
-                    <Icon className="size-5" />
-                    <span className="text-center">{meta.label}</span>
-                  </button>
-                );
-              })}
-            </div>
+            <p className="text-xs font-medium text-muted-foreground">Tipo de incidente</p>
+            <Select.Root<number>
+              value={hazardTypeId ?? undefined}
+              onValueChange={(value) => { if (value !== null) setHazardTypeId(value); }}
+              disabled={loadingTypes}
+              modal={false}
+            >
+              <Select.Trigger className="flex h-11 w-full items-center gap-2 rounded-xl border border-transparent bg-muted/40 px-3 text-sm outline-none transition-colors focus-visible:border-ring">
+                <span className="flex-1 truncate text-left">
+                  {loadingTypes
+                    ? 'Cargando…'
+                    : selectedHazardType?.name ?? 'Selecciona un tipo'
+                  }
+                </span>
+                <Select.Icon>
+                  <ChevronsUpDown className="size-3.5 text-muted-foreground" />
+                </Select.Icon>
+              </Select.Trigger>
+              <Select.Portal>
+                <Select.Positioner className="z-[60] outline-none" sideOffset={6} alignItemWithTrigger={false}>
+                  <Select.Popup className="max-h-80 w-[var(--anchor-width)] overflow-y-auto rounded-2xl border border-border/60 bg-popover p-1 text-popover-foreground shadow-xl outline-none">
+                    {SEVERITY_GROUP_ORDER.map(severityLevel => {
+                      const items = groupedHazardTypes.get(severityLevel) ?? [];
+                      if (items.length === 0) return null;
+                      const meta = severityMeta[severityLevel];
+                      return (
+                        <Select.Group key={severityLevel}>
+                          <Select.GroupLabel
+                            className="px-2.5 pb-1 pt-2 text-[11px] font-semibold uppercase tracking-wide"
+                            style={{ color: meta.hex }}
+                          >
+                            {meta.label}
+                          </Select.GroupLabel>
+                          {items.map(hazardType => (
+                            <Select.Item
+                              key={hazardType.id}
+                              value={hazardType.id}
+                              className="grid cursor-default grid-cols-[1fr_1rem] items-center gap-2 rounded-xl px-2.5 py-2 text-sm outline-none data-[highlighted]:bg-muted"
+                            >
+                              <Select.ItemText>{hazardType.name}</Select.ItemText>
+                              <Select.ItemIndicator>
+                                <Check className="size-3.5 text-primary" />
+                              </Select.ItemIndicator>
+                            </Select.Item>
+                          ))}
+                        </Select.Group>
+                      );
+                    })}
+                  </Select.Popup>
+                </Select.Positioner>
+              </Select.Portal>
+            </Select.Root>
           </div>
 
-          {/* Severidad */}
-          <div className="space-y-2">
-            <p className="text-xs font-medium text-muted-foreground">Severidad</p>
-            <div className="grid grid-cols-4 gap-1.5">
-              {INCIDENT_SEVERITIES.map(s => {
-                const meta = severityMeta[s];
-                const active = severity === s;
-                return (
-                  <button
-                    key={s}
-                    type="button"
-                    onClick={() => setSeverity(s)}
-                    style={active
-                      ? { backgroundColor: `${meta.hex}22`, color: meta.hex, outlineColor: `${meta.hex}66` }
-                      : undefined
-                    }
-                    className={`rounded-lg py-2.5 text-xs font-semibold transition-colors ${
-                      active
-                        ? 'outline outline-1'
-                        : 'bg-muted/40 text-muted-foreground hover:bg-muted'
-                    }`}
-                  >
-                    {meta.label}
-                  </button>
-                );
-              })}
+          {/* Condición + Riesgos + Severidad — auto-derivados del tipo elegido, no editables */}
+          {selectedHazardType && (
+            <div className="space-y-2 rounded-xl border border-border/50 p-3.5 text-xs">
+              <div className="flex items-center justify-between">
+                <span className="text-muted-foreground">{conditionMeta[selectedHazardType.condition].label}</span>
+                <SeverityBadge severity={selectedHazardType.severity} />
+              </div>
+              {selectedHazardType.risks && (
+                <p className="text-foreground/80">{selectedHazardType.risks}</p>
+              )}
             </div>
-          </div>
+          )}
 
           {/* Evaluación de riesgo ISO 31000 */}
           <div className="space-y-3 rounded-xl border border-border/50 p-3.5">
@@ -274,7 +312,7 @@ export function IncidentCreateDialog({ open, onOpenChange, onCreated }: Incident
           <Button
             type="submit"
             className="h-12 w-full text-sm font-medium"
-            disabled={saving || !title.trim() || !coords}
+            disabled={saving || !title.trim() || !coords || !hazardTypeId}
           >
             {saving
               ? <span className="flex items-center gap-2">

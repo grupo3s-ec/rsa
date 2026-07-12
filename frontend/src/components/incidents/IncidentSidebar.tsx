@@ -2,7 +2,7 @@ import { Route } from "lucide-react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
-import { severityMeta, statusMeta, typeMeta } from "@/lib/incidents/format";
+import { conditionMeta, severityMeta, statusMeta } from "@/lib/incidents/format";
 import type { Incident } from "@/types/incident";
 
 interface IncidentSidebarProps {
@@ -99,8 +99,7 @@ export function IncidentSidebar({
         {!loading && !error
           ? incidents.map((incident) => {
               const severity = severityMeta[incident.severity];
-              const type = typeMeta[incident.type];
-              const TypeIcon = type.icon;
+              const TypeIcon = conditionMeta[incident.condition ?? 'fisica'].icon;
               const isSelected = selectedIncidentId === incident.id;
 
               return (
@@ -126,7 +125,7 @@ export function IncidentSidebar({
                       {incident.title}
                     </span>
                     <span className="mt-0.5 flex items-center gap-1.5 text-xs text-muted-foreground">
-                      <span>{type.label}</span>
+                      <span>{incident.type}</span>
                       <span aria-hidden>·</span>
                       <span>{statusMeta[incident.status].label}</span>
                     </span>

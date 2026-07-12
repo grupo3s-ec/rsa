@@ -399,9 +399,21 @@ function RoutePlannerContent({
 
     if (directionsResult.status === "fulfilled") {
       const allRoutes = directionsResult.value.routes;
-      const converted: LngLat[][] = allRoutes.map((r) =>
-        r.overview_path.map((p): LngLat => [p.lng(), p.lat()]),
-      );
+      // Concatenamos step.path de cada leg para preservar el trayecto completo
+      // con todas las paradas; overview_path es una simplificación que omite desvíos.
+      const converted: LngLat[][] = allRoutes.map((r) => {
+        const coords: LngLat[] = [];
+        for (const leg of r.legs) {
+          for (const step of leg.steps) {
+            for (const pt of step.path) {
+              coords.push([pt.lng(), pt.lat()]);
+            }
+          }
+        }
+        return coords.length > 0
+          ? coords
+          : r.overview_path.map((p): LngLat => [p.lng(), p.lat()]);
+      });
       setRoutes(converted);
       setSelectedRouteIdx(0);
 
@@ -974,7 +986,7 @@ function RoutePlannerContent({
                 onSelectIncident={handleSelectFromMap}
                 onSelectRoute={handleSelectRoute}
                 onMapClick={(lngLat) => { void handleMapClick(lngLat); }}
-                viaMarkers={viaMarkers}
+                viaMarkers={searched && routes.length > 0 ? viaConflicts : viaMarkers}
                 onSelectVia={(m) => setSelectedVia(m)}
                 selectedViaId={selectedVia?.via.id ?? null}
               />
@@ -1057,7 +1069,7 @@ function RoutePlannerContent({
           onSelectIncident={handleSelectFromMap}
           onSelectRoute={handleSelectRoute}
           onMapClick={(lngLat) => { void handleMapClick(lngLat); }}
-          viaMarkers={viaMarkers}
+          viaMarkers={searched && routes.length > 0 ? viaConflicts : viaMarkers}
           onSelectVia={(m) => setSelectedVia(m)}
           selectedViaId={selectedVia?.via.id ?? null}
         />

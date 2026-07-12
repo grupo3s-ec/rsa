@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\StoreIncidentRequest;
 use App\Http\Resources\IncidentResource;
+use App\Models\HazardType;
 use App\Models\Incident;
 use App\Models\IncidentHistory;
 use App\Services\Audit;
@@ -26,7 +27,7 @@ class IncidentController extends Controller
     public function store(StoreIncidentRequest $request): IncidentResource
     {
         $incident = DB::transaction(function () use ($request): Incident {
-            $incident = Incident::query()->create($this->withRisk($request->validated()));
+            $incident = Incident::query()->create($this->withRisk($this->withHazardType($request->validated())));
 
             IncidentHistory::query()->create([
                 'incident_id' => $incident->id,
@@ -53,7 +54,7 @@ class IncidentController extends Controller
         $incident = DB::transaction(function () use ($request, $incident): Incident {
             $previousStatus = $incident->status;
 
-            $incident->update($this->withRisk($request->validated(), $incident));
+            $incident->update($this->withRisk($this->withHazardType($request->validated()), $incident));
 
             $newStatus = $incident->fresh()->status;
 
@@ -87,6 +88,28 @@ class IncidentController extends Controller
     public function destroy(Incident $incident): never
     {
         abort(405, 'Incident deletion is not available in the MVP.');
+    }
+
+    /**
+     * Deriva type/severity/condition/risks desde el catálogo hazard_types
+     * cuando el request trae hazard_type_id — el cliente ya no elige
+     * severidad a mano, sale fija del tipo de condición seleccionado.
+     *
+     * @param array<string, mixed> $data
+     * @return array<string, mixed>
+     */
+    private function withHazardType(array $data): array
+    {
+        if (isset($data['hazard_type_id'])) {
+            $hazardType = HazardType::query()->findOrFail($data['hazard_type_id']);
+
+            $data['type']      = $hazardType->name;
+            $data['severity']  = $hazardType->severity;
+            $data['condition'] = $hazardType->condition;
+            $data['risks']     = $hazardType->risks;
+        }
+
+        return $data;
     }
 
     /**

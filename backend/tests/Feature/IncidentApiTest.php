@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Models\HazardType;
 use App\Models\Incident;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
@@ -26,6 +27,9 @@ class IncidentApiTest extends TestCase
                         'title',
                         'type',
                         'severity',
+                        'hazard_type_id',
+                        'condition',
+                        'risks',
                         'description',
                         'latitude',
                         'longitude',
@@ -56,10 +60,16 @@ class IncidentApiTest extends TestCase
 
     public function test_it_creates_an_incident(): void
     {
+        $hazardType = HazardType::factory()->create([
+            'name' => 'Curva peligrosa',
+            'condition' => 'fisica',
+            'risks' => 'Volcamiento',
+            'severity' => 'medium',
+        ]);
+
         $payload = [
             'title' => 'Created incident',
-            'type' => 'risk',
-            'severity' => 'high',
+            'hazard_type_id' => $hazardType->id,
             'description' => 'Created from test.',
             'latitude' => -0.1900000,
             'longitude' => -78.4800000,
@@ -73,14 +83,18 @@ class IncidentApiTest extends TestCase
         $response
             ->assertCreated()
             ->assertJsonPath('data.title', 'Created incident')
-            ->assertJsonPath('data.type', 'risk')
-            ->assertJsonPath('data.severity', 'high')
+            ->assertJsonPath('data.hazard_type_id', $hazardType->id)
+            ->assertJsonPath('data.type', 'Curva peligrosa')
+            ->assertJsonPath('data.severity', 'medium')
+            ->assertJsonPath('data.condition', 'fisica')
+            ->assertJsonPath('data.risks', 'Volcamiento')
             ->assertJsonPath('data.status', 'open');
 
         $this->assertDatabaseHas('incidents', [
             'title' => 'Created incident',
-            'type' => 'risk',
-            'severity' => 'high',
+            'hazard_type_id' => $hazardType->id,
+            'type' => 'Curva peligrosa',
+            'severity' => 'medium',
             'source' => 'manual',
             'status' => 'open',
         ]);
@@ -94,8 +108,7 @@ class IncidentApiTest extends TestCase
             ->assertUnprocessable()
             ->assertJsonValidationErrors([
                 'title',
-                'type',
-                'severity',
+                'hazard_type_id',
                 'latitude',
                 'longitude',
                 'source',
@@ -106,8 +119,7 @@ class IncidentApiTest extends TestCase
     {
         $payload = [
             'title' => 'Invalid incident',
-            'type' => 'invalid_type',
-            'severity' => 'invalid_severity',
+            'hazard_type_id' => 999999,
             'latitude' => -0.1900000,
             'longitude' => -78.4800000,
             'source' => 'invalid_source',
@@ -119,8 +131,7 @@ class IncidentApiTest extends TestCase
         $response
             ->assertUnprocessable()
             ->assertJsonValidationErrors([
-                'type',
-                'severity',
+                'hazard_type_id',
                 'source',
                 'status',
             ]);
