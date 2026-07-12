@@ -194,7 +194,7 @@ export default function RouteMap({
     <Map
       mapId={MAP_ID}
       defaultCenter={QUITO_CENTER}
-      defaultZoom={11}
+      defaultZoom={13}
       gestureHandling="greedy"
       disableDefaultUI={false}
       colorScheme={colorScheme}

@@ -380,6 +380,10 @@ function RoutePlannerContent({
             })),
             travelMode: google.maps.TravelMode.DRIVING,
             provideRouteAlternatives: true,
+            drivingOptions: {
+              departureTime: new Date(),
+              trafficModel: google.maps.TrafficModel.BEST_GUESS,
+            },
           })
         : Promise.reject(new Error("Google Maps aún no está listo."));
 

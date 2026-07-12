@@ -2,7 +2,8 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Select } from '@base-ui/react/select';
-import { Camera, Check, ChevronsUpDown, Locate, X } from 'lucide-react';
+import { Popover } from '@base-ui/react/popover';
+import { Camera, Check, ChevronsUpDown, HelpCircle, Locate, X } from 'lucide-react';
 import { toast } from 'sonner';
 import {
   Dialog,
@@ -13,10 +14,10 @@ import {
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { SeverityBadge } from '@/components/incidents/SeverityBadge';
+import { RiskMatrixLegend } from '@/components/incidents/RiskMatrixLegend';
 import { conditionMeta, severityMeta } from '@/lib/incidents/format';
 import { createIncident, getHazardTypes, uploadIncidentPhoto } from '@/services/incidents.service';
 import type { HazardType, IncidentSeverity } from '@/types/incident';
-import { RiskMatrixSelector } from './RiskMatrixSelector';
 
 export interface IncidentCreateDialogProps {
   open: boolean;
@@ -37,8 +38,6 @@ export function IncidentCreateDialog({ open, onOpenChange, onCreated }: Incident
   const [locating,      setLocating]      = useState(false);
   const [saving,        setSaving]        = useState(false);
   const [photoFile,     setPhotoFile]     = useState<File | null>(null);
-  const [probability,   setProbability]   = useState<number | null>(null);
-  const [impact,        setImpact]        = useState<number | null>(null);
   const photoRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -62,24 +61,12 @@ export function IncidentCreateDialog({ open, onOpenChange, onCreated }: Incident
 
   const selectedHazardType = hazardTypes.find(h => h.id === hazardTypeId) ?? null;
 
-  function handleMatrixChange(p: number, i: number) {
-    if (probability === p && impact === i) {
-      setProbability(null);
-      setImpact(null);
-    } else {
-      setProbability(p);
-      setImpact(i);
-    }
-  }
-
   function reset() {
     setHazardTypeId(null);
     setTitle('');
     setDescription('');
     setCoords(null);
     setPhotoFile(null);
-    setProbability(null);
-    setImpact(null);
   }
 
   function detectLocation() {
@@ -120,8 +107,6 @@ export function IncidentCreateDialog({ open, onOpenChange, onCreated }: Incident
         source:      'manual',
         video_url:   null,
         occurred_at: null,
-        probability: probability ?? null,
-        impact:      impact ?? null,
       });
 
       if (photoFile) {
@@ -151,7 +136,24 @@ export function IncidentCreateDialog({ open, onOpenChange, onCreated }: Incident
 
           {/* Tipo de incidente */}
           <div className="space-y-2">
-            <p className="text-xs font-medium text-muted-foreground">Tipo de incidente</p>
+            <div className="flex items-center gap-1.5">
+              <p className="text-xs font-medium text-muted-foreground">Tipo de incidente</p>
+              <Popover.Root>
+                <Popover.Trigger
+                  aria-label="Cómo se califica el riesgo"
+                  className="flex size-4 items-center justify-center rounded-full text-muted-foreground/70 outline-none transition-colors hover:text-foreground"
+                >
+                  <HelpCircle className="size-3.5" />
+                </Popover.Trigger>
+                <Popover.Portal>
+                  <Popover.Positioner className="z-[60] outline-none" sideOffset={8}>
+                    <Popover.Popup className="w-72 rounded-2xl border border-border/60 bg-popover p-3.5 text-popover-foreground shadow-xl outline-none">
+                      <RiskMatrixLegend />
+                    </Popover.Popup>
+                  </Popover.Positioner>
+                </Popover.Portal>
+              </Popover.Root>
+            </div>
             <Select.Root<number>
               value={hazardTypeId ?? undefined}
               onValueChange={(value) => { if (value !== null) setHazardTypeId(value); }}
@@ -217,19 +219,6 @@ export function IncidentCreateDialog({ open, onOpenChange, onCreated }: Incident
               )}
             </div>
           )}
-
-          {/* Evaluación de riesgo ISO 31000 */}
-          <div className="space-y-3 rounded-xl border border-border/50 p-3.5">
-            <p className="text-xs font-medium text-muted-foreground">
-              Evaluación de riesgo{' '}
-              <span className="font-normal text-muted-foreground/60">· ISO 31000 — Probabilidad × Impacto</span>
-            </p>
-            <RiskMatrixSelector
-              probability={probability}
-              impact={impact}
-              onChange={handleMatrixChange}
-            />
-          </div>
 
           {/* Título */}
           <div className="space-y-1.5">
