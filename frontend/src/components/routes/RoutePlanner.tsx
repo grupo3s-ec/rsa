@@ -31,12 +31,14 @@ import {
   HelpCircle,
   Link2,
   LoaderCircle,
+  Lock,
   Maximize2,
   Navigation,
   PanelLeft,
   Plus,
   Route as RouteIcon,
   Search,
+  ShieldAlert,
   Timer,
   X,
 } from "lucide-react";
@@ -44,6 +46,13 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+} from "@/components/ui/dialog";
 import { IncidentDetailDialog } from "@/components/incidents/IncidentDetailDialog";
 import { IncidentSidebar } from "@/components/incidents/IncidentSidebar";
 import { MapHelpDialog } from "@/components/map/MapHelpDialog";
@@ -72,6 +81,10 @@ const RouteMap = dynamic(() => import("@/components/map/RouteMap"), {
 
 
 const MAX_WAYPOINTS = 8;
+
+// ─── Modo demo — por ahora el planificador queda fijo a esta única ruta ──────
+const DEMO_MODE      = true;
+const DEMO_ROUTE_URL = "https://maps.app.goo.gl/Ym9Hwza2EqTMAk3RA";
 
 type PickingIndex = number | null;
 type LayoutMode   = "full" | "panel";
@@ -212,6 +225,12 @@ function RoutePlannerContent({
   const [searched,      setSearched]      = useState(false);
   const [helpOpen,      setHelpOpen]      = useState(false);
   const [layoutMode,    setLayoutMode]    = useState<LayoutMode>("panel");
+
+  // ─── Modo demo: ruta fija, panel de solo lectura ─────────────────────────
+  const [demoTampered, setDemoTampered] = useState(false);
+  const demoAppliedRef  = useRef(false);
+  const demoPanelRef    = useRef<HTMLDivElement>(null);
+  const demoObserverRef = useRef<MutationObserver | null>(null);
 
   // ─── ECU911 — vías con restricciones ────────────────────────────────────
   const [viaMarkers,       setViaMarkers]       = useState<ViaGeoMarker[]>([]);
@@ -572,6 +591,45 @@ function RoutePlannerContent({
     await handleSearchWith(newWps);
   }
 
+  // ─── Modo demo: carga automática de la ruta fija ─────────────────────────
+
+  useEffect(() => {
+    if (!DEMO_MODE || !geocoder || demoAppliedRef.current) return;
+    demoAppliedRef.current = true;
+    void handlePasteRouteLink(DEMO_ROUTE_URL);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [geocoder]);
+
+  useEffect(() => {
+    if (!DEMO_MODE || searched || !pasteOriginCoords || !pasteDestCoords) return;
+    void handleApplyPaste();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pasteOriginCoords, pasteDestCoords, searched]);
+
+  // Una vez la ruta demo termina de cargar y el panel se asienta, se arma la
+  // vigilancia del DOM — cualquier mutación después de esto solo puede venir
+  // de una manipulación externa (devtools), nunca del propio render de React.
+  // Se re-arma en cada cambio de layout (panel ↔ pantalla completa), porque
+  // ese toggle desmonta el nodo vigilado y monta uno nuevo.
+  useEffect(() => {
+    if (!DEMO_MODE || !searched || loading) return;
+    const timer = setTimeout(() => {
+      const el = demoPanelRef.current;
+      if (!el) return;
+      const observer = new MutationObserver(() => {
+        setDemoTampered(true);
+        observer.disconnect();
+      });
+      observer.observe(el, { childList: true, subtree: true, attributes: true, characterData: true });
+      demoObserverRef.current = observer;
+    }, 800);
+    return () => {
+      clearTimeout(timer);
+      demoObserverRef.current?.disconnect();
+      demoObserverRef.current = null;
+    };
+  }, [searched, loading, layoutMode]);
+
   // ─── Atajos de teclado ────────────────────────────────────────────────────
 
   const kbHandlerRef = useRef<((e: KeyboardEvent) => void) | null>(null);
@@ -585,7 +643,7 @@ function RoutePlannerContent({
 
     switch (event.key) {
       case "Enter":
-        if (canSearch && !detailOpen && !helpOpen) {
+        if (!DEMO_MODE && canSearch && !detailOpen && !helpOpen) {
           event.preventDefault();
           void handleSearch();
         }
@@ -674,7 +732,15 @@ function RoutePlannerContent({
 
   // ─── Tabs de modo (se renderizan fuera del formulario, bajo el header) ───────
 
-  const addressTabs = (
+  const addressTabs = DEMO_MODE ? (
+    <div className="flex items-center gap-1.5 border-b border-border/50 px-3 py-2">
+      <span className="flex items-center gap-1 rounded-full bg-amber-500/15 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-600 dark:text-amber-400">
+        <Lock className="size-2.5" />
+        Demo
+      </span>
+      <span className="truncate text-[11px] text-muted-foreground">Ruta de demostración fija</span>
+    </div>
+  ) : (
     <div className="flex border-b border-border/50">
       {(["url", "buscar"] as const).map((tab) => {
         const labels   = { url: "URL", buscar: "Buscar", coordenadas: "Coords" } as const;
@@ -703,9 +769,118 @@ function RoutePlannerContent({
     </div>
   );
 
+  // ─── Formulario de planificación (modo demo: solo lectura, ruta fija) ────
+
+  function renderDemoForm(compact = false) {
+    return (
+      <div className={cn("space-y-3", compact && "text-sm")}>
+        {/* Todo lo estático (nunca cambia tras cargar) vive dentro de este contenedor
+            vigilado por el detector de manipulación — el contador de incidentes queda
+            afuera porque sí puede actualizarse legítimamente (ej. al reportar uno nuevo). */}
+        <div ref={demoPanelRef} className="space-y-3">
+
+          <div className="space-y-1 rounded-lg border border-border/50 bg-muted/20 p-2.5">
+            <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground/70">
+              Enlace de referencia
+            </p>
+            <p className="truncate font-mono text-[11px] text-muted-foreground">{DEMO_ROUTE_URL}</p>
+          </div>
+
+          <div className="space-y-1">
+            {waypoints.map((_, idx) => {
+              const isFirst = idx === 0;
+              const isLast  = idx === waypoints.length - 1;
+              const label   = isFirst ? "Punto de salida" : isLast ? "Destino" : `Parada ${idx}`;
+              return (
+                <div key={idx} className="flex items-stretch gap-2">
+                  <div className="flex w-6 shrink-0 flex-col items-center">
+                    <div className={cn("flex size-6 shrink-0 items-center justify-center", isLast && "mt-0.5")}>
+                      {isFirst ? (
+                        <span className="flex size-4 items-center justify-center rounded-full border-2 border-emerald-500">
+                          <span className="size-1.5 rounded-full bg-emerald-500" />
+                        </span>
+                      ) : isLast ? (
+                        <span className="flex size-6 items-center justify-center rounded-full bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900">
+                          <Flag className="size-3" />
+                        </span>
+                      ) : (
+                        <span className="size-1.5 rounded-full bg-muted-foreground/40" />
+                      )}
+                    </div>
+                    {!isLast && <div className="w-px flex-1 bg-border/50 my-0.5" />}
+                  </div>
+                  <div className="flex min-w-0 flex-1 items-center pb-1">
+                    <p className="min-w-0 flex-1 truncate rounded-lg bg-muted/40 px-2.5 py-2 text-xs text-muted-foreground">
+                      {addresses[idx] ?? label}
+                    </p>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          <Separator />
+
+          {loading || (!searched && !error) ? (
+            <p className="flex items-center gap-2 text-xs text-muted-foreground">
+              <LoaderCircle className="size-3.5 animate-spin" />
+              Cargando ruta de demostración…
+            </p>
+          ) : error ? (
+            <p className="text-xs text-destructive">{error}</p>
+          ) : routeInfo ? (
+            <div className="flex items-center gap-4 text-sm">
+              <span className="flex items-center gap-1.5 font-semibold">
+                <Timer className="size-4 text-primary" />
+                {formatDuration(routeInfo.durationSeconds)}
+              </span>
+              <span className="flex items-center gap-1.5 text-muted-foreground">
+                <RouteIcon className="size-4" />
+                {formatDistance(routeInfo.distanceMeters)}
+              </span>
+            </div>
+          ) : null}
+
+          {viaConflicts.length > 0 ? (
+            <div className="rounded-lg border border-orange-500/40 bg-orange-50/60 p-2.5 dark:bg-orange-950/30">
+              <p className="mb-1.5 flex items-center gap-2 text-xs font-semibold text-orange-700 dark:text-orange-400">
+                <AlertTriangle className="size-4 shrink-0 text-orange-500" />
+                {viaConflicts.length} vía{viaConflicts.length !== 1 ? "s" : ""} con restricción en la ruta
+              </p>
+              <ul className="max-h-48 space-y-1.5 overflow-y-auto">
+                {viaConflicts.map((m) => (
+                  <li key={m.via.id} className="text-[11px] text-muted-foreground">
+                    <span className="font-medium text-foreground">{m.via.descripcion}</span>
+                    {" · "}{m.via.EstadoActual.nombre}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
+
+        </div>
+
+        {searched && !loading && !error ? (
+          <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+            <Bell className="size-4" />
+            <span className="tabular-nums">{incidents.length}</span>
+            {criticalCount > 0 ? (
+              <span
+                className="size-2 rounded-full bg-red-500 shadow-[0_0_6px_rgba(239,68,68,0.8)]"
+                aria-label={`${criticalCount} alertas críticas`}
+              />
+            ) : null}
+          </div>
+        ) : null}
+      </div>
+    );
+  }
+
   // ─── Formulario de planificación ──────────────────────────────────────────
 
   function renderPlannerForm(compact = false) {
+    if (DEMO_MODE) return renderDemoForm(compact);
+
     const isUrlMode   = addressMode === "url";
     const canPasteUrl = !!(pasteOriginCoords && pasteDestCoords) && !loading;
     const btnDisabled = isUrlMode ? !canPasteUrl : !canSearch;
@@ -984,6 +1159,21 @@ function RoutePlannerContent({
         }}
       />
       <MapHelpDialog open={helpOpen} onOpenChange={setHelpOpen} />
+      {DEMO_MODE && (
+        <Dialog open={demoTampered} onOpenChange={() => {}}>
+          <DialogContent showCloseButton={false} className="sm:max-w-sm">
+            <DialogHeader>
+              <div className="flex items-center gap-2">
+                <ShieldAlert className="size-5 text-amber-500" />
+                <DialogTitle>Versión de demostración</DialogTitle>
+              </div>
+              <DialogDescription>
+                Para utilizar todos los beneficios de RSA debe adquirir la licencia de uso.
+              </DialogDescription>
+            </DialogHeader>
+          </DialogContent>
+        </Dialog>
+      )}
     </>
   );
 
@@ -992,7 +1182,7 @@ function RoutePlannerContent({
   if (layoutMode === "panel") {
     return (
       <div className="flex h-full w-full overflow-hidden">
-        <aside className="flex w-1/2 min-w-[320px] max-w-[560px] shrink-0 flex-col border-r bg-background">
+        <aside className="flex w-[calc(50%-5px)] min-w-[315px] max-w-[555px] shrink-0 flex-col border-r bg-background">
           <div className="flex items-center justify-between px-4 py-3">
             <p className="text-sm font-semibold text-foreground">Planificador</p>
             <div className="flex items-center gap-1">
@@ -1115,7 +1305,7 @@ function RoutePlannerContent({
 
       {pickModeIndicator}
 
-      <aside className="absolute left-4 top-4 z-10 w-[min(20rem,calc(100vw-2rem))] rounded-2xl border border-border/60 bg-background/80 shadow-lg backdrop-blur">
+      <aside className="absolute left-4 top-4 z-10 w-[min(calc(20rem-5px),calc(100vw-2rem))] rounded-2xl border border-border/60 bg-background/80 shadow-lg backdrop-blur">
         <div className="flex items-center justify-between px-4 py-2.5">
           <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Planificador</p>
           <Button
