@@ -75,7 +75,17 @@ function BoundsFitter({
 
     const bounds = new window.google.maps.LatLngBounds();
     points.forEach((p) => bounds.extend(p));
-    map.fitBounds(bounds, 90);
+    map.fitBounds(bounds, 60);
+
+    // fitBounds ajusta al lado más restrictivo del viewport — en rutas angostas
+    // (norte-sur) dentro de un panel ancho, eso deja mucho mapa "de sobra" a los
+    // costados. Una vez se asienta, se acerca un nivel más para que la ruta sea
+    // el foco principal en vez de verse perdida en el mapa.
+    const listener = window.google.maps.event.addListenerOnce(map, "idle", () => {
+      const zoom = map.getZoom();
+      if (zoom !== undefined) map.setZoom(zoom + 1);
+    });
+    return () => window.google.maps.event.removeListener(listener);
   }, [map, waypoints, selectedRoute]);
 
   return null;

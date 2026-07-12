@@ -560,8 +560,24 @@ function RoutePlannerContent({
 
     const route = extractRouteFromGoogleMapsUrl(resolved);
     if (route && geocoder) {
+      // Primero se resuelven los waypoints que ya son coordenadas (instantáneo, sin
+      // geocoding) para armar un sesgo geográfico — así, un waypoint de texto ambiguo
+      // (misma calle/iglesia existe en varias ciudades) se geocodifica cerca del resto
+      // de la ruta en vez de en cualquier ciudad de Ecuador que matchee el nombre.
+      const coordRegex = /^(-?\d+(?:\.\d+)?)[,\s]+(-?\d+(?:\.\d+)?)$/;
+      const knownPoints = route.waypoints
+        .map((wp) => wp.match(coordRegex))
+        .filter((m): m is RegExpMatchArray => m !== null)
+        .map((m) => ({ lat: parseFloat(m[1]!), lng: parseFloat(m[2]!) }));
+
+      let bias: google.maps.LatLngBounds | undefined;
+      if (knownPoints.length > 0) {
+        bias = new google.maps.LatLngBounds();
+        knownPoints.forEach((p) => bias!.extend(p));
+      }
+
       const allResults = await Promise.allSettled(
-        route.waypoints.map((wp) => resolveLocationText(wp, geocoder)),
+        route.waypoints.map((wp) => resolveLocationText(wp, geocoder, bias)),
       );
       const allCoords = allResults
         .map((r) => (r.status === "fulfilled" ? r.value : null))
@@ -738,7 +754,6 @@ function RoutePlannerContent({
         <Lock className="size-2.5" />
         Demo
       </span>
-      <span className="truncate text-[11px] text-muted-foreground">Ruta de demostración fija</span>
     </div>
   ) : (
     <div className="flex border-b border-border/50">
@@ -778,13 +793,6 @@ function RoutePlannerContent({
             vigilado por el detector de manipulación — el contador de incidentes queda
             afuera porque sí puede actualizarse legítimamente (ej. al reportar uno nuevo). */}
         <div ref={demoPanelRef} className="space-y-3">
-
-          <div className="space-y-1 rounded-lg border border-border/50 bg-muted/20 p-2.5">
-            <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground/70">
-              Enlace de referencia
-            </p>
-            <p className="truncate font-mono text-[11px] text-muted-foreground">{DEMO_ROUTE_URL}</p>
-          </div>
 
           <div className="space-y-1">
             {waypoints.map((_, idx) => {
@@ -1722,6 +1730,11 @@ function CoordinateInput({ id, label, value, onChange }: CoordinateInputProps) {
 async function resolveLocationText(
   text: string,
   geocoder: google.maps.Geocoder | null,
+  /** Sesgo geográfico opcional (ej. bounds de los otros waypoints conocidos de la
+   * misma ruta), para que direcciones de texto ambiguas (mismo nombre de calle o
+   * iglesia en varias ciudades) resuelvan cerca del resto de la ruta y no en una
+   * ciudad completamente distinta. */
+  bias?: google.maps.LatLngBounds,
 ): Promise<{ lngLat: LngLat; address: string } | null> {
   const t = text.trim();
   if (!t) return null;
@@ -1752,7 +1765,7 @@ async function resolveLocationText(
   // Geocodificar como dirección de texto
   if (geocoder) {
     try {
-      const res = await geocoder.geocode({ address: t, region: "ec" });
+      const res = await geocoder.geocode({ address: t, region: "ec", bounds: bias });
       const loc  = res.results[0]?.geometry?.location;
       const addr = res.results[0]?.formatted_address ?? t;
       if (loc) return { lngLat: [loc.lng(), loc.lat()], address: addr };
@@ -1771,6 +1784,10 @@ function extractRouteFromGoogleMapsUrl(text: string): { waypoints: string[] } | 
     const segments = m[1]!
       .split("/")
       .map((s) => decodeURIComponent(s.replace(/\+/g, " ")).trim())
+      // Google a veces envuelve un waypoint ambiguo entre comillas simples/dobles
+      // (ej. "'-2.88969,-78.98785'") — sin esto, el regex de coordenadas no matchea
+      // por los caracteres extra y el waypoint se pierde silenciosamente.
+      .map((s) => s.replace(/^['"]+|['"]+$/g, "").trim())
       .filter((s) => s && !s.startsWith("@") && !s.startsWith("data="));
     if (segments.length < 2) return null;
     return { waypoints: segments };
