@@ -22,6 +22,7 @@ import {
   AlertTriangle,
   Bell,
   ChevronDown,
+  ChevronLeft,
   ChevronRight,
   ChevronUp,
   CircleCheck,
@@ -56,6 +57,7 @@ import {
 import { IncidentDetailDialog } from "@/components/incidents/IncidentDetailDialog";
 import { IncidentSidebar } from "@/components/incidents/IncidentSidebar";
 import { MapHelpDialog } from "@/components/map/MapHelpDialog";
+import { RouteTimeline } from "@/components/map/RouteTimeline";
 import { cn } from "@/lib/utils";
 import { GOOGLE_MAPS_API_KEY } from "@/lib/config";
 import { formatDistance, formatDuration } from "@/lib/incidents/format";
@@ -208,6 +210,19 @@ function RoutePlannerContent({
   const [detailOpen,    setDetailOpen]    = useState(false);
   const [loading,       setLoading]       = useState(false);
 
+  /** Espejo local de lo que se envía por onRouteCalculated — evita depender de un
+   * round-trip por el padre solo para alimentar el panel de Alertas/Altimetría/Clima. */
+  const timelineRouteData: RouteCalculatedData | null = useMemo(() => {
+    const coords = routes[selectedRouteIdx];
+    if (!coords || coords.length === 0 || !routeInfo) return null;
+    return {
+      coords,
+      incidents,
+      distanceMeters: routeInfo.distanceMeters,
+      durationSeconds: routeInfo.durationSeconds,
+    };
+  }, [routes, selectedRouteIdx, routeInfo, incidents]);
+
   // Carga inicial y recarga tras crear novedad (incidentRefreshKey incrementa)
   useEffect(() => {
     void (async () => {
@@ -225,6 +240,7 @@ function RoutePlannerContent({
   const [searched,      setSearched]      = useState(false);
   const [helpOpen,      setHelpOpen]      = useState(false);
   const [layoutMode,    setLayoutMode]    = useState<LayoutMode>("panel");
+  const [plannerCollapsed, setPlannerCollapsed] = useState(false);
 
   // ─── Modo demo: ruta fija, panel de solo lectura ─────────────────────────
   const [demoTampered, setDemoTampered] = useState(false);
@@ -625,10 +641,11 @@ function RoutePlannerContent({
   // Una vez la ruta demo termina de cargar y el panel se asienta, se arma la
   // vigilancia del DOM — cualquier mutación después de esto solo puede venir
   // de una manipulación externa (devtools), nunca del propio render de React.
-  // Se re-arma en cada cambio de layout (panel ↔ pantalla completa), porque
-  // ese toggle desmonta el nodo vigilado y monta uno nuevo.
+  // Se re-arma en cada cambio de layout (panel ↔ pantalla completa) o al
+  // colapsar/expandir el aside del planificador, porque ambos desmontan el
+  // nodo vigilado y montan uno nuevo.
   useEffect(() => {
-    if (!DEMO_MODE || !searched || loading) return;
+    if (!DEMO_MODE || !searched || loading || plannerCollapsed) return;
     const timer = setTimeout(() => {
       const el = demoPanelRef.current;
       if (!el) return;
@@ -644,7 +661,7 @@ function RoutePlannerContent({
       demoObserverRef.current?.disconnect();
       demoObserverRef.current = null;
     };
-  }, [searched, loading, layoutMode]);
+  }, [searched, loading, layoutMode, plannerCollapsed]);
 
   // ─── Atajos de teclado ────────────────────────────────────────────────────
 
@@ -1190,25 +1207,40 @@ function RoutePlannerContent({
   if (layoutMode === "panel") {
     return (
       <div className="flex h-full w-full overflow-hidden">
-        <aside className="flex w-[calc(50%-5px)] min-w-[315px] max-w-[555px] shrink-0 flex-col border-r bg-background">
-          <div className="flex items-center justify-between px-4 py-3">
-            <p className="text-sm font-semibold text-foreground">Planificador</p>
-            <div className="flex items-center gap-1">
-              <Button variant="ghost" size="icon" aria-label="Abrir guía" onClick={() => setHelpOpen(true)}>
-                <HelpCircle className="size-4" />
-              </Button>
-              <Button variant="ghost" size="icon" aria-label="Modo pantalla completa" onClick={() => setLayoutMode("full")}>
-                <Maximize2 className="size-4" />
-              </Button>
+        {plannerCollapsed ? (
+          <button
+            type="button"
+            onClick={() => setPlannerCollapsed(false)}
+            aria-label="Mostrar planificador"
+            className="flex h-full w-10 shrink-0 flex-col items-center gap-2 border-r border-border/60 bg-background py-3 text-muted-foreground transition-colors hover:text-foreground"
+          >
+            <ChevronRight className="size-4" />
+            <span className="[writing-mode:vertical-rl] text-[11px] font-medium tracking-wide">Planificador</span>
+          </button>
+        ) : (
+          <aside className="flex w-1/3 min-w-[300px] max-w-[480px] shrink-0 flex-col border-r bg-background">
+            <div className="flex items-center justify-between px-4 py-3">
+              <p className="text-sm font-semibold text-foreground">Planificador</p>
+              <div className="flex items-center gap-1">
+                <Button variant="ghost" size="icon" aria-label="Abrir guía" onClick={() => setHelpOpen(true)}>
+                  <HelpCircle className="size-4" />
+                </Button>
+                <Button variant="ghost" size="icon" aria-label="Modo pantalla completa" onClick={() => setLayoutMode("full")}>
+                  <Maximize2 className="size-4" />
+                </Button>
+                <Button variant="ghost" size="icon" aria-label="Ocultar planificador" onClick={() => setPlannerCollapsed(true)}>
+                  <ChevronLeft className="size-4" />
+                </Button>
+              </div>
             </div>
-          </div>
 
-          {addressTabs}
+            {addressTabs}
 
-          <div className="overflow-y-auto p-4">
-            {renderPlannerForm(true)}
-          </div>
-        </aside>
+            <div className="overflow-y-auto p-4">
+              {renderPlannerForm(true)}
+            </div>
+          </aside>
+        )}
 
         <div className={cn("relative flex-1 overflow-hidden", !rightSlot && activePickMode && "cursor-crosshair")}>
           {rightSlot ?? (
@@ -1285,6 +1317,12 @@ function RoutePlannerContent({
           )}
           {mapOverlay}
         </div>
+
+        <RouteTimeline
+          routeData={timelineRouteData}
+          onSelectIncident={handleSelectFromMap}
+          selectedIncidentId={selectedIncident?.id ?? null}
+        />
 
         {sharedDialogs}
       </div>

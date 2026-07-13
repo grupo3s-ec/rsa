@@ -4,7 +4,6 @@ import { useCallback, useState } from 'react';
 import { Map, Flame, CloudRain, Route, BarChart2, ShieldCheck } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { IncidentFab } from '@/components/incidents/IncidentFab';
-import { RouteTimeline } from '@/components/map/RouteTimeline';
 import { CalorPanel } from '@/components/analysis/CalorPanel';
 import { ClimaPanel } from '@/components/analysis/ClimaPanel';
 import { ViaEstadoPanel } from '@/components/analysis/ViaEstadoPanel';
@@ -81,7 +80,7 @@ export default function MapaPage() {
         ))}
       </div>
 
-      {/* Contenido: planner izquierda (50%) + mapa o panel derecha (50%) */}
+      {/* Contenido: planificador | mapa | alertas·altimetría·clima — cada aside colapsable a 1/3 */}
       <div className="min-h-0 flex-1">
         <RoutePlanner
           rightSlot={RIGHT_SLOTS[activeTab]}
@@ -106,9 +105,6 @@ export default function MapaPage() {
           onExternalPickCancel={() => setIncidentPickActive(false)}
         />
       </div>
-
-      {/* Timeline de ruta */}
-      <RouteTimeline routeData={routeData} />
     </div>
   );
 }

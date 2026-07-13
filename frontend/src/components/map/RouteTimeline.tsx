@@ -11,7 +11,7 @@ import {
   XAxis, YAxis,
 } from 'recharts';
 import {
-  AlertTriangle, Bell, ChevronDown, ChevronUp, LoaderCircle,
+  AlertTriangle, Bell, ChevronLeft, ChevronRight, LoaderCircle,
   Mountain, CloudRain, Route, History,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -197,75 +197,88 @@ export function RouteTimeline({ routeData, onSelectIncident, selectedIncidentId 
 
   const criticalCount = routeData?.incidents.filter(i => i.severity === 'critical').length ?? 0;
 
-  return (
-    <div className={cn(
-      'shrink-0 border-t border-border/60 bg-background/95 backdrop-blur transition-all duration-300',
-      open ? 'h-[22vh] min-h-[9rem]' : 'h-9',
-    )}>
-      {/* ── Encabezado ── */}
-      <div className="flex h-9 shrink-0 items-center gap-2 border-b border-border/40 px-3">
-        <button type="button" onClick={() => setOpen(o => !o)}
-          className="flex items-center text-xs font-semibold text-foreground/80 hover:text-foreground">
-          {open ? <ChevronDown className="size-3.5" /> : <ChevronUp className="size-3.5" />}
-        </button>
+  if (!open) {
+    return (
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        aria-label="Mostrar alertas, altimetría y clima"
+        className="flex h-full w-10 shrink-0 flex-col items-center gap-2 border-l border-border/60 bg-background/95 py-3 text-muted-foreground transition-colors hover:text-foreground"
+      >
+        <ChevronLeft className="size-4" />
+        <span className="[writing-mode:vertical-rl] text-[11px] font-medium tracking-wide">
+          Alertas · Altimetría · Clima
+        </span>
+      </button>
+    );
+  }
 
-        {/* Tabs */}
-        <div className="flex items-center gap-0.5 rounded-lg border border-border/50 bg-muted/40 p-0.5">
-          <button type="button" onClick={() => setTab('alertas')}
-            className={cn('relative flex items-center gap-1 rounded-md px-2 py-0.5 text-[11px] font-medium transition-colors',
-              tab === 'alertas' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground')}>
-            <Bell className="size-3" /> Alertas
-            {(routeData?.incidents.length ?? 0) > 0 && (
-              <span className={cn('ml-0.5 rounded-full px-1 text-[9px] font-bold',
-                (routeData?.incidents.some(i => i.severity === 'critical')) ? 'bg-red-500 text-white' : 'bg-amber-500 text-white')}>
-                {routeData!.incidents.length}
-              </span>
-            )}
-          </button>
-          <button type="button" onClick={() => { setTab('altimetria'); setShowHistorial(false); }}
-            className={cn('flex items-center gap-1 rounded-md px-2 py-0.5 text-[11px] font-medium transition-colors',
-              tab === 'altimetria' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground')}>
-            <Mountain className="size-3" /> Altimetría
-          </button>
-          <button type="button" onClick={() => setTab('precipitacion')}
-            className={cn('flex items-center gap-1 rounded-md px-2 py-0.5 text-[11px] font-medium transition-colors',
-              tab === 'precipitacion' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground')}>
-            <CloudRain className="size-3" /> Precipitación
+  return (
+    <div className="flex h-full w-1/3 min-w-[300px] max-w-[480px] shrink-0 flex-col border-l border-border/60 bg-background/95 backdrop-blur">
+      {/* ── Encabezado ── */}
+      <div className="flex shrink-0 flex-col gap-2 border-b border-border/40 px-3 py-2.5">
+        <div className="flex items-center justify-between gap-2">
+          {/* Tabs */}
+          <div className="flex items-center gap-0.5 rounded-lg border border-border/50 bg-muted/40 p-0.5">
+            <button type="button" onClick={() => setTab('alertas')}
+              className={cn('relative flex items-center gap-1 rounded-md px-2 py-0.5 text-[11px] font-medium transition-colors',
+                tab === 'alertas' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground')}>
+              <Bell className="size-3" /> Alertas
+              {(routeData?.incidents.length ?? 0) > 0 && (
+                <span className={cn('ml-0.5 rounded-full px-1 text-[9px] font-bold',
+                  (routeData?.incidents.some(i => i.severity === 'critical')) ? 'bg-red-500 text-white' : 'bg-amber-500 text-white')}>
+                  {routeData!.incidents.length}
+                </span>
+              )}
+            </button>
+            <button type="button" onClick={() => { setTab('altimetria'); setShowHistorial(false); }}
+              className={cn('flex items-center gap-1 rounded-md px-2 py-0.5 text-[11px] font-medium transition-colors',
+                tab === 'altimetria' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground')}>
+              <Mountain className="size-3" /> Altimetría
+            </button>
+            <button type="button" onClick={() => setTab('precipitacion')}
+              className={cn('flex items-center gap-1 rounded-md px-2 py-0.5 text-[11px] font-medium transition-colors',
+                tab === 'precipitacion' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground')}>
+              <CloudRain className="size-3" /> Precipitación
+            </button>
+          </div>
+
+          <button type="button" onClick={() => setOpen(false)}
+            aria-label="Ocultar panel"
+            className="shrink-0 rounded-md p-1 text-muted-foreground transition-colors hover:text-foreground">
+            <ChevronRight className="size-3.5" />
           </button>
         </div>
 
         {/* Info contextual */}
         {tab === 'altimetria' && routeData && (
-          <>
-            <span className="h-3.5 w-px bg-border/60" />
-            <div className="flex items-center gap-3 text-[11px] text-muted-foreground">
-              <span>{formatDistance(routeData.distanceMeters)}</span>
-              <span className="text-border/60">·</span>
-              <span>{formatDuration(routeData.durationSeconds)}</span>
-              {routeData.incidents.length > 0 && (
-                <>
-                  <span className="text-border/60">·</span>
-                  <span className={cn('flex items-center gap-1', criticalCount > 0 ? 'text-red-500' : 'text-amber-500')}>
-                    <AlertTriangle className="size-3" />
-                    {routeData.incidents.length} alerta{routeData.incidents.length !== 1 ? 's' : ''}
-                  </span>
-                </>
-              )}
-              {loading && <LoaderCircle className="size-3 animate-spin" />}
-              {elevError && <span className="italic text-destructive/70">sin elevación</span>}
-            </div>
-          </>
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
+            <span>{formatDistance(routeData.distanceMeters)}</span>
+            <span className="text-border/60">·</span>
+            <span>{formatDuration(routeData.durationSeconds)}</span>
+            {routeData.incidents.length > 0 && (
+              <>
+                <span className="text-border/60">·</span>
+                <span className={cn('flex items-center gap-1', criticalCount > 0 ? 'text-red-500' : 'text-amber-500')}>
+                  <AlertTriangle className="size-3" />
+                  {routeData.incidents.length} alerta{routeData.incidents.length !== 1 ? 's' : ''}
+                </span>
+              </>
+            )}
+            {loading && <LoaderCircle className="size-3 animate-spin" />}
+            {elevError && <span className="italic text-destructive/70">sin elevación</span>}
+          </div>
         )}
 
         {tab === 'precipitacion' && (
-          <div className="ml-auto flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             {!showHistorial && precipKmData.length > 0 && (
               <span className="text-[11px] text-muted-foreground">
                 {MES_NOMBRE[mesActual]} · Estimación INAMHI
               </span>
             )}
             {showHistorial && (
-              <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+              <div className="flex flex-wrap items-center gap-1.5 text-[11px] text-muted-foreground">
                 <select value={anoMin} onChange={e => setAnoMin(Math.min(Number(e.target.value), anoMax))}
                   className="rounded border border-border/50 bg-background px-1 py-0.5 text-[11px] text-foreground">
                   {Array.from({ length: AÑO_MAX - AÑO_MIN + 1 }, (_, i) => AÑO_MIN + i).map(y =>
@@ -281,7 +294,7 @@ export function RouteTimeline({ routeData, onSelectIncident, selectedIncidentId 
               </div>
             )}
             <button type="button" onClick={() => setShowHistorial(h => !h)}
-              className={cn('flex items-center gap-1 rounded-md border px-2 py-0.5 text-[11px] font-medium transition-colors',
+              className={cn('ml-auto flex items-center gap-1 rounded-md border px-2 py-0.5 text-[11px] font-medium transition-colors',
                 showHistorial
                   ? 'border-sky-500/40 bg-sky-500/10 text-sky-600 dark:text-sky-400'
                   : 'border-border/50 text-muted-foreground hover:text-foreground')}>
@@ -293,9 +306,9 @@ export function RouteTimeline({ routeData, onSelectIncident, selectedIncidentId 
       </div>
 
       {/* ── Contenido ── */}
-      {open && (
-        tab === 'alertas' ? (
-          <div className="h-[calc(22vh-2.25rem)] min-h-[calc(9rem-2.25rem)] flex flex-col px-4 py-3 gap-2">
+      <div className="min-h-0 flex-1">
+        {tab === 'alertas' ? (
+          <div className="h-full flex flex-col px-4 py-3 gap-2">
             {!routeData ? (
               <div className="flex h-full items-center justify-center gap-2 text-muted-foreground/60">
                 <Route className="size-4 shrink-0" />
@@ -405,7 +418,7 @@ export function RouteTimeline({ routeData, onSelectIncident, selectedIncidentId 
           </div>
         ) : tab === 'altimetria' ? (
           routeData && elevPoints.length > 0 ? (
-            <div className="h-[calc(22vh-2.25rem)] min-h-[calc(9rem-2.25rem)] px-2 pb-1 pt-2">
+            <div className="h-full px-2 pb-1 pt-2">
               <ResponsiveContainer width="100%" height="100%">
                 <AreaChart data={elevPoints} margin={{ top: 4, right: 16, bottom: 0, left: 0 }}>
                   <defs>
@@ -446,7 +459,7 @@ export function RouteTimeline({ routeData, onSelectIncident, selectedIncidentId 
               </ResponsiveContainer>
             </div>
           ) : (
-            <div className="flex h-[calc(22vh-2.25rem)] min-h-[calc(9rem-2.25rem)] items-center justify-center gap-3 text-muted-foreground/60">
+            <div className="flex h-full items-center justify-center gap-3 text-muted-foreground/60">
               {loading
                 ? <LoaderCircle className="size-4 animate-spin" />
                 : <><Route className="size-5 shrink-0" /><p className="text-sm">Calcula una ruta para ver el perfil de elevación</p></>}
@@ -456,7 +469,7 @@ export function RouteTimeline({ routeData, onSelectIncident, selectedIncidentId 
           /* ── Tab Precipitación ── */
           showHistorial ? (
             /* Vista historial: barras mensuales */
-            <div className="flex h-[calc(22vh-2.25rem)] min-h-[calc(9rem-2.25rem)] flex-col px-2 pb-1 pt-1.5">
+            <div className="flex h-full flex-col px-2 pb-1 pt-1.5">
               <p className="mb-1 text-[10px] text-muted-foreground/70">
                 Datos INAMHI {anoMin}–{anoMax} · Estaciones: {estacionesCercanas.map(e => e.nombre.split('-')[0]?.trim()).join(', ')}
               </p>
@@ -479,7 +492,7 @@ export function RouteTimeline({ routeData, onSelectIncident, selectedIncidentId 
           ) : (
             /* Vista por km: área chart */
             precipKmData.length > 0 ? (
-              <div className="h-[calc(22vh-2.25rem)] min-h-[calc(9rem-2.25rem)] px-2 pb-1 pt-2">
+              <div className="h-full px-2 pb-1 pt-2">
                 <ResponsiveContainer width="100%" height="100%">
                   <AreaChart data={precipKmData} margin={{ top: 4, right: 16, bottom: 0, left: 0 }}>
                     <defs>
@@ -501,14 +514,14 @@ export function RouteTimeline({ routeData, onSelectIncident, selectedIncidentId 
                 </ResponsiveContainer>
               </div>
             ) : (
-              <div className="flex h-[calc(22vh-2.25rem)] min-h-[calc(9rem-2.25rem)] items-center justify-center gap-3 text-muted-foreground/60">
+              <div className="flex h-full items-center justify-center gap-3 text-muted-foreground/60">
                 <CloudRain className="size-5 shrink-0" />
                 <p className="text-sm">Calcula una ruta para ver la estimación de precipitación</p>
               </div>
             )
           )
-        )
-      )}
+        )}
+      </div>
     </div>
   );
 }
