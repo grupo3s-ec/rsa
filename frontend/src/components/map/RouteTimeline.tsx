@@ -6,7 +6,6 @@ import {
   Bar, BarChart,
   CartesianGrid, Cell,
   ComposedChart,
-  Line,
   ReferenceLine,
   ResponsiveContainer,
   Tooltip,
@@ -19,7 +18,7 @@ import {
 import { cn } from '@/lib/utils';
 import { subsampleRoute, haversineKm } from '@/lib/geo';
 import { conditionMeta, formatDistance, formatDuration, severityMeta } from '@/lib/incidents/format';
-import { getPerfilClimatico, MES_NOMBRE } from '@/lib/inamhi';
+import { CONDICION_META, getPerfilClimatico, mmToCondicion, mmToColor, MES_NOMBRE } from '@/lib/inamhi';
 import { DATOS_PRECIPITACION, ESTACIONES_META } from '@/lib/precipitacion-data';
 import type { RouteCalculatedData } from '@/components/routes/RoutePlanner';
 import type { Incident } from '@/types/incident';
@@ -92,13 +91,6 @@ function getHistorialMensual(codigos: string[], anoMin: number, anoMax: number) 
   });
 }
 
-function mmColor(mm: number): string {
-  if (mm >= 200) return '#7c3aed';
-  if (mm >= 120) return '#0ea5e9';
-  if (mm >= 60)  return '#38bdf8';
-  if (mm >= 25)  return '#7dd3fc';
-  return '#bae6fd';
-}
 
 // ─── Helper elevación ─────────────────────────────────────────────────────────
 
@@ -186,6 +178,20 @@ export function RouteTimeline({ routeData, onSelectIncident, selectedIncidentId 
     if (!routeData) return [];
     return getPerfilClimatico(routeData.coords, routeData.distanceMeters, mesActual);
   }, [routeData, mesActual]);
+
+  // Altimetría y clima comparten el mismo muestreo por índice (ambos subsample-an
+  // los mismos coords con n=50) — se combinan en un solo array para el gráfico,
+  // ya que recharts no admite un `data` distinto por serie dentro de un Bar.
+  const perfilChartData = useMemo(() => {
+    const len = Math.max(elevPoints.length, precipKmData.length);
+    const rows: Array<{ km: number; elevacion?: number; mm?: number; estacion?: string }> = [];
+    for (let i = 0; i < len; i++) {
+      const e = elevPoints[i];
+      const p = precipKmData[i];
+      rows.push({ km: e?.km ?? p?.km ?? 0, elevacion: e?.elevacion, mm: p?.mm, estacion: p?.estacion });
+    }
+    return rows;
+  }, [elevPoints, precipKmData]);
 
   // Estaciones más cercanas para historial
   const estacionesCercanas = useMemo(() => {
@@ -464,7 +470,7 @@ export function RouteTimeline({ routeData, onSelectIncident, selectedIncidentId 
                     <Tooltip content={<HistorialTooltip />} cursor={{ fill: 'hsl(var(--muted))', opacity: 0.3 }} />
                     <Bar dataKey="mm" radius={[3, 3, 0, 0]} maxBarSize={28}>
                       {historialData.map((d, i) => (
-                        <Cell key={i} fill={mmColor(d.mm)} opacity={d.esMesActual ? 1 : 0.7} />
+                        <Cell key={i} fill={mmToColor(d.mm)} opacity={d.esMesActual ? 1 : 0.7} />
                       ))}
                     </Bar>
                   </BarChart>
@@ -480,9 +486,26 @@ export function RouteTimeline({ routeData, onSelectIncident, selectedIncidentId 
               <LoaderCircle className="size-4 animate-spin" />
             </div>
           ) : (
-            <div className="h-full px-2 pb-1 pt-2">
+            <div className="flex h-full flex-col px-2 pb-1 pt-2 gap-1.5">
+              {/* Franja de condiciones por km — mismos colores/íconos que el tab Clima */}
+              {showClima && precipKmData.length > 0 && (
+                <div className="flex shrink-0 gap-px h-6 rounded-lg overflow-hidden">
+                  {precipKmData.map((d, i) => {
+                    const C = CONDICION_META[mmToCondicion(d.mm)];
+                    return (
+                      <div key={i}
+                        title={`km ${d.km.toFixed(1)} — ${C.label} · ${d.mm} mm`}
+                        className="flex flex-1 items-center justify-center cursor-default transition-opacity hover:opacity-80"
+                        style={{ backgroundColor: mmToColor(d.mm) }}>
+                        <C.icon className="size-2.5 text-white/85 drop-shadow" />
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+              <div className="min-h-0 flex-1">
               <ResponsiveContainer width="100%" height="100%">
-                <ComposedChart margin={{ top: 4, right: 16, bottom: 0, left: 0 }}>
+                <ComposedChart data={perfilChartData} margin={{ top: 4, right: 16, bottom: 0, left: 0 }}>
                   <defs>
                     {/*
                       Paleta estilo mapa topográfico físico:
@@ -522,18 +545,22 @@ export function RouteTimeline({ routeData, onSelectIncident, selectedIncidentId 
                       stroke="rgba(148,163,184,0.75)" strokeDasharray="3 2" strokeWidth={1.5} />
                   ))}
                   {showAltimetria && (
-                    <Area yAxisId="elev" data={elevPoints} dataKey="elevacion" type="monotone"
+                    <Area yAxisId="elev" dataKey="elevacion" type="monotone"
                       stroke="rgba(255,255,255,0.82)" strokeWidth={1.8}
-                      fill="url(#tlElevTopoFill)" dot={false}
+                      fill="url(#tlElevTopoFill)" dot={false} connectNulls
                       activeDot={{ r: 4, fill: '#ffffff', stroke: '#ea580c', strokeWidth: 2 }} />
                   )}
                   {showClima && (
-                    <Line yAxisId="precip" data={precipKmData} dataKey="mm" type="monotone"
-                      stroke="#0ea5e9" strokeWidth={2} dot={false}
-                      activeDot={{ r: 4, fill: '#0ea5e9', stroke: 'hsl(var(--background))', strokeWidth: 2 }} />
+                    <Bar yAxisId="precip" dataKey="mm"
+                      radius={[2, 2, 0, 0]} maxBarSize={10} fillOpacity={0.6}>
+                      {perfilChartData.map((d, i) => (
+                        <Cell key={i} fill={d.mm !== undefined ? mmToColor(d.mm) : 'transparent'} />
+                      ))}
+                    </Bar>
                   )}
                 </ComposedChart>
               </ResponsiveContainer>
+              </div>
             </div>
           )
         )}

@@ -1,3 +1,4 @@
+import { Cloud, CloudLightning, CloudRain, Sun, type LucideIcon } from 'lucide-react';
 import { haversineKm, subsampleRoute } from '@/lib/geo';
 import {
   ESTACIONES_META,
@@ -58,12 +59,37 @@ export function getPerfilClimatico(
   });
 }
 
-export function mmToCondicion(mm: number): 'sunny' | 'cloudy' | 'rain' | 'storm' {
+export type CondicionClima = 'sunny' | 'cloudy' | 'rain' | 'storm';
+
+export function mmToCondicion(mm: number): CondicionClima {
   if (mm >= 150) return 'storm';
   if (mm >= 80)  return 'rain';
   if (mm >= 30)  return 'cloudy';
   return 'sunny';
 }
+
+/** Color por cantidad de precipitación — única fuente de verdad para que el
+ * tab Clima y el gráfico combinado del panel lateral coincidan exactamente. */
+export function mmToColor(mm: number): string {
+  if (mm >= 200) return '#7c3aed';
+  if (mm >= 120) return '#0ea5e9';
+  if (mm >= 60)  return '#38bdf8';
+  if (mm >= 25)  return '#7dd3fc';
+  return '#bae6fd';
+}
+
+interface CondicionMeta {
+  icon: LucideIcon;
+  label: string;
+  colorClass: string;
+}
+
+export const CONDICION_META: Record<CondicionClima, CondicionMeta> = {
+  sunny:  { icon: Sun,            label: 'Despejado', colorClass: 'text-yellow-400'  },
+  cloudy: { icon: Cloud,          label: 'Nublado',   colorClass: 'text-slate-400'   },
+  rain:   { icon: CloudRain,      label: 'Lluvia',    colorClass: 'text-sky-500'     },
+  storm:  { icon: CloudLightning, label: 'Tormenta',  colorClass: 'text-violet-500'  },
+};
 
 export const MES_NOMBRE = [
   'Enero','Febrero','Marzo','Abril','Mayo','Junio',
