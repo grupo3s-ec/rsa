@@ -2,9 +2,11 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import {
-  Area, AreaChart,
+  Area,
   Bar, BarChart,
   CartesianGrid, Cell,
+  ComposedChart,
+  Line,
   ReferenceLine,
   ResponsiveContainer,
   Tooltip,
@@ -24,7 +26,7 @@ import type { Incident } from '@/types/incident';
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
 
-type TimelineTab = 'alertas' | 'altimetria' | 'precipitacion';
+type TimelineTab = 'alertas' | 'perfil';
 interface ElevPoint { km: number; elevacion: number; }
 interface GoogleElevationResponse {
   results: Array<{ elevation: number }>;
@@ -38,23 +40,30 @@ const AÑO_MAX = 2021;
 
 // ─── Tooltips ────────────────────────────────────────────────────────────────
 
-function ElevTooltip({ active, payload, label }: { active?: boolean; payload?: Array<{ payload: ElevPoint }>; label?: number }) {
-  if (!active || !payload?.length) return null;
-  return (
-    <div className="rounded-lg border border-border/60 bg-background/95 px-2.5 py-1.5 text-[11px] shadow-lg backdrop-blur">
-      <p className="font-semibold">km {label?.toFixed(1)}</p>
-      <p className="text-muted-foreground">{payload[0]!.payload.elevacion.toLocaleString('es-EC')} m.s.n.m.</p>
-    </div>
-  );
+interface CombinedTooltipPoint {
+  dataKey?: string;
+  value?: number;
+  payload: { estacion?: string };
 }
 
-function PrecipKmTooltip({ active, payload, label }: { active?: boolean; payload?: Array<{ value: number; payload: { estacion: string } }>; label?: number }) {
+/** Tooltip único para el perfil combinado — muestra elevación y/o precipitación
+ * según qué capas estén activas y tengan un punto cerca de ese km. */
+function CombinedProfileTooltip({ active, payload, label }: { active?: boolean; payload?: CombinedTooltipPoint[]; label?: number }) {
   if (!active || !payload?.length) return null;
+  const elev   = payload.find(p => p.dataKey === 'elevacion');
+  const precip = payload.find(p => p.dataKey === 'mm');
   return (
-    <div className="rounded-lg border border-border/60 bg-background/95 px-2.5 py-1.5 text-[11px] shadow-lg backdrop-blur">
+    <div className="space-y-0.5 rounded-lg border border-border/60 bg-background/95 px-2.5 py-1.5 text-[11px] shadow-lg backdrop-blur">
       <p className="font-semibold">km {label?.toFixed(1)}</p>
-      <p className="text-sky-500 font-medium">{payload[0]!.value.toFixed(1)} mm/mes</p>
-      <p className="text-muted-foreground">{payload[0]!.payload.estacion}</p>
+      {elev && (
+        <p className="text-muted-foreground">{elev.value!.toLocaleString('es-EC')} m.s.n.m.</p>
+      )}
+      {precip && (
+        <p className="text-sky-500 font-medium">
+          {precip.value!.toFixed(1)} mm/mes
+          {precip.payload.estacion ? ` · ${precip.payload.estacion}` : ''}
+        </p>
+      )}
     </div>
   );
 }
@@ -134,6 +143,8 @@ interface Props {
 export function RouteTimeline({ routeData, onSelectIncident, selectedIncidentId }: Props) {
   const [open,         setOpen]         = useState(true);
   const [tab,          setTab]          = useState<TimelineTab>('alertas');
+  const [showAltimetria, setShowAltimetria] = useState(true);
+  const [showClima,      setShowClima]      = useState(true);
   const [showHistorial,setShowHistorial]= useState(false);
   const [elevPoints,   setElevPoints]   = useState<ElevPoint[]>([]);
   const [incidentKms,  setIncidentKms]  = useState<number[]>([]);
@@ -231,15 +242,10 @@ export function RouteTimeline({ routeData, onSelectIncident, selectedIncidentId 
                 </span>
               )}
             </button>
-            <button type="button" onClick={() => { setTab('altimetria'); setShowHistorial(false); }}
+            <button type="button" onClick={() => setTab('perfil')}
               className={cn('flex items-center gap-1 rounded-md px-2 py-0.5 text-[11px] font-medium transition-colors',
-                tab === 'altimetria' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground')}>
-              <Mountain className="size-3" /> Altimetría
-            </button>
-            <button type="button" onClick={() => setTab('precipitacion')}
-              className={cn('flex items-center gap-1 rounded-md px-2 py-0.5 text-[11px] font-medium transition-colors',
-                tab === 'precipitacion' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground')}>
-              <CloudRain className="size-3" /> Precipitación
+                tab === 'perfil' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground')}>
+              <Mountain className="size-3" /> Altimetría · Clima
             </button>
           </div>
 
@@ -251,33 +257,61 @@ export function RouteTimeline({ routeData, onSelectIncident, selectedIncidentId 
         </div>
 
         {/* Info contextual */}
-        {tab === 'altimetria' && routeData && (
-          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
-            <span>{formatDistance(routeData.distanceMeters)}</span>
-            <span className="text-border/60">·</span>
-            <span>{formatDuration(routeData.durationSeconds)}</span>
-            {routeData.incidents.length > 0 && (
-              <>
+        {tab === 'perfil' && (
+          <div className="flex flex-col gap-1.5">
+            {routeData && (
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
+                <span>{formatDistance(routeData.distanceMeters)}</span>
                 <span className="text-border/60">·</span>
-                <span className={cn('flex items-center gap-1', criticalCount > 0 ? 'text-red-500' : 'text-amber-500')}>
-                  <AlertTriangle className="size-3" />
-                  {routeData.incidents.length} alerta{routeData.incidents.length !== 1 ? 's' : ''}
-                </span>
-              </>
+                <span>{formatDuration(routeData.durationSeconds)}</span>
+                {routeData.incidents.length > 0 && (
+                  <>
+                    <span className="text-border/60">·</span>
+                    <span className={cn('flex items-center gap-1', criticalCount > 0 ? 'text-red-500' : 'text-amber-500')}>
+                      <AlertTriangle className="size-3" />
+                      {routeData.incidents.length} alerta{routeData.incidents.length !== 1 ? 's' : ''}
+                    </span>
+                  </>
+                )}
+                {loading && <LoaderCircle className="size-3 animate-spin" />}
+                {elevError && <span className="italic text-destructive/70">sin elevación</span>}
+              </div>
             )}
-            {loading && <LoaderCircle className="size-3 animate-spin" />}
-            {elevError && <span className="italic text-destructive/70">sin elevación</span>}
-          </div>
-        )}
 
-        {tab === 'precipitacion' && (
-          <div className="flex flex-wrap items-center gap-2">
-            {!showHistorial && precipKmData.length > 0 && (
+            {/* Toggles de capas — se superponen en un mismo gráfico */}
+            <div className="flex flex-wrap items-center gap-1.5">
+              <button type="button" onClick={() => setShowAltimetria(v => !v)}
+                className={cn('flex items-center gap-1 rounded-md border px-2 py-0.5 text-[11px] font-medium transition-colors',
+                  showAltimetria
+                    ? 'border-orange-500/40 bg-orange-500/10 text-orange-600 dark:text-orange-400'
+                    : 'border-border/50 text-muted-foreground hover:text-foreground')}>
+                <Mountain className="size-3" /> Altimetría
+              </button>
+              <button type="button" onClick={() => setShowClima(v => !v)}
+                className={cn('flex items-center gap-1 rounded-md border px-2 py-0.5 text-[11px] font-medium transition-colors',
+                  showClima
+                    ? 'border-sky-500/40 bg-sky-500/10 text-sky-600 dark:text-sky-400'
+                    : 'border-border/50 text-muted-foreground hover:text-foreground')}>
+                <CloudRain className="size-3" /> Clima
+              </button>
+              {showClima && (
+                <button type="button" onClick={() => setShowHistorial(h => !h)}
+                  className={cn('ml-auto flex items-center gap-1 rounded-md border px-2 py-0.5 text-[11px] font-medium transition-colors',
+                    showHistorial
+                      ? 'border-sky-500/40 bg-sky-500/10 text-sky-600 dark:text-sky-400'
+                      : 'border-border/50 text-muted-foreground hover:text-foreground')}>
+                  <History className="size-3" />
+                  {showHistorial ? 'Por km' : 'Historial'}
+                </button>
+              )}
+            </div>
+
+            {!showHistorial && showClima && precipKmData.length > 0 && (
               <span className="text-[11px] text-muted-foreground">
                 {MES_NOMBRE[mesActual]} · Estimación INAMHI
               </span>
             )}
-            {showHistorial && (
+            {showHistorial && showClima && (
               <div className="flex flex-wrap items-center gap-1.5 text-[11px] text-muted-foreground">
                 <select value={anoMin} onChange={e => setAnoMin(Math.min(Number(e.target.value), anoMax))}
                   className="rounded border border-border/50 bg-background px-1 py-0.5 text-[11px] text-foreground">
@@ -293,14 +327,6 @@ export function RouteTimeline({ routeData, onSelectIncident, selectedIncidentId 
                 <span className="text-sky-500 font-medium">{Math.round(totalMmAno)} mm/año</span>
               </div>
             )}
-            <button type="button" onClick={() => setShowHistorial(h => !h)}
-              className={cn('ml-auto flex items-center gap-1 rounded-md border px-2 py-0.5 text-[11px] font-medium transition-colors',
-                showHistorial
-                  ? 'border-sky-500/40 bg-sky-500/10 text-sky-600 dark:text-sky-400'
-                  : 'border-border/50 text-muted-foreground hover:text-foreground')}>
-              <History className="size-3" />
-              {showHistorial ? 'Por km' : 'Historial'}
-            </button>
           </div>
         )}
       </div>
@@ -416,11 +442,47 @@ export function RouteTimeline({ routeData, onSelectIncident, selectedIncidentId 
               );
             })()}
           </div>
-        ) : tab === 'altimetria' ? (
-          routeData && elevPoints.length > 0 ? (
+        ) : (
+          /* ── Tab Perfil: Altimetría + Clima superpuestos en un solo gráfico ── */
+          !routeData ? (
+            <div className="flex h-full items-center justify-center gap-3 text-muted-foreground/60">
+              <Route className="size-5 shrink-0" />
+              <p className="text-sm">Calcula una ruta para ver el perfil</p>
+            </div>
+          ) : showHistorial && showClima ? (
+            /* Vista historial de precipitación: barras mensuales */
+            <div className="flex h-full flex-col px-2 pb-1 pt-1.5">
+              <p className="mb-1 text-[10px] text-muted-foreground/70">
+                Datos INAMHI {anoMin}–{anoMax} · Estaciones: {estacionesCercanas.map(e => e.nombre.split('-')[0]?.trim()).join(', ')}
+              </p>
+              <div className="flex-1 min-h-0">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={historialData} margin={{ top: 2, right: 8, bottom: 0, left: 0 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" strokeOpacity={0.35} />
+                    <XAxis dataKey="mes" tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }} axisLine={false} tickLine={false} />
+                    <YAxis tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }} axisLine={false} tickLine={false} width={32} unit=" mm" />
+                    <Tooltip content={<HistorialTooltip />} cursor={{ fill: 'hsl(var(--muted))', opacity: 0.3 }} />
+                    <Bar dataKey="mm" radius={[3, 3, 0, 0]} maxBarSize={28}>
+                      {historialData.map((d, i) => (
+                        <Cell key={i} fill={mmColor(d.mm)} opacity={d.esMesActual ? 1 : 0.7} />
+                      ))}
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+          ) : !showAltimetria && !showClima ? (
+            <div className="flex h-full items-center justify-center gap-3 text-muted-foreground/60">
+              <p className="text-sm">Activa Altimetría o Clima para ver el gráfico</p>
+            </div>
+          ) : (showAltimetria && elevPoints.length === 0 && loading) ? (
+            <div className="flex h-full items-center justify-center gap-3 text-muted-foreground/60">
+              <LoaderCircle className="size-4 animate-spin" />
+            </div>
+          ) : (
             <div className="h-full px-2 pb-1 pt-2">
               <ResponsiveContainer width="100%" height="100%">
-                <AreaChart data={elevPoints} margin={{ top: 4, right: 16, bottom: 0, left: 0 }}>
+                <ComposedChart margin={{ top: 4, right: 16, bottom: 0, left: 0 }}>
                   <defs>
                     {/*
                       Paleta estilo mapa topográfico físico:
@@ -443,82 +505,36 @@ export function RouteTimeline({ routeData, onSelectIncident, selectedIncidentId 
                     </linearGradient>
                   </defs>
                   <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" strokeOpacity={0.35} />
-                  <XAxis dataKey="km" tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }}
-                    tickFormatter={(v: number) => `${v.toFixed(0)} km`} axisLine={false} tickLine={false} interval="preserveStartEnd" />
-                  <YAxis domain={['auto', 'auto']} tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }}
-                    tickFormatter={(v: number) => `${(v / 1000).toFixed(1)}k`} axisLine={false} tickLine={false} width={36} />
-                  <Tooltip content={<ElevTooltip />} />
+                  <XAxis dataKey="km" type="number" domain={['dataMin', 'dataMax']}
+                    tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }}
+                    tickFormatter={(v: number) => `${v.toFixed(0)} km`} axisLine={false} tickLine={false} />
+                  {showAltimetria && (
+                    <YAxis yAxisId="elev" domain={['auto', 'auto']} tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }}
+                      tickFormatter={(v: number) => `${(v / 1000).toFixed(1)}k`} axisLine={false} tickLine={false} width={36} />
+                  )}
+                  {showClima && (
+                    <YAxis yAxisId="precip" orientation="right" domain={[0, 'auto']} tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }}
+                      tickFormatter={(v: number) => `${v}`} axisLine={false} tickLine={false} width={32} unit=" mm" />
+                  )}
+                  <Tooltip content={<CombinedProfileTooltip />} />
                   {incidentKms.map((km, i) => (
-                    <ReferenceLine key={i} x={km} stroke="rgba(255,255,255,0.75)" strokeDasharray="3 2" strokeOpacity={1} strokeWidth={1.5} />
+                    <ReferenceLine key={i} x={km} yAxisId={showAltimetria ? 'elev' : 'precip'}
+                      stroke="rgba(148,163,184,0.75)" strokeDasharray="3 2" strokeWidth={1.5} />
                   ))}
-                  <Area type="monotone" dataKey="elevacion"
-                    stroke="rgba(255,255,255,0.82)" strokeWidth={1.8}
-                    fill="url(#tlElevTopoFill)" dot={false}
-                    activeDot={{ r: 4, fill: '#ffffff', stroke: '#ea580c', strokeWidth: 2 }} />
-                </AreaChart>
+                  {showAltimetria && (
+                    <Area yAxisId="elev" data={elevPoints} dataKey="elevacion" type="monotone"
+                      stroke="rgba(255,255,255,0.82)" strokeWidth={1.8}
+                      fill="url(#tlElevTopoFill)" dot={false}
+                      activeDot={{ r: 4, fill: '#ffffff', stroke: '#ea580c', strokeWidth: 2 }} />
+                  )}
+                  {showClima && (
+                    <Line yAxisId="precip" data={precipKmData} dataKey="mm" type="monotone"
+                      stroke="#0ea5e9" strokeWidth={2} dot={false}
+                      activeDot={{ r: 4, fill: '#0ea5e9', stroke: 'hsl(var(--background))', strokeWidth: 2 }} />
+                  )}
+                </ComposedChart>
               </ResponsiveContainer>
             </div>
-          ) : (
-            <div className="flex h-full items-center justify-center gap-3 text-muted-foreground/60">
-              {loading
-                ? <LoaderCircle className="size-4 animate-spin" />
-                : <><Route className="size-5 shrink-0" /><p className="text-sm">Calcula una ruta para ver el perfil de elevación</p></>}
-            </div>
-          )
-        ) : (
-          /* ── Tab Precipitación ── */
-          showHistorial ? (
-            /* Vista historial: barras mensuales */
-            <div className="flex h-full flex-col px-2 pb-1 pt-1.5">
-              <p className="mb-1 text-[10px] text-muted-foreground/70">
-                Datos INAMHI {anoMin}–{anoMax} · Estaciones: {estacionesCercanas.map(e => e.nombre.split('-')[0]?.trim()).join(', ')}
-              </p>
-              <div className="flex-1 min-h-0">
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={historialData} margin={{ top: 2, right: 8, bottom: 0, left: 0 }}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" strokeOpacity={0.35} />
-                    <XAxis dataKey="mes" tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }} axisLine={false} tickLine={false} />
-                    <YAxis tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }} axisLine={false} tickLine={false} width={32} unit=" mm" />
-                    <Tooltip content={<HistorialTooltip />} cursor={{ fill: 'hsl(var(--muted))', opacity: 0.3 }} />
-                    <Bar dataKey="mm" radius={[3, 3, 0, 0]} maxBarSize={28}>
-                      {historialData.map((d, i) => (
-                        <Cell key={i} fill={mmColor(d.mm)} opacity={d.esMesActual ? 1 : 0.7} />
-                      ))}
-                    </Bar>
-                  </BarChart>
-                </ResponsiveContainer>
-              </div>
-            </div>
-          ) : (
-            /* Vista por km: área chart */
-            precipKmData.length > 0 ? (
-              <div className="h-full px-2 pb-1 pt-2">
-                <ResponsiveContainer width="100%" height="100%">
-                  <AreaChart data={precipKmData} margin={{ top: 4, right: 16, bottom: 0, left: 0 }}>
-                    <defs>
-                      <linearGradient id="precipGradient" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%"  stopColor="#0ea5e9" stopOpacity={0.4} />
-                        <stop offset="95%" stopColor="#0ea5e9" stopOpacity={0.03} />
-                      </linearGradient>
-                    </defs>
-                    <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" strokeOpacity={0.35} />
-                    <XAxis dataKey="km" tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }}
-                      tickFormatter={(v: number) => `${v.toFixed(0)} km`} axisLine={false} tickLine={false} interval="preserveStartEnd" />
-                    <YAxis domain={[0, 'auto']} tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }}
-                      tickFormatter={(v: number) => `${v}`} axisLine={false} tickLine={false} width={36} unit=" mm" />
-                    <Tooltip content={<PrecipKmTooltip />} />
-                    <Area type="monotone" dataKey="mm" stroke="#0ea5e9" strokeWidth={1.5}
-                      fill="url(#precipGradient)" dot={false}
-                      activeDot={{ r: 4, fill: '#0ea5e9', stroke: 'hsl(var(--background))', strokeWidth: 2 }} />
-                  </AreaChart>
-                </ResponsiveContainer>
-              </div>
-            ) : (
-              <div className="flex h-full items-center justify-center gap-3 text-muted-foreground/60">
-                <CloudRain className="size-5 shrink-0" />
-                <p className="text-sm">Calcula una ruta para ver la estimación de precipitación</p>
-              </div>
-            )
           )
         )}
       </div>
