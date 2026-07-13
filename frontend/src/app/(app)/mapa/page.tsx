@@ -1,11 +1,12 @@
 'use client';
 
 import { useCallback, useState } from 'react';
-import { Map, Flame, Route, BarChart2, ShieldCheck } from 'lucide-react';
+import { Map, Flame, CloudRain, Route, BarChart2, ShieldCheck } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { IncidentFab } from '@/components/incidents/IncidentFab';
 import { RouteTimeline } from '@/components/map/RouteTimeline';
 import { CalorPanel } from '@/components/analysis/CalorPanel';
+import { ClimaPanel } from '@/components/analysis/ClimaPanel';
 import { ViaEstadoPanel } from '@/components/analysis/ViaEstadoPanel';
 import { AntStatsPanel } from '@/components/analysis/AntStatsPanel';
 import { EvaluacionRiesgoPanel } from '@/components/analysis/EvaluacionRiesgoPanel';
@@ -18,11 +19,12 @@ const RoutePlanner = dynamic(
   { ssr: false },
 );
 
-type Tab = 'ruta' | 'calor' | 'vias' | 'ant' | 'riesgo';
+type Tab = 'ruta' | 'calor' | 'clima' | 'vias' | 'ant' | 'riesgo';
 
 const TABS: { id: Tab; label: string; icon: React.ElementType }[] = [
   { id: 'ruta',   label: 'Ruta',   icon: Map         },
   { id: 'calor',  label: 'Calor',  icon: Flame       },
+  { id: 'clima',  label: 'Clima',  icon: CloudRain   },
   { id: 'vias',   label: 'Estado Vías ECU911', icon: Route },
   { id: 'ant',    label: 'ANT',    icon: BarChart2   },
   { id: 'riesgo', label: 'Riesgo', icon: ShieldCheck },
@@ -51,6 +53,7 @@ export default function MapaPage() {
 
   const RIGHT_SLOTS: Partial<Record<Tab, React.ReactNode>> = {
     calor:  <CalorPanel filterProvinces={routeData ? conflictProvinces : null} />,
+    clima:  <ClimaPanel routeData={routeData} />,
     vias:   <ViaEstadoPanel />,
     ant:    <AntStatsPanel />,
     riesgo: <EvaluacionRiesgoPanel />,
