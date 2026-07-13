@@ -170,7 +170,8 @@ export function ViaEstadoPanel() {
 
         {fetchedAt && (
           <p className="text-[10px] text-muted-foreground mb-1">
-            Misma fuente que ecu911.gob.ec · consultado {relativeTime(fetchedAt)}
+            Misma fuente que ecu911.gob.ec · Fecha y hora consulta:{' '}
+            {new Date(fetchedAt).toLocaleString('es-EC', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
           </p>
         )}
 
