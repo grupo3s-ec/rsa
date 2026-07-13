@@ -23,7 +23,7 @@ type Tab = 'ruta' | 'calor' | 'vias' | 'ant' | 'riesgo';
 const TABS: { id: Tab; label: string; icon: React.ElementType }[] = [
   { id: 'ruta',   label: 'Ruta',   icon: Map         },
   { id: 'calor',  label: 'Calor',  icon: Flame       },
-  { id: 'vias',   label: 'Vías',   icon: Route       },
+  { id: 'vias',   label: 'Estado Vías ECU911', icon: Route },
   { id: 'ant',    label: 'ANT',    icon: BarChart2   },
   { id: 'riesgo', label: 'Riesgo', icon: ShieldCheck },
 ];
