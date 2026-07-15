@@ -111,6 +111,15 @@ export function getReportExportUrl(from?: string, to?: string): string {
   return `${base}/admin/reports/incidents/export${qs ? `?${qs}` : ''}`;
 }
 
+export function getReportExportPdfUrl(from?: string, to?: string): string {
+  const base = (process.env.NEXT_PUBLIC_API_BASE_URL ?? '').replace(/\/$/, '');
+  const params = new URLSearchParams();
+  if (from) params.set('from', from);
+  if (to)   params.set('to', to);
+  const qs = params.toString();
+  return `${base}/admin/reports/incidents/export-pdf${qs ? `?${qs}` : ''}`;
+}
+
 // ── Auditoría ─────────────────────────────────────────────────────────────────
 
 export function getAuditLog(params?: {

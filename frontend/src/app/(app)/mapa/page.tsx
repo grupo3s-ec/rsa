@@ -1,14 +1,10 @@
 'use client';
 
 import { useCallback, useState } from 'react';
-import { Map, Flame, CloudRain, Route, BarChart2, ShieldCheck } from 'lucide-react';
+import { Map, CloudRain } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { IncidentFab } from '@/components/incidents/IncidentFab';
-import { CalorPanel } from '@/components/analysis/CalorPanel';
 import { ClimaPanel } from '@/components/analysis/ClimaPanel';
-import { ViaEstadoPanel } from '@/components/analysis/ViaEstadoPanel';
-import { AntStatsPanel } from '@/components/analysis/AntStatsPanel';
-import { EvaluacionRiesgoPanel } from '@/components/analysis/EvaluacionRiesgoPanel';
 import type { RouteCalculatedData } from '@/components/routes/RoutePlanner';
 import type { LngLat } from '@/lib/mapbox/directions';
 import dynamic from 'next/dynamic';
@@ -18,32 +14,22 @@ const RoutePlanner = dynamic(
   { ssr: false },
 );
 
-type Tab = 'ruta' | 'calor' | 'clima' | 'vias' | 'ant' | 'riesgo';
+type Tab = 'ruta' | 'clima';
 
 const TABS: { id: Tab; label: string; icon: React.ElementType }[] = [
-  { id: 'ruta',   label: 'Ruta',   icon: Map         },
-  { id: 'calor',  label: 'Calor',  icon: Flame       },
-  { id: 'clima',  label: 'Clima',  icon: CloudRain   },
-  { id: 'vias',   label: 'Estado Vías ECU911', icon: Route },
-  { id: 'ant',    label: 'ANT',    icon: BarChart2   },
-  { id: 'riesgo', label: 'Riesgo', icon: ShieldCheck },
+  { id: 'ruta',   label: 'Ruta',  icon: Map       },
+  { id: 'clima',  label: 'Clima', icon: CloudRain },
 ];
 
 export default function MapaPage() {
   const [activeTab,          setActiveTab]          = useState<Tab>('ruta');
   const [routeData,          setRouteData]          = useState<RouteCalculatedData | null>(null);
-  const [conflictProvinces,  setConflictProvinces]  = useState<string[] | null>(null);
   const [incidentRefreshKey, setIncidentRefreshKey] = useState(0);
   const [incidentPickActive, setIncidentPickActive] = useState(false);
   const [pickedIncidentCoords, setPickedIncidentCoords] = useState<LngLat | null>(null);
 
   const handleRouteCalculated = useCallback((data: RouteCalculatedData | null) => {
     setRouteData(data);
-    if (!data) setConflictProvinces(null);
-  }, []);
-
-  const handleViaConflicts = useCallback((provinces: string[]) => {
-    setConflictProvinces(provinces);
   }, []);
 
   const handleIncidentCreated = useCallback(() => {
@@ -51,11 +37,7 @@ export default function MapaPage() {
   }, []);
 
   const RIGHT_SLOTS: Partial<Record<Tab, React.ReactNode>> = {
-    calor:  <CalorPanel filterProvinces={routeData ? conflictProvinces : null} />,
-    clima:  <ClimaPanel routeData={routeData} />,
-    vias:   <ViaEstadoPanel />,
-    ant:    <AntStatsPanel />,
-    riesgo: <EvaluacionRiesgoPanel />,
+    clima: <ClimaPanel routeData={routeData} />,
   };
 
   return (
@@ -80,7 +62,7 @@ export default function MapaPage() {
         ))}
       </div>
 
-      {/* Contenido: planificador | mapa | alertas·altimetría·clima — cada aside colapsable a 1/3 */}
+      {/* Contenido: planificador | mapa | alertas·altimetría·clima·cierres·vías·ANT·riesgo — cada aside colapsable a 1/3 */}
       <div className="min-h-0 flex-1">
         <RoutePlanner
           rightSlot={RIGHT_SLOTS[activeTab]}
@@ -94,7 +76,6 @@ export default function MapaPage() {
             />
           ) : undefined}
           onRouteCalculated={handleRouteCalculated}
-          onViaConflictsChanged={handleViaConflicts}
           incidentRefreshKey={incidentRefreshKey}
           externalPickActive={incidentPickActive}
           externalPickLabel="la ubicación del incidente"

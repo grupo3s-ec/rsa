@@ -25,7 +25,7 @@ import type { RouteCalculatedData } from '@/components/routes/RoutePlanner';
 
 interface TooltipProps {
   active?: boolean;
-  payload?: Array<{ payload: { km: number; mm: number; tempC: number; humPct: number; estacion: string; cond: CondicionClima } }>;
+  payload?: Array<{ payload: { km: number; mm: number; tempC: number; humPct: number; estacion: string; cond: CondicionClima; probLluviaPct: number; aniosDatos: number } }>;
   label?: number;
 }
 
@@ -40,6 +40,12 @@ function CustomTooltip({ active, payload }: TooltipProps) {
       <p className="text-muted-foreground">Precipitación: <span className="text-sky-500 font-medium">{d.mm} mm/mes</span></p>
       <p className="text-muted-foreground">Temperatura: <span className="text-foreground font-medium">{d.tempC}°C</span></p>
       <p className="text-muted-foreground">Humedad: <span className="text-foreground font-medium">{d.humPct}%</span></p>
+      {d.aniosDatos > 0 && (
+        <p className="text-muted-foreground">
+          Probabilidad histórica de lluvia: <span className="text-foreground font-medium">{d.probLluviaPct}%</span>
+          <span className="text-muted-foreground/60"> ({d.aniosDatos} años)</span>
+        </p>
+      )}
       <p className="text-muted-foreground/60 text-[10px]">{d.estacion}</p>
     </div>
   );
@@ -74,6 +80,7 @@ export function ClimaPanel({ routeData }: Props) {
 
   const avgTemp   = Math.round(perfil.reduce((s, d) => s + d.tempC, 0) / perfil.length * 10) / 10;
   const avgHum    = Math.round(perfil.reduce((s, d) => s + d.humPct, 0) / perfil.length);
+  const avgProb   = Math.round(perfil.reduce((s, d) => s + d.probLluviaPct, 0) / perfil.length);
   const maxMm     = Math.max(...perfil.map(d => d.mm));
   const kmLluvia  = perfil.filter(d => d.cond === 'rain' || d.cond === 'storm').length;
   const kmTormenta= perfil.filter(d => d.cond === 'storm').length;
@@ -99,6 +106,11 @@ export function ClimaPanel({ routeData }: Props) {
             <Thermometer className="size-4 text-orange-400" />
             <span className="font-bold text-foreground text-sm">{avgTemp}°C</span>
             <span className="text-muted-foreground">promedio</span>
+          </div>
+          <div className="flex flex-col items-center gap-0.5">
+            <CloudRain className="size-4 text-sky-500" />
+            <span className="font-bold text-foreground text-sm">{avgProb}%</span>
+            <span className="text-muted-foreground">prob. lluvia</span>
           </div>
           <div className="flex flex-col items-center gap-0.5">
             <Droplets className="size-4 text-sky-400" />

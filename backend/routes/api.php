@@ -12,6 +12,7 @@ use App\Http\Controllers\Api\HazardTypeController;
 use App\Http\Controllers\Api\IncidentController;
 use App\Http\Controllers\Api\IncidentMediaController;
 use App\Http\Controllers\Api\RouteIncidentController;
+use App\Http\Controllers\Api\ViaHistoryController;
 use Illuminate\Support\Facades\Route;
 
 // ── Ping público (warmup para Render free tier) ──────────────────────────────
@@ -19,6 +20,11 @@ Route::get('/ping', fn () => response()->json(['ok' => true]));
 
 // ── Autenticación (pública) ───────────────────────────────────────────────────
 Route::post('/auth/login', [AuthController::class, 'login']);
+
+// ── Poll de vías ECU911 (público, protegido por token compartido) ───────────
+// Pensado para ser disparado por un cron externo (ej. cron-job.org) cada
+// 15-30 min — no requiere sesión de usuario. Ver services.via_poll.token.
+Route::post('/vias/poll', [ViaHistoryController::class, 'poll']);
 
 // ── Rutas protegidas ──────────────────────────────────────────────────────────
 Route::middleware('auth:sanctum')->group(function () {
@@ -46,6 +52,9 @@ Route::middleware('auth:sanctum')->group(function () {
     // Incidentes por ruta
     Route::get('/routes/incidents', RouteIncidentController::class);
 
+    // Histórico de cierres viales (ECU911)
+    Route::get('/vias/history', [ViaHistoryController::class, 'index']);
+
     // ── Dashboard y Geotab (admin + operator) ────────────────────────────────
     Route::middleware('operator')->prefix('admin')->group(function () {
         Route::get('/dashboard', [DashboardController::class, 'index']);
@@ -59,8 +68,9 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::middleware('admin')->prefix('admin')->group(function () {
 
         // Reportería
-        Route::get('/reports/incidents',        [ReportController::class, 'incidents']);
-        Route::get('/reports/incidents/export', [ReportController::class, 'export']);
+        Route::get('/reports/incidents',            [ReportController::class, 'incidents']);
+        Route::get('/reports/incidents/export',     [ReportController::class, 'export']);
+        Route::get('/reports/incidents/export-pdf', [ReportController::class, 'exportPdf']);
 
         // Auditoría
         Route::get('/audit', [AuditController::class, 'index']);

@@ -112,8 +112,6 @@ interface RoutePlannerProps {
   mapOverlay?: React.ReactNode;
   /** Callback con datos de la ruta calculada, o null si falló. */
   onRouteCalculated?: (data: RouteCalculatedData | null) => void;
-  /** Provincias con vías ECU911 conflictivas respecto a la ruta activa. */
-  onViaConflictsChanged?: (provinces: string[]) => void;
   /** Incrementar para forzar recarga de incidentes (ej. después de crear uno nuevo). */
   incidentRefreshKey?: number;
   /** Activa un modo de selección en el mapa ajeno al planificador (ej. ubicación de un incidente). */
@@ -126,14 +124,13 @@ interface RoutePlannerProps {
   onExternalPickCancel?: () => void;
 }
 
-export function RoutePlanner({ rightSlot, mapOverlay, onRouteCalculated, onViaConflictsChanged, incidentRefreshKey, externalPickActive, externalPickLabel, onExternalPick, onExternalPickCancel }: RoutePlannerProps = {}) {
+export function RoutePlanner({ rightSlot, mapOverlay, onRouteCalculated, incidentRefreshKey, externalPickActive, externalPickLabel, onExternalPick, onExternalPickCancel }: RoutePlannerProps = {}) {
   return (
     <APIProvider apiKey={GOOGLE_MAPS_API_KEY} libraries={["geocoding"]}>
       <RoutePlannerContent
         rightSlot={rightSlot}
         mapOverlay={mapOverlay}
         onRouteCalculated={onRouteCalculated}
-        onViaConflictsChanged={onViaConflictsChanged}
         incidentRefreshKey={incidentRefreshKey}
         externalPickActive={externalPickActive}
         externalPickLabel={externalPickLabel}
@@ -150,7 +147,6 @@ function RoutePlannerContent({
   rightSlot,
   mapOverlay,
   onRouteCalculated,
-  onViaConflictsChanged,
   incidentRefreshKey,
   externalPickActive = false,
   externalPickLabel = "el punto",
@@ -160,7 +156,6 @@ function RoutePlannerContent({
   rightSlot?: React.ReactNode;
   mapOverlay?: React.ReactNode;
   onRouteCalculated?: (data: RouteCalculatedData | null) => void;
-  onViaConflictsChanged?: (provinces: string[]) => void;
   incidentRefreshKey?: number;
   externalPickActive?: boolean;
   externalPickLabel?: string;
@@ -255,6 +250,11 @@ function RoutePlannerContent({
   const [conflictsOpen,    setConflictsOpen]    = useState(false);
   const geocodedRef = useRef(false);
 
+  const conflictProvinces = useMemo(
+    () => viaConflicts.map((m) => m.via.Provincia.descripcion),
+    [viaConflicts],
+  );
+
   // Geocodifica las vías ECU911 una sola vez cuando el geocoder está disponible
   useEffect(() => {
     if (!geocoder || geocodedRef.current) return;
@@ -298,7 +298,6 @@ function RoutePlannerContent({
     const coords = routes[selectedRouteIdx];
     if (!coords || coords.length === 0 || viaMarkers.length === 0) {
       setViaConflicts([]);
-      onViaConflictsChanged?.([]);
       return;
     }
     const polyline = coords.map(([lng, lat]) => ({ lat, lng }));
@@ -307,7 +306,6 @@ function RoutePlannerContent({
     );
     setViaConflicts(conflicts);
     if (conflicts.length > 0) setConflictsOpen(true);
-    onViaConflictsChanged?.(conflicts.map((m) => m.via.Provincia.descripcion));
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [routes, selectedRouteIdx, viaMarkers]);
 
@@ -1322,6 +1320,7 @@ function RoutePlannerContent({
           routeData={timelineRouteData}
           onSelectIncident={handleSelectFromMap}
           selectedIncidentId={selectedIncident?.id ?? null}
+          conflictProvinces={conflictProvinces}
         />
 
         {sharedDialogs}

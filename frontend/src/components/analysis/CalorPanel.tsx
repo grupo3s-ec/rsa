@@ -126,7 +126,7 @@ export function CalorPanel({ filterProvinces }: CalorPanelProps) {
         <div>
           <h2 className="flex items-center gap-2 text-base font-semibold text-foreground">
             <Flame className="size-4 text-orange-500" />
-            Mapa de Calor — Restricciones ECU911
+            Restricciones ECU911 cercanas a la ruta
           </h2>
           <p className="mt-0.5 text-xs text-muted-foreground">
             {filterSet !== null

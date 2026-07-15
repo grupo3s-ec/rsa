@@ -4,18 +4,32 @@ namespace App\Http\Controllers\Api\Admin;
 
 use App\Http\Controllers\Controller;
 use App\Models\Incident;
+use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Http\Response;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class ReportController extends Controller
 {
-    public function incidents(Request $request): JsonResponse
+    /** @return array{from: Carbon, to: Carbon} */
+    private function resolvePeriod(Request $request): array
     {
-        $from = $request->date('from') ?? now()->subDays(29)->startOfDay();
-        $to   = $request->date('to')   ?? now()->endOfDay();
+        $request->validate([
+            'from' => ['sometimes', 'date'],
+            'to'   => ['sometimes', 'date'],
+        ]);
 
+        return [
+            'from' => $request->filled('from') ? Carbon::parse($request->string('from')) : now()->subDays(29)->startOfDay(),
+            'to'   => $request->filled('to')   ? Carbon::parse($request->string('to'))->endOfDay() : now()->endOfDay(),
+        ];
+    }
+
+    private function buildSummary(Carbon $from, Carbon $to): array
+    {
         $byPeriod = Incident::query()
             ->whereBetween('created_at', [$from, $to])
             ->selectRaw('DATE(created_at) as date, COUNT(*) as total')
@@ -41,7 +55,7 @@ class ReportController extends Controller
             ->orderByDesc('total')
             ->get();
 
-        return response()->json([
+        return [
             'period'      => ['from' => $from->toDateString(), 'to' => $to->toDateString()],
             'totals'      => [
                 'all'        => Incident::count(),
@@ -52,13 +66,39 @@ class ReportController extends Controller
             'by_type'     => $byType,
             'by_severity' => $bySeverity,
             'by_source'   => $bySource,
-        ]);
+        ];
+    }
+
+    public function incidents(Request $request): JsonResponse
+    {
+        ['from' => $from, 'to' => $to] = $this->resolvePeriod($request);
+
+        return response()->json($this->buildSummary($from, $to));
+    }
+
+    public function exportPdf(Request $request): Response
+    {
+        ['from' => $from, 'to' => $to] = $this->resolvePeriod($request);
+
+        $summary = $this->buildSummary($from, $to);
+
+        $incidentes = Incident::query()
+            ->whereBetween('created_at', [$from, $to])
+            ->orderByDesc('created_at')
+            ->get(['id', 'title', 'type', 'severity', 'status', 'source', 'latitude', 'longitude', 'occurred_at', 'created_at']);
+
+        $pdf = Pdf::loadView('reports.incidents', [
+            'summary'      => $summary,
+            'incidentes'   => $incidentes,
+            'generadoEn'   => now(),
+        ])->setPaper('a4', 'portrait');
+
+        return $pdf->download('reporte-incidentes.pdf');
     }
 
     public function export(Request $request): StreamedResponse
     {
-        $from = $request->date('from') ?? now()->subDays(29)->startOfDay();
-        $to   = $request->date('to')   ?? now()->endOfDay();
+        ['from' => $from, 'to' => $to] = $this->resolvePeriod($request);
 
         $incidents = Incident::query()
             ->whereBetween('created_at', [$from, $to])

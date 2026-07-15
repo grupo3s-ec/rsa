@@ -14,6 +14,10 @@ export type ClimaKm = {
   tempC: number;
   humPct: number;
   estacion: string;
+  /** % de años históricos (INAMHI) con lluvia significativa (mm ≥ 80) en ese mes/estación. */
+  probLluviaPct: number;
+  /** Cantidad de años con dato disponible para esa estación/mes — tamaño de muestra de probLluviaPct. */
+  aniosDatos: number;
 };
 
 type EstacionMeta = { codigo: string; nombre: string; lng: number; lat: number; altitud: number };
@@ -33,6 +37,33 @@ function promedio(vals: (string | number | null)[]): number {
   return nums.length > 0 ? nums.reduce((a, b) => a + b, 0) / nums.length : 0;
 }
 
+export interface ProbabilidadLluvia {
+  /** % de años históricos con lluvia significativa (mm ≥ 80) para esa estación/mes. */
+  probPct: number;
+  /** Años con dato disponible — tamaño de muestra. */
+  anios: number;
+}
+
+/** Probabilidad histórica de lluvia para una estación y mes, calculada sobre
+ * toda la serie INAMHI 1980–2021: % de años en que ese mes registró lluvia
+ * o tormenta (mm ≥ 80, mismo umbral que mmToCondicion) en esa estación. */
+export function getProbabilidadLluvia(codigo: string, mesIdx: number): ProbabilidadLluvia {
+  const valores = DATOS_PRECIPITACION
+    .filter(d => d.codigo === codigo)
+    .map(d => d.meses[mesIdx])
+    .filter((v): v is number => typeof v === 'number');
+
+  const anios = valores.length;
+  if (anios === 0) return { probPct: 0, anios: 0 };
+
+  const conLluvia = valores.filter(mm => {
+    const cond = mmToCondicion(mm);
+    return cond === 'rain' || cond === 'storm';
+  }).length;
+
+  return { probPct: Math.round((conLluvia / anios) * 1000) / 10, anios };
+}
+
 export function getPerfilClimatico(
   coords: LngLat[],
   distanceMeters: number,
@@ -49,12 +80,15 @@ export function getPerfilClimatico(
     const mm     = promedio(DATOS_PRECIPITACION.filter(d => d.codigo === est.codigo).map(d => d.meses[mesIdx] ?? null));
     const tempC  = promedio(DATOS_TEMPERATURA  .filter(d => d.codigo === est.codigo).map(d => d.meses[mesIdx] ?? null));
     const humPct = promedio(DATOS_HUMEDAD      .filter(d => d.codigo === est.codigo).map(d => d.meses[mesIdx] ?? null));
+    const prob   = getProbabilidadLluvia(est.codigo, mesIdx);
     return {
       km: Math.round(s.km * scale * 10) / 10,
       mm:     Math.round(mm     * 10) / 10,
       tempC:  Math.round(tempC  * 10) / 10,
       humPct: Math.round(humPct * 10) / 10,
       estacion: est.nombre.split('-')[0]?.trim() ?? est.nombre,
+      probLluviaPct: prob.probPct,
+      aniosDatos: prob.anios,
     };
   });
 }

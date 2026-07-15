@@ -13,19 +13,23 @@ import {
 } from 'recharts';
 import {
   AlertTriangle, Bell, ChevronLeft, ChevronRight, LoaderCircle,
-  Mountain, CloudRain, Route, History,
+  Mountain, CloudRain, Route, History, Flame, BarChart2, ShieldCheck,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { subsampleRoute, haversineKm } from '@/lib/geo';
 import { conditionMeta, formatDistance, formatDuration, severityMeta } from '@/lib/incidents/format';
 import { CONDICION_META, getPerfilClimatico, mmToCondicion, mmToColor, MES_NOMBRE } from '@/lib/inamhi';
 import { DATOS_PRECIPITACION, ESTACIONES_META } from '@/lib/precipitacion-data';
+import { CalorPanel } from '@/components/analysis/CalorPanel';
+import { ViaEstadoPanel } from '@/components/analysis/ViaEstadoPanel';
+import { AntStatsPanel } from '@/components/analysis/AntStatsPanel';
+import { EvaluacionRiesgoPanel } from '@/components/analysis/EvaluacionRiesgoPanel';
 import type { RouteCalculatedData } from '@/components/routes/RoutePlanner';
 import type { Incident } from '@/types/incident';
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
 
-type TimelineTab = 'alertas' | 'perfil';
+type TimelineTab = 'alertas' | 'perfil' | 'cierres' | 'vias' | 'ant' | 'riesgo';
 interface ElevPoint { km: number; elevacion: number; }
 interface GoogleElevationResponse {
   results: Array<{ elevation: number }>;
@@ -42,7 +46,7 @@ const AÑO_MAX = 2021;
 interface CombinedTooltipPoint {
   dataKey?: string;
   value?: number;
-  payload: { estacion?: string };
+  payload: { estacion?: string; probLluviaPct?: number; aniosDatos?: number };
 }
 
 /** Tooltip único para el perfil combinado — muestra elevación y/o precipitación
@@ -58,10 +62,18 @@ function CombinedProfileTooltip({ active, payload, label }: { active?: boolean; 
         <p className="text-muted-foreground">{elev.value!.toLocaleString('es-EC')} m.s.n.m.</p>
       )}
       {precip && (
-        <p className="text-sky-500 font-medium">
-          {precip.value!.toFixed(1)} mm/mes
-          {precip.payload.estacion ? ` · ${precip.payload.estacion}` : ''}
-        </p>
+        <>
+          <p className="text-sky-500 font-medium">
+            {precip.value!.toFixed(1)} mm/mes
+            {precip.payload.estacion ? ` · ${precip.payload.estacion}` : ''}
+          </p>
+          {!!precip.payload.aniosDatos && (
+            <p className="text-muted-foreground">
+              Probabilidad de lluvia: <span className="text-foreground font-medium">{precip.payload.probLluviaPct}%</span>
+              <span className="text-muted-foreground/60"> ({precip.payload.aniosDatos} años)</span>
+            </p>
+          )}
+        </>
       )}
     </div>
   );
@@ -130,9 +142,11 @@ interface Props {
   routeData: RouteCalculatedData | null;
   onSelectIncident?: (incident: Incident) => void;
   selectedIncidentId?: number | null;
+  /** Provincias con restricciones viales cercanas a la ruta calculada (para el tab Cierres). */
+  conflictProvinces?: string[] | null;
 }
 
-export function RouteTimeline({ routeData, onSelectIncident, selectedIncidentId }: Props) {
+export function RouteTimeline({ routeData, onSelectIncident, selectedIncidentId, conflictProvinces }: Props) {
   const [open,         setOpen]         = useState(true);
   const [tab,          setTab]          = useState<TimelineTab>('alertas');
   const [showAltimetria, setShowAltimetria] = useState(true);
@@ -184,11 +198,18 @@ export function RouteTimeline({ routeData, onSelectIncident, selectedIncidentId 
   // ya que recharts no admite un `data` distinto por serie dentro de un Bar.
   const perfilChartData = useMemo(() => {
     const len = Math.max(elevPoints.length, precipKmData.length);
-    const rows: Array<{ km: number; elevacion?: number; mm?: number; estacion?: string }> = [];
+    const rows: Array<{ km: number; elevacion?: number; mm?: number; estacion?: string; probLluviaPct?: number; aniosDatos?: number }> = [];
     for (let i = 0; i < len; i++) {
       const e = elevPoints[i];
       const p = precipKmData[i];
-      rows.push({ km: e?.km ?? p?.km ?? 0, elevacion: e?.elevacion, mm: p?.mm, estacion: p?.estacion });
+      rows.push({
+        km: e?.km ?? p?.km ?? 0,
+        elevacion: e?.elevacion,
+        mm: p?.mm,
+        estacion: p?.estacion,
+        probLluviaPct: p?.probLluviaPct,
+        aniosDatos: p?.aniosDatos,
+      });
     }
     return rows;
   }, [elevPoints, precipKmData]);
@@ -236,7 +257,7 @@ export function RouteTimeline({ routeData, onSelectIncident, selectedIncidentId 
       <div className="flex shrink-0 flex-col gap-2 border-b border-border/40 px-3 py-2.5">
         <div className="flex items-center justify-between gap-2">
           {/* Tabs */}
-          <div className="flex items-center gap-0.5 rounded-lg border border-border/50 bg-muted/40 p-0.5">
+          <div className="flex flex-wrap items-center gap-0.5 rounded-lg border border-border/50 bg-muted/40 p-0.5">
             <button type="button" onClick={() => setTab('alertas')}
               className={cn('relative flex items-center gap-1 rounded-md px-2 py-0.5 text-[11px] font-medium transition-colors',
                 tab === 'alertas' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground')}>
@@ -252,6 +273,26 @@ export function RouteTimeline({ routeData, onSelectIncident, selectedIncidentId 
               className={cn('flex items-center gap-1 rounded-md px-2 py-0.5 text-[11px] font-medium transition-colors',
                 tab === 'perfil' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground')}>
               <Mountain className="size-3" /> Altimetría · Clima
+            </button>
+            <button type="button" onClick={() => setTab('cierres')} title="Cierres Viales"
+              className={cn('flex items-center gap-1 rounded-md px-2 py-0.5 text-[11px] font-medium transition-colors',
+                tab === 'cierres' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground')}>
+              <Flame className="size-3" /> Cierres
+            </button>
+            <button type="button" onClick={() => setTab('vias')} title="Estado Vías ECU911"
+              className={cn('flex items-center gap-1 rounded-md px-2 py-0.5 text-[11px] font-medium transition-colors',
+                tab === 'vias' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground')}>
+              <Route className="size-3" /> Vías
+            </button>
+            <button type="button" onClick={() => setTab('ant')} title="ANT"
+              className={cn('flex items-center gap-1 rounded-md px-2 py-0.5 text-[11px] font-medium transition-colors',
+                tab === 'ant' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground')}>
+              <BarChart2 className="size-3" /> ANT
+            </button>
+            <button type="button" onClick={() => setTab('riesgo')} title="Evaluación de Riesgo"
+              className={cn('flex items-center gap-1 rounded-md px-2 py-0.5 text-[11px] font-medium transition-colors',
+                tab === 'riesgo' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground')}>
+              <ShieldCheck className="size-3" /> Riesgo
             </button>
           </div>
 
@@ -448,7 +489,7 @@ export function RouteTimeline({ routeData, onSelectIncident, selectedIncidentId 
               );
             })()}
           </div>
-        ) : (
+        ) : tab === 'perfil' ? (
           /* ── Tab Perfil: Altimetría + Clima superpuestos en un solo gráfico ── */
           !routeData ? (
             <div className="flex h-full items-center justify-center gap-3 text-muted-foreground/60">
@@ -563,6 +604,14 @@ export function RouteTimeline({ routeData, onSelectIncident, selectedIncidentId 
               </div>
             </div>
           )
+        ) : tab === 'cierres' ? (
+          <CalorPanel filterProvinces={routeData ? (conflictProvinces ?? null) : null} />
+        ) : tab === 'vias' ? (
+          <ViaEstadoPanel conflictProvinces={routeData ? (conflictProvinces ?? null) : null} />
+        ) : tab === 'ant' ? (
+          <AntStatsPanel />
+        ) : (
+          <EvaluacionRiesgoPanel />
         )}
       </div>
     </div>

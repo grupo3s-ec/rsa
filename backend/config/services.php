@@ -42,4 +42,10 @@ return [
         'database' => env('GEOTAB_DATABASE', ''),
     ],
 
+    'via_poll' => [
+        // Token compartido para que un cron externo (ej. cron-job.org) dispare
+        // POST /vias/poll sin necesitar una sesión de usuario autenticada.
+        'token' => env('VIA_POLL_TOKEN', ''),
+    ],
+
 ];
