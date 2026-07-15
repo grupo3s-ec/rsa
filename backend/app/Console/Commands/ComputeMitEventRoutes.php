@@ -9,7 +9,9 @@ use Illuminate\Console\Command;
 
 class ComputeMitEventRoutes extends Command
 {
-    protected $signature = 'mit:route {--limit=0 : Máximo de tramos distintos a rutear en esta corrida (0 = sin límite)}';
+    protected $signature = 'mit:route
+        {--limit=0 : Máximo de tramos distintos a rutear en esta corrida (0 = sin límite)}
+        {--force : Recalcula también los tramos que YA tienen ruta_polyline (ej. tras un cambio de formato/lógica de trazado)}';
 
     protected $description = 'Calcula (por carretera, vía Directions API) el trazado entre inicio y fin de cada tramo geocodificado del histórico MIT pendiente, para dibujarlo alineado a la vía real en vez de una línea recta';
 
@@ -25,14 +27,17 @@ class ComputeMitEventRoutes extends Command
         }
 
         $limit = (int) $this->option('limit');
+        $force = (bool) $this->option('force');
 
         // Igual que `mit:geocode`: agrupamos por tramo textual idéntico, ya que
         // la misma vía crónica se repite en muchos boletines mensuales y
         // comparte el mismo inicio/fin geocodificado — evita decenas de
         // llamadas redundantes a Directions API por el mismo trazado.
-        $grupos = MitAdverseEvent::query()
-            ->where('geocoding_status', 'ok')
-            ->whereNull('ruta_polyline')
+        $query = MitAdverseEvent::query()->where('geocoding_status', 'ok');
+        if (!$force) {
+            $query->whereNull('ruta_polyline');
+        }
+        $grupos = $query
             ->get(['id', 'tramo', 'inicio_lat', 'inicio_lng', 'fin_lat', 'fin_lng'])
             ->groupBy('tramo');
 

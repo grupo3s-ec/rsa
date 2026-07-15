@@ -314,15 +314,20 @@ function MitEventSegment({
     // la `overview_polyline` única, que Google simplifica para mapas de
     // escala pequeña) — se decodifica y concatena cada una para un trazado
     // fiel a la vía real incluso en curvas cerradas.
-    let path: google.maps.LatLng[] | { lat: number; lng: number }[];
+    const straightLine = [
+      { lat: event.inicio_lat, lng: event.inicio_lng },
+      { lat: event.fin_lat, lng: event.fin_lng },
+    ];
+    let path: google.maps.LatLng[] | { lat: number; lng: number }[] = straightLine;
     if (event.ruta_polyline) {
-      const steps = JSON.parse(event.ruta_polyline) as string[];
-      path = steps.flatMap((step) => window.google.maps.geometry.encoding.decodePath(step));
-    } else {
-      path = [
-        { lat: event.inicio_lat, lng: event.inicio_lng },
-        { lat: event.fin_lat, lng: event.fin_lng },
-      ];
+      try {
+        const steps = JSON.parse(event.ruta_polyline) as string[];
+        path = steps.flatMap((step) => window.google.maps.geometry.encoding.decodePath(step));
+      } catch {
+        // Formato viejo/corrupto (ej. una fila calculada antes de pasar a
+        // JSON de steps) — cae de vuelta a la línea recta en vez de romper
+        // el render de este tramo.
+      }
     }
     const color = MIT_TIPO_HEX[event.tipo_evento] ?? MIT_TIPO_HEX_DEFAULT;
 

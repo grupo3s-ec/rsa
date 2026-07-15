@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api\Admin;
 
 use App\Http\Controllers\Controller;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Artisan;
 
 class MitImportController extends Controller
@@ -33,9 +34,14 @@ class MitImportController extends Controller
      * `mit:import` borra y reimporta la tabla en cada corrida (perdiendo
      * `ruta_polyline` calculado antes), así que conviene poder re-disparar
      * solo este paso sin repetir import+geocode. */
-    public function route(): JsonResponse
+    public function route(Request $request): JsonResponse
     {
-        Artisan::call('mit:route');
+        // ?force=1 recalcula TAMBIÉN los tramos que ya tienen ruta_polyline —
+        // necesario tras un cambio de formato/lógica de trazado (ej. pasar de
+        // `overview_polyline` a la polyline de cada `step`); sin esto, los ya
+        // calculados con el formato/lógica anterior quedarían obsoletos para
+        // siempre, ya que la corrida normal solo procesa los `null`.
+        Artisan::call('mit:route', ['--force' => $request->boolean('force')]);
 
         return response()->json(['route' => trim(Artisan::output())]);
     }
