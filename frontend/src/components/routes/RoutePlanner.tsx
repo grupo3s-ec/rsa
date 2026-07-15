@@ -68,7 +68,14 @@ import {
 import { filterIncidentsByRoute } from "@/lib/mapbox/route-filter";
 import { getRouteIncidents } from "@/services/routes.service";
 import { getIncidents } from "@/services/incidents.service";
-import { pointNearPolyline } from "@/lib/geo";
+import {
+  pointNearPolyline,
+  subsampleRoute,
+  kmPositionAlongRoute,
+  kmRangeVisibleInBounds,
+  boundsForKmRange,
+  type RawLatLngBounds,
+} from "@/lib/geo";
 import { getMitEventos, type MitAdverseEvent } from "@/lib/api/mit-eventos";
 import type { Incident } from "@/types/incident";
 import type { Ecu911Response, ViaGeoMarker } from "@/types/ecu911";
@@ -145,8 +152,12 @@ interface RoutePlannerProps {
 }
 
 export function RoutePlanner({ rightSlot, mapOverlay, onRouteCalculated, incidentRefreshKey, externalPickActive, externalPickLabel, onExternalPick, onExternalPickCancel }: RoutePlannerProps = {}) {
+  // "geometry" habilita `google.maps.geometry.encoding.decodePath` — usada por
+  // `MitEventSegment` en RouteMap.tsx para dibujar el trazado real de cada
+  // tramo MIT (polyline pre-calculada por el backend) en vez de una línea
+  // recta entre sus dos extremos geocodificados.
   return (
-    <APIProvider apiKey={GOOGLE_MAPS_API_KEY} libraries={["geocoding"]}>
+    <APIProvider apiKey={GOOGLE_MAPS_API_KEY} libraries={["geocoding", "geometry"]}>
       <RoutePlannerContent
         rightSlot={rightSlot}
         mapOverlay={mapOverlay}
@@ -215,6 +226,11 @@ function RoutePlannerContent({
   const [routes,           setRoutes]           = useState<LngLat[][]>([]);
   const [selectedRouteIdx, setSelectedRouteIdx] = useState(0);
   const [routeInfo,        setRouteInfo]        = useState<RouteInfo | null>(null);
+  /** distancia/duración de CADA ruta alternativa (mismo índice que `routes`) —
+   * `routeInfo` refleja solo la ruta activa; `handleSelectRoute` lee de aquí
+   * para no dejar `routeInfo` (y por lo tanto `routeKmScale`) pegado a la
+   * ruta primaria al cambiar de alternativa. */
+  const [routeInfos,       setRouteInfos]       = useState<(RouteInfo | null)[]>([]);
 
   // La ruta activa como RouteLineString (para filterIncidentsByRoute)
   const routeGeometry: RouteLineString | null = routes[selectedRouteIdx]
@@ -403,6 +419,127 @@ function RoutePlannerContent({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [routes, selectedRouteIdx, mitEvents]);
 
+  // ─── Zoom-detalle: el viewport del mapa (o el selector del gráfico) enfoca
+  // el detalle mostrado en el resto de la UI — como el zoom de una línea de
+  // tiempo de edición de video. `focusedKmRange` (km "reales", ya escalados a
+  // distancia de carretera) es la única fuente de verdad; `null` = vista
+  // completa de la ruta. `focusDriverRef` evita que el mapa y el gráfico se
+  // empujen el uno al otro en un loop cuando uno de los dos originó el cambio.
+  const [focusedKmRange, setFocusedKmRangeState] = useState<[number, number] | null>(null);
+  const focusDriverRef = useRef<'map' | 'chart' | null>(null);
+
+  // Muestras de alta resolución de la ruta activa (km en escala Haversine,
+  // sin corregir) — única fuente para las conversiones bounds↔km de abajo.
+  const routeSamples = useMemo(() => {
+    const coords = routes[selectedRouteIdx];
+    return coords && coords.length > 0 ? subsampleRoute(coords, 200) : [];
+  }, [routes, selectedRouteIdx]);
+
+  // Corrige el km acumulado por Haversine (línea recta) contra el km real de
+  // la ruta (distancia de la API de rutas, siempre algo mayor). Multiplicar
+  // por esto convierte "km de muestra" → "km reales" mostrados en la UI.
+  const routeKmScale = useMemo(() => {
+    const haversineTotal = routeSamples[routeSamples.length - 1]?.km ?? 0;
+    const roadTotalKm = (routeInfo?.distanceMeters ?? 0) / 1000;
+    // `roadTotalKm > 0` además de `haversineTotal > 0`: si falló Directions
+    // (routeInfo es null) pero ya hay una ruta de respaldo con muestras,
+    // roadTotalKm queda en 0 y sin este guard el factor de escala colapsaría
+    // a 0 (no al 1 de respaldo), poniendo todo km calculado en 0.
+    return haversineTotal > 0 && roadTotalKm > 0 ? roadTotalKm / haversineTotal : 1;
+  }, [routeSamples, routeInfo]);
+
+  const totalRouteKm = useMemo(
+    () => (routeSamples[routeSamples.length - 1]?.km ?? 0) * routeKmScale,
+    [routeSamples, routeKmScale],
+  );
+
+  // Vías/MIT en conflicto, con su posición en km reales a lo largo de la ruta
+  // — para poder filtrarlos cuando el mapa/gráfico enfoca un tramo específico.
+  const viaConflictsWithKm = useMemo(
+    () => viaConflicts.map((m) => ({
+      ...m,
+      km: kmPositionAlongRoute(m.location, routeSamples, routeKmScale),
+    })),
+    [viaConflicts, routeSamples, routeKmScale],
+  );
+  const mitConflictsWithKm = useMemo(
+    () => mitConflicts.map((e) => ({
+      ...e,
+      inicioKm: kmPositionAlongRoute({ lat: e.inicio_lat!, lng: e.inicio_lng! }, routeSamples, routeKmScale),
+      finKm: kmPositionAlongRoute({ lat: e.fin_lat!, lng: e.fin_lng! }, routeSamples, routeKmScale),
+    })),
+    [mitConflicts, routeSamples, routeKmScale],
+  );
+
+  // Subconjunto de vías/MIT dentro del rango enfocado — cuando no hay foco,
+  // se muestran todos (comportamiento de siempre).
+  const viaConflictsVisible = useMemo(() => {
+    if (!focusedKmRange) return viaConflictsWithKm;
+    const [from, to] = focusedKmRange;
+    return viaConflictsWithKm.filter((m) => m.km >= from && m.km <= to);
+  }, [viaConflictsWithKm, focusedKmRange]);
+  const mitConflictsVisible = useMemo(() => {
+    if (!focusedKmRange) return mitConflictsWithKm;
+    const [from, to] = focusedKmRange;
+    // Overlap de intervalos ([inicioKm,finKm] vs [from,to]), no solo si algún
+    // extremo cae adentro — un tramo largo que atraviesa el rango enfocado
+    // por completo (inicioKm < from y finKm > to) antes se perdía porque
+    // ningún extremo individual caía dentro de [from,to].
+    return mitConflictsWithKm.filter((e) => {
+      const start = Math.min(e.inicioKm, e.finKm);
+      const end = Math.max(e.inicioKm, e.finKm);
+      return end >= from && start <= to;
+    });
+  }, [mitConflictsWithKm, focusedKmRange]);
+
+  // El mapa terminó de moverse: calcula qué rango de km quedó visible y
+  // decide si eso cuenta como "enfocado" (menos del 85% de la ruta total
+  // visible) o si el usuario se alejó a ver el overview completo.
+  const handleViewportBoundsChanged = useCallback((bounds: RawLatLngBounds) => {
+    focusDriverRef.current = 'map';
+    if (routeSamples.length === 0) { setFocusedKmRangeState(null); return; }
+    const visible = kmRangeVisibleInBounds(routeSamples, bounds);
+    if (!visible) { setFocusedKmRangeState(null); return; }
+    const [fromKm, toKm] = visible;
+    const widthReal = (toKm - fromKm) * routeKmScale;
+    setFocusedKmRangeState(
+      widthReal < totalRouteKm * 0.85 ? [fromKm * routeKmScale, toKm * routeKmScale] : null,
+    );
+  }, [routeSamples, routeKmScale, totalRouteKm]);
+
+  // El usuario arrastró el selector del gráfico — enfoca ese rango (en km
+  // reales) directamente.
+  const handleChartRangeChanged = useCallback((range: [number, number] | null) => {
+    focusDriverRef.current = 'chart';
+    setFocusedKmRangeState(range);
+  }, []);
+
+  // Bounds a los que el mapa debe centrarse — solo cuando el foco lo originó
+  // el gráfico (si lo originó el mapa, este ya está ahí; moverlo de nuevo
+  // sería redundante y arriesga el loop que `focusDriverRef` evita). Cuando el
+  // gráfico LIMPIA el foco (ej. el botón "Ver toda la ruta"), `focusedKmRange`
+  // pasa a `null` — el mapa debe volver a mostrar la ruta completa, no
+  // quedarse quieto en el último tramo enfocado.
+  const focusBoundsForMap = useMemo(() => {
+    if (focusDriverRef.current !== 'chart' || routeSamples.length === 0) return null;
+    if (!focusedKmRange) {
+      const totalKm = routeSamples[routeSamples.length - 1]!.km;
+      return boundsForKmRange(routeSamples, [0, totalKm]);
+    }
+    const [fromKmReal, toKmReal] = focusedKmRange;
+    return boundsForKmRange(routeSamples, [fromKmReal / routeKmScale, toKmReal / routeKmScale]);
+  }, [focusedKmRange, routeSamples, routeKmScale]);
+
+  // Bounds geográficos del rango enfocado actual (sin importar qué lo originó)
+  // — a diferencia de `focusBoundsForMap`, este SIEMPRE refleja el foco activo;
+  // lo usa el tab MIT para su filtro "solo lo visible" sobre el histórico
+  // completo (que no tiene noción de "km de la ruta", solo lat/lng).
+  const focusedGeoBounds = useMemo(() => {
+    if (!focusedKmRange || routeSamples.length === 0) return null;
+    const [fromKmReal, toKmReal] = focusedKmRange;
+    return boundsForKmRange(routeSamples, [fromKmReal / routeKmScale, toKmReal / routeKmScale]);
+  }, [focusedKmRange, routeSamples, routeKmScale]);
+
   // ─── Modo de dirección (tabs) ────────────────────────────────────────────
   const [addressMode,       setAddressMode]       = useState<"url" | "buscar" | "coordenadas">("url");
   const [pasteRouteLinkRaw, setPasteRouteLinkRaw] = useState("");
@@ -560,6 +697,11 @@ function RoutePlannerContent({
     let resolvedDist = 0;
     let resolvedDur  = 0;
 
+    // Nueva ruta calculada — cualquier foco de zoom-detalle de la ruta
+    // anterior queda sin sentido sobre esta geometría nueva.
+    setFocusedKmRangeState(null);
+    focusDriverRef.current = null;
+
     if (directionsResult.status === "fulfilled") {
       const allRoutes = directionsResult.value.routes;
       // Concatenamos step.path de cada leg para preservar el trayecto completo
@@ -579,6 +721,10 @@ function RoutePlannerContent({
       });
       setRoutes(converted);
       setSelectedRouteIdx(0);
+      setRouteInfos(allRoutes.map((r) => ({
+        distanceMeters: r.legs.reduce((s, l) => s + (l.distance?.value ?? 0), 0),
+        durationSeconds: r.legs.reduce((s, l) => s + (l.duration?.value ?? 0), 0),
+      })));
 
       const primary = allRoutes[0];
       if (primary) {
@@ -591,6 +737,7 @@ function RoutePlannerContent({
       setRoutes([defined]);
       setSelectedRouteIdx(0);
       setRouteInfo(null);
+      setRouteInfos([null]);
     }
 
     let callbackIncidents: Incident[] = [];
@@ -628,6 +775,14 @@ function RoutePlannerContent({
 
   function handleSelectRoute(idx: number) {
     setSelectedRouteIdx(idx);
+    // Cada ruta alternativa tiene su propia distancia — sin esto, routeInfo
+    // (y por lo tanto routeKmScale) se quedaba pegado a la ruta primaria.
+    const info = routeInfos[idx];
+    if (info) setRouteInfo(info);
+    // Un foco de zoom-detalle de la ruta anterior no tiene sentido sobre la
+    // geometría de esta otra ruta.
+    setFocusedKmRangeState(null);
+    focusDriverRef.current = null;
     // Re-filtrar incidentes con la nueva ruta seleccionada
     const coords = routes[idx];
     if (coords) {
@@ -899,8 +1054,10 @@ function RoutePlannerContent({
     return (
       <div className={cn("space-y-3", compact && "text-sm")}>
         {/* Todo lo estático (nunca cambia tras cargar) vive dentro de este contenedor
-            vigilado por el detector de manipulación — el contador de incidentes queda
-            afuera porque sí puede actualizarse legítimamente (ej. al reportar uno nuevo). */}
+            vigilado por el detector de manipulación — afuera va todo lo que sí puede
+            actualizarse legítimamente: el contador de incidentes (ej. al reportar uno
+            nuevo) y los conteos de vías/MIT visibles, que cambian con el zoom-detalle
+            (foco de mapa/gráfico) sin que eso sea una manipulación externa. */}
         <div ref={demoPanelRef} className="space-y-3">
 
           <div className="space-y-1">
@@ -958,41 +1115,47 @@ function RoutePlannerContent({
             </div>
           ) : null}
 
-          {viaConflicts.length > 0 ? (
-            <div className="rounded-lg border border-orange-500/40 bg-orange-50/60 p-2.5 dark:bg-orange-950/30">
-              <p className="mb-1.5 flex items-center gap-2 text-xs font-semibold text-orange-700 dark:text-orange-400">
-                <AlertTriangle className="size-4 shrink-0 text-orange-500" />
-                {viaConflicts.length} vía{viaConflicts.length !== 1 ? "s" : ""} con restricción en la ruta
-              </p>
-              <ul className="max-h-48 space-y-1.5 overflow-y-auto">
-                {viaConflicts.map((m) => (
-                  <li key={m.via.id} className="text-[11px] text-muted-foreground">
-                    <span className="font-medium text-foreground">{m.via.descripcion}</span>
-                    {" · "}{m.via.EstadoActual.nombre}
-                  </li>
-                ))}
-              </ul>
-            </div>
-          ) : null}
-
-          {mitConflicts.length > 0 ? (
-            <div className="rounded-lg border border-indigo-500/40 bg-indigo-50/60 p-2.5 dark:bg-indigo-950/30">
-              <p className="mb-1.5 flex items-center gap-2 text-xs font-semibold text-indigo-700 dark:text-indigo-400">
-                <AlertTriangle className="size-4 shrink-0 text-indigo-500" />
-                {mitConflicts.length} evento{mitConflicts.length !== 1 ? "s" : ""} del histórico MIT en la ruta
-              </p>
-              <ul className="max-h-48 space-y-1.5 overflow-y-auto">
-                {mitConflicts.map((e) => (
-                  <li key={e.id} className="text-[11px] text-muted-foreground">
-                    <span className="font-medium text-foreground">{e.tramo}</span>
-                    {" · "}{e.tipo_evento}
-                  </li>
-                ))}
-              </ul>
-            </div>
-          ) : null}
-
         </div>
+
+        {viaConflictsVisible.length > 0 ? (
+          <div className="rounded-lg border border-orange-500/40 bg-orange-50/60 p-2.5 dark:bg-orange-950/30">
+            <p className="mb-1.5 flex items-center gap-2 text-xs font-semibold text-orange-700 dark:text-orange-400">
+              <AlertTriangle className="size-4 shrink-0 text-orange-500" />
+              {viaConflictsVisible.length} vía{viaConflictsVisible.length !== 1 ? "s" : ""} con restricción
+              {focusedKmRange ? ' en el tramo enfocado' : ' en la ruta'}
+              {focusedKmRange && viaConflictsVisible.length !== viaConflicts.length
+                ? ` (${viaConflicts.length} en toda la ruta)` : ''}
+            </p>
+            <ul className="max-h-48 space-y-1.5 overflow-y-auto">
+              {viaConflictsVisible.map((m) => (
+                <li key={m.via.id} className="text-[11px] text-muted-foreground">
+                  <span className="font-medium text-foreground">{m.via.descripcion}</span>
+                  {" · "}{m.via.EstadoActual.nombre}
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
+
+        {mitConflictsVisible.length > 0 ? (
+          <div className="rounded-lg border border-indigo-500/40 bg-indigo-50/60 p-2.5 dark:bg-indigo-950/30">
+            <p className="mb-1.5 flex items-center gap-2 text-xs font-semibold text-indigo-700 dark:text-indigo-400">
+              <AlertTriangle className="size-4 shrink-0 text-indigo-500" />
+              {mitConflictsVisible.length} evento{mitConflictsVisible.length !== 1 ? "s" : ""} del histórico MIT
+              {focusedKmRange ? ' en el tramo enfocado' : ' en la ruta'}
+              {focusedKmRange && mitConflictsVisible.length !== mitConflicts.length
+                ? ` (${mitConflicts.length} en toda la ruta)` : ''}
+            </p>
+            <ul className="max-h-48 space-y-1.5 overflow-y-auto">
+              {mitConflictsVisible.map((e) => (
+                <li key={e.id} className="text-[11px] text-muted-foreground">
+                  <span className="font-medium text-foreground">{e.tramo}</span>
+                  {" · "}{e.tipo_evento}
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
 
         {searched && !loading && !error ? (
           <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
@@ -1224,7 +1387,7 @@ function RoutePlannerContent({
         ) : null}
 
         {/* ── Conflictos con vías ECU911 ── */}
-        {viaConflicts.length > 0 ? (
+        {viaConflictsVisible.length > 0 ? (
           <div className="overflow-hidden rounded-lg border border-orange-500/40 bg-orange-50/60 dark:bg-orange-950/30">
             <button
               type="button"
@@ -1233,7 +1396,10 @@ function RoutePlannerContent({
             >
               <AlertTriangle className="size-4 shrink-0 text-orange-500" />
               <span className="flex-1 text-xs font-semibold text-orange-700 dark:text-orange-400">
-                {viaConflicts.length} vía{viaConflicts.length !== 1 ? "s" : ""} con restricción en la ruta
+                {viaConflictsVisible.length} vía{viaConflictsVisible.length !== 1 ? "s" : ""} con restricción
+                {focusedKmRange ? ' en el tramo enfocado' : ' en la ruta'}
+                {focusedKmRange && viaConflictsVisible.length !== viaConflicts.length
+                  ? ` (${viaConflicts.length} en toda la ruta)` : ''}
               </span>
               {conflictsOpen ? (
                 <ChevronUp className="size-3.5 text-orange-500" />
@@ -1243,7 +1409,7 @@ function RoutePlannerContent({
             </button>
             {conflictsOpen ? (
               <ul className="max-h-48 divide-y divide-orange-500/10 overflow-y-auto border-t border-orange-500/20">
-                {viaConflicts.map((m) => {
+                {viaConflictsVisible.map((m) => {
                   const dotColor =
                     m.via.estado_actual_id === 595
                       ? "#dc2626"
@@ -1277,7 +1443,7 @@ function RoutePlannerContent({
         ) : null}
 
         {/* ── Eventos del histórico MIT/MTOP sobre la ruta ── */}
-        {mitConflicts.length > 0 ? (
+        {mitConflictsVisible.length > 0 ? (
           <div className="overflow-hidden rounded-lg border border-indigo-500/40 bg-indigo-50/60 dark:bg-indigo-950/30">
             <button
               type="button"
@@ -1286,7 +1452,10 @@ function RoutePlannerContent({
             >
               <AlertTriangle className="size-4 shrink-0 text-indigo-500" />
               <span className="flex-1 text-xs font-semibold text-indigo-700 dark:text-indigo-400">
-                {mitConflicts.length} evento{mitConflicts.length !== 1 ? "s" : ""} del histórico MIT en la ruta
+                {mitConflictsVisible.length} evento{mitConflictsVisible.length !== 1 ? "s" : ""} del histórico MIT
+                {focusedKmRange ? ' en el tramo enfocado' : ' en la ruta'}
+                {focusedKmRange && mitConflictsVisible.length !== mitConflicts.length
+                  ? ` (${mitConflicts.length} en toda la ruta)` : ''}
               </span>
               {mitConflictsOpen ? (
                 <ChevronUp className="size-3.5 text-indigo-500" />
@@ -1296,7 +1465,7 @@ function RoutePlannerContent({
             </button>
             {mitConflictsOpen ? (
               <ul className="max-h-48 divide-y divide-indigo-500/10 overflow-y-auto border-t border-indigo-500/20">
-                {mitConflicts.map((e) => (
+                {mitConflictsVisible.map((e) => (
                   <li
                     key={e.id}
                     className="flex cursor-pointer items-start gap-2 px-3 py-2 hover:bg-indigo-50 dark:hover:bg-indigo-950/50"
@@ -1410,6 +1579,8 @@ function RoutePlannerContent({
                 mitSegments={mitConflicts}
                 onSelectMitEvent={(e) => { setSelectedMit(e); setSelectedVia(null); }}
                 selectedMitEventId={selectedMit?.id ?? null}
+                onViewportBoundsChanged={handleViewportBoundsChanged}
+                focusBounds={focusBoundsForMap}
               />
               {pickModeIndicator}
               {legendPill}
@@ -1481,6 +1652,9 @@ function RoutePlannerContent({
           selectedIncidentId={selectedIncident?.id ?? null}
           conflictProvinces={conflictProvinces}
           mitConflictProvinces={mitConflictProvinces}
+          focusedKmRange={focusedKmRange}
+          onFocusedKmRangeChange={handleChartRangeChanged}
+          focusedGeoBounds={focusedGeoBounds}
         />
 
         {sharedDialogs}
@@ -1508,10 +1682,28 @@ function RoutePlannerContent({
           mitSegments={mitConflicts}
           onSelectMitEvent={(e) => { setSelectedMit(e); setSelectedVia(null); }}
           selectedMitEventId={selectedMit?.id ?? null}
+          onViewportBoundsChanged={handleViewportBoundsChanged}
+          focusBounds={focusBoundsForMap}
         />
       </div>
 
       {pickModeIndicator}
+
+      {/* RouteTimeline (con el pill "Ver toda la ruta") no se monta en modo
+          pantalla completa — sin este control, un zoom-detalle activado aquí
+          quedaría sin forma de limpiarse desde la UI. */}
+      {focusedKmRange ? (
+        <div className="pointer-events-none absolute inset-x-0 top-4 z-20 flex justify-center">
+          <button
+            type="button"
+            onClick={() => handleChartRangeChanged(null)}
+            className="pointer-events-auto flex items-center gap-1.5 rounded-full border border-primary/40 bg-background/90 px-3 py-1.5 text-xs font-medium text-primary shadow-lg backdrop-blur transition-colors hover:bg-primary/10"
+          >
+            <RouteIcon className="size-3.5" />
+            km {focusedKmRange[0].toFixed(0)}–{focusedKmRange[1].toFixed(0)} enfocado · Ver toda la ruta
+          </button>
+        </div>
+      ) : null}
 
       <aside className="absolute left-4 top-4 z-10 w-[min(calc(20rem-5px),calc(100vw-2rem))] rounded-2xl border border-border/60 bg-background/80 shadow-lg backdrop-blur">
         <div className="flex items-center justify-between px-4 py-2.5">

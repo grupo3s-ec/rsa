@@ -1,13 +1,14 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   AlertTriangle, ChevronDown, ChevronUp, Construction, Droplets,
   Gem, Landmark, Layers, Link2Off, Mountain, RefreshCw, Route,
-  TreePine, TrendingDown, Users, Waves, HelpCircle,
+  TreePine, TrendingDown, Users, Waves, HelpCircle, ZoomIn,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { getMitEventos, getMitEventosOpciones, type MitAdverseEvent, type MitEventosOpciones } from '@/lib/api/mit-eventos';
+import type { RawLatLngBounds } from '@/lib/geo';
 
 interface TipoMeta { icon: typeof Mountain; bg: string; text: string; dot: string; }
 
@@ -114,13 +115,21 @@ interface MitEventosPanelProps {
    * (NO las mismas que las de restricciones ECU911 — son fuentes de datos
    * distintas) — permite acotar el histórico automáticamente a la ruta activa. */
   conflictProvinces?: string[] | null;
+  /** Bounds geográficos del rango enfocado en el mapa/gráfico (zoom-detalle)
+   * — filtra la página ya cargada por contención, 100% client-side, sin
+   * cambios de backend (el histórico completo sí tiene coordenadas, a
+   * diferencia del de Vías ECU911). */
+  focusedBounds?: RawLatLngBounds | null;
 }
 
 const today = new Date().toISOString().split('T')[0]!;
 
-export function MitEventosPanel({ conflictProvinces }: MitEventosPanelProps = {}) {
+export function MitEventosPanel({ conflictProvinces, focusedBounds }: MitEventosPanelProps = {}) {
   const hasRouteProvinces = !!conflictProvinces && conflictProvinces.length > 0;
   const [useRoute, setUseRoute] = useState(true);
+
+  const hasFocusedBounds = !!focusedBounds;
+  const [useFocused, setUseFocused] = useState(true);
 
   const [opciones, setOpciones] = useState<MitEventosOpciones | null>(null);
   const [rutaCodigo, setRutaCodigo] = useState('');
@@ -186,6 +195,19 @@ export function MitEventosPanel({ conflictProvinces }: MitEventosPanelProps = {}
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [rutaCodigo, tipoEvento, routeProvincias, from, to, debouncedSearch]);
 
+  // Filtra lo YA cargado por contención geográfica (zoom-detalle) — 100%
+  // client-side, no dispara peticiones nuevas. Solo cubre lo que ya se trajo
+  // del backend, así que "Cargar más" puede revelar más eventos dentro del
+  // área enfocada que aún no se han descargado.
+  const eventosVisibles = useMemo(() => {
+    if (!useFocused || !focusedBounds) return eventos;
+    const dentro = (lat: number | null, lng: number | null) =>
+      lat !== null && lng !== null
+      && lat <= focusedBounds.north && lat >= focusedBounds.south
+      && lng >= focusedBounds.west && lng <= focusedBounds.east;
+    return eventos.filter((e) => dentro(e.inicio_lat, e.inicio_lng) || dentro(e.fin_lat, e.fin_lng));
+  }, [eventos, useFocused, focusedBounds]);
+
   return (
     <div className="flex h-full flex-col bg-background">
       {/* Encabezado */}
@@ -197,18 +219,32 @@ export function MitEventosPanel({ conflictProvinces }: MitEventosPanelProps = {}
           </h2>
         </div>
 
-        {hasRouteProvinces && (
-          <button
-            type="button"
-            onClick={() => setUseRoute(v => !v)}
-            className={cn('flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[10px] font-medium transition-colors border w-fit mb-2',
-              useRoute
-                ? 'bg-foreground text-background border-foreground'
-                : 'border-border/50 text-muted-foreground hover:text-foreground hover:border-border')}
-          >
-            <Route className="size-3" /> Solo la ruta calculada
-          </button>
-        )}
+        <div className="flex flex-wrap items-center gap-1.5 mb-2">
+          {hasRouteProvinces && (
+            <button
+              type="button"
+              onClick={() => setUseRoute(v => !v)}
+              className={cn('flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[10px] font-medium transition-colors border w-fit',
+                useRoute
+                  ? 'bg-foreground text-background border-foreground'
+                  : 'border-border/50 text-muted-foreground hover:text-foreground hover:border-border')}
+            >
+              <Route className="size-3" /> Solo la ruta calculada
+            </button>
+          )}
+          {hasFocusedBounds && (
+            <button
+              type="button"
+              onClick={() => setUseFocused(v => !v)}
+              className={cn('flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[10px] font-medium transition-colors border w-fit',
+                useFocused
+                  ? 'bg-foreground text-background border-foreground'
+                  : 'border-border/50 text-muted-foreground hover:text-foreground hover:border-border')}
+            >
+              <ZoomIn className="size-3" /> Solo lo visible en el mapa
+            </button>
+          )}
+        </div>
 
         {/* Ruta / tramo y tipo de evento — mismas cabeceras que la tabla fuente */}
         <div className="flex items-center gap-1.5 mb-2">
@@ -245,7 +281,11 @@ export function MitEventosPanel({ conflictProvinces }: MitEventosPanelProps = {}
         />
 
         {total > 0 && (
-          <p className="mt-1.5 text-[10px] text-muted-foreground">{total} evento{total !== 1 ? 's' : ''} encontrado{total !== 1 ? 's' : ''}</p>
+          <p className="mt-1.5 text-[10px] text-muted-foreground">
+            {eventosVisibles.length !== eventos.length
+              ? `${eventosVisibles.length} de ${eventos.length} cargados visibles en el mapa (${total} en total)`
+              : `${total} evento${total !== 1 ? 's' : ''} encontrado${total !== 1 ? 's' : ''}`}
+          </p>
         )}
       </div>
 
@@ -264,13 +304,22 @@ export function MitEventosPanel({ conflictProvinces }: MitEventosPanelProps = {}
               Reintentar
             </button>
           </div>
-        ) : eventos.length === 0 ? (
+        ) : eventosVisibles.length === 0 && page >= lastPage ? (
           <div className="flex flex-col items-center justify-center h-32 gap-1 text-muted-foreground text-center px-4">
             <span className="text-xs">Sin eventos para los filtros actuales</span>
           </div>
         ) : (
           <>
-            {eventos.map(ev => <EventoCard key={ev.id} evento={ev} />)}
+            {eventosVisibles.length === 0 ? (
+              // El foco del mapa vació lo YA cargado, pero quedan páginas sin
+              // descargar que podrían tener eventos dentro del área visible —
+              // no mostramos el estado vacío final para no ocultar "Cargar más".
+              <div className="flex flex-col items-center justify-center gap-1 text-muted-foreground text-center px-4 py-6">
+                <span className="text-xs">Nada visible en lo ya cargado — puede haber más en las siguientes páginas.</span>
+              </div>
+            ) : (
+              eventosVisibles.map(ev => <EventoCard key={ev.id} evento={ev} />)
+            )}
             {page < lastPage && (
               <button
                 type="button"

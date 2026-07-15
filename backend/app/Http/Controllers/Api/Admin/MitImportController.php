@@ -25,4 +25,18 @@ class MitImportController extends Controller
             'geocode' => trim($geocodeOutput),
         ]);
     }
+
+    /** Corre `mit:route` — calcula el trazado por carretera entre inicio y fin
+     * de cada tramo ya geocodificado, para dibujarlo alineado a la vía real en
+     * vez de una línea recta. Aparte de `run()` (import+geocode): agrega tiempo
+     * de corrida por la llamada extra a Directions API por tramo distinto, y
+     * `mit:import` borra y reimporta la tabla en cada corrida (perdiendo
+     * `ruta_polyline` calculado antes), así que conviene poder re-disparar
+     * solo este paso sin repetir import+geocode. */
+    public function route(): JsonResponse
+    {
+        Artisan::call('mit:route');
+
+        return response()->json(['route' => trim(Artisan::output())]);
+    }
 }

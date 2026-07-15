@@ -1,5 +1,5 @@
 import { Cloud, CloudLightning, CloudRain, Sun, type LucideIcon } from 'lucide-react';
-import { haversineKm, subsampleRoute } from '@/lib/geo';
+import { haversineKm, subsampleRoute, subsampleRouteRange } from '@/lib/geo';
 import {
   ESTACIONES_META,
   DATOS_PRECIPITACION,
@@ -64,16 +64,33 @@ export function getProbabilidadLluvia(codigo: string, mesIdx: number): Probabili
   return { probPct: Math.round((conLluvia / anios) * 1000) / 10, anios };
 }
 
+/**
+ * @param n Cantidad de puntos a muestrear. Mismo valor por defecto que
+ * `ELEVATION_SAMPLE_COUNT` en `RouteTimeline.tsx` — mantenerlos iguales evita
+ * que dos vistas del mismo perfil climático (ClimaPanel vs RouteTimeline)
+ * disientan en los límites de cada "bucket" de km.
+ * @param focusRangeKm Rango en km "reales" (ya escalados) a enfocar — si se
+ * provee, se muestrea con la misma densidad `n` pero solo dentro de ese
+ * tramo (más puntos por km, como el zoom de una línea de tiempo de edición
+ * de video) en vez de sobre la ruta completa. La escala Haversine→km real
+ * siempre se calcula sobre la ruta COMPLETA, para que el km reportado siga
+ * siendo comparable con el resto de la UI.
+ */
 export function getPerfilClimatico(
   coords: LngLat[],
   distanceMeters: number,
   mesIdx: number,
-  n = 50,
+  n = 200,
+  focusRangeKm?: [number, number],
 ): ClimaKm[] {
-  const samples = subsampleRoute(coords, n);
-  const haversineTotal = samples[samples.length - 1]?.km ?? 0;
+  const fullSamples = subsampleRoute(coords, n);
+  const haversineTotal = fullSamples[fullSamples.length - 1]?.km ?? 0;
   const roadTotalKm = distanceMeters / 1000;
-  const scale = haversineTotal > 0 ? roadTotalKm / haversineTotal : 1;
+  const scale = haversineTotal > 0 && roadTotalKm > 0 ? roadTotalKm / haversineTotal : 1;
+
+  const samples = focusRangeKm
+    ? subsampleRouteRange(coords, focusRangeKm[0] / scale, focusRangeKm[1] / scale, n)
+    : fullSamples;
 
   return samples.map((s) => {
     const est = getEstacionMasCercana(s.point[1], s.point[0]);

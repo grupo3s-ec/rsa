@@ -24,6 +24,7 @@ class MitAdverseEvent extends Model
         'fin_lat',
         'fin_lng',
         'geocoding_status',
+        'ruta_polyline',
         'fuente_nombre',
         'fuente_boletin',
         'boletin_mes',

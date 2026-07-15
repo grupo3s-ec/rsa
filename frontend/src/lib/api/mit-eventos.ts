@@ -19,6 +19,11 @@ export interface MitAdverseEvent {
   fin_lat: number | null;
   fin_lng: number | null;
   geocoding_status: 'pendiente' | 'ok' | 'fallido';
+  /** Polyline codificada (formato estándar de Google) de la ruta por
+   * carretera entre inicio y fin — `null` si aún no se calculó, o si no hay
+   * ruta conocida entre esos dos puntos; el mapa cae de vuelta a una línea
+   * recta en ese caso. */
+  ruta_polyline: string | null;
   fuente_nombre: string;
   fuente_boletin: string;
   boletin_mes: number;

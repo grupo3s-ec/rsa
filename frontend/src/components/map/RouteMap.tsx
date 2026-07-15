@@ -10,6 +10,7 @@ import { useTheme } from "next-themes";
 import { Flag, CircleX, TriangleAlert, ShieldAlert } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { conditionMeta, severityMeta } from "@/lib/incidents/format";
+import type { RawLatLngBounds } from "@/lib/geo";
 import type { LngLat, RouteLineString } from "@/lib/mapbox/directions";
 import type { Incident } from "@/types/incident";
 import type { ViaGeoMarker } from "@/types/ecu911";
@@ -66,6 +67,14 @@ interface RouteMapProps {
   onSelectMitEvent?: (event: MitAdverseEvent) => void;
   /** ID del evento MIT actualmente seleccionado (para resaltar). */
   selectedMitEventId?: number | null;
+  /** Se dispara cuando el usuario termina de mover el mapa (zoom/pan), con el
+   * viewport visible actual — para enfocar el detalle mostrado en el resto de
+   * la UI (gráfico, alertas) a esa zona, como el zoom de una línea de tiempo. */
+  onViewportBoundsChanged?: (bounds: RawLatLngBounds) => void;
+  /** Bounds a los que centrar el mapa cuando el foco se originó en OTRO lugar
+   * (ej. el usuario arrastró el selector del gráfico) — `null`/`undefined` no
+   * mueve el mapa. */
+  focusBounds?: RawLatLngBounds | null;
 }
 
 // ─── Auxiliares internos ──────────────────────────────────────────────────────
@@ -73,9 +82,11 @@ interface RouteMapProps {
 function BoundsFitter({
   waypoints,
   selectedRoute,
+  skipNextIdleRef,
 }: {
   waypoints: (LngLat | null)[];
   selectedRoute: LngLat[];
+  skipNextIdleRef: React.MutableRefObject<boolean>;
 }) {
   const map = useMap();
 
@@ -92,6 +103,12 @@ function BoundsFitter({
 
     if (points.length === 0) return;
 
+    // Este movimiento de cámara es programático, no del usuario — descarta el
+    // próximo 'idle' para que `ViewportSync` no lo reporte como un cambio de
+    // viewport manual (lo que corrompería/resetearía un foco de zoom-detalle
+    // activo cada vez que se recalcula una ruta o cambian los waypoints).
+    skipNextIdleRef.current = true;
+
     if (points.length === 1) {
       map.panTo(points[0]!);
       map.setZoom(14);
@@ -101,7 +118,7 @@ function BoundsFitter({
     const bounds = new window.google.maps.LatLngBounds();
     points.forEach((p) => bounds.extend(p));
     map.fitBounds(bounds, 60);
-  }, [map, waypoints, selectedRoute]);
+  }, [map, waypoints, selectedRoute, skipNextIdleRef]);
 
   return null;
 }
@@ -109,17 +126,80 @@ function BoundsFitter({
 function IncidentPanner({
   incidents,
   selectedIncidentId,
+  skipNextIdleRef,
 }: {
   incidents: Incident[];
   selectedIncidentId: number | null;
+  skipNextIdleRef: React.MutableRefObject<boolean>;
 }) {
   const map = useMap();
 
   useEffect(() => {
     if (!map || selectedIncidentId === null) return;
     const sel = incidents.find((i) => i.id === selectedIncidentId);
-    if (sel) map.panTo({ lat: sel.latitude, lng: sel.longitude });
-  }, [map, incidents, selectedIncidentId]);
+    if (sel) {
+      // Igual que en `BoundsFitter`: este pan lo origina la selección de un
+      // incidente, no el usuario arrastrando el mapa — no debe reportarse
+      // como un cambio de viewport manual ni pisar el foco de zoom-detalle activo.
+      skipNextIdleRef.current = true;
+      map.panTo({ lat: sel.latitude, lng: sel.longitude });
+    }
+  }, [map, incidents, selectedIncidentId, skipNextIdleRef]);
+
+  return null;
+}
+
+/** Reporta el viewport visible del mapa hacia arriba (para enfocar el detalle
+ * del resto de la UI), y reacciona a `focusBounds` cuando el foco vino de
+ * otro control (el selector del gráfico) haciendo `fitBounds` — con una
+ * bandera compartida (`skipNextIdleRef`, ver `RouteMap`) que descarta el
+ * próximo 'idle' disparado por ese mismo movimiento programático, o por el de
+ * `BoundsFitter`/`IncidentPanner`, para no reportarlo de vuelta como si el
+ * usuario hubiera movido el mapa (evita un loop mapa→gráfico→mapa→...). */
+function ViewportSync({
+  onViewportBoundsChanged,
+  focusBounds,
+  skipNextIdleRef,
+}: {
+  onViewportBoundsChanged?: (bounds: RawLatLngBounds) => void;
+  focusBounds?: RawLatLngBounds | null;
+  skipNextIdleRef: React.MutableRefObject<boolean>;
+}) {
+  const map = useMap();
+  const onViewportBoundsChangedRef = useRef(onViewportBoundsChanged);
+  useEffect(() => {
+    onViewportBoundsChangedRef.current = onViewportBoundsChanged;
+  }, [onViewportBoundsChanged]);
+
+  useEffect(() => {
+    if (!map) return;
+
+    const listener = map.addListener('idle', () => {
+      if (skipNextIdleRef.current) {
+        skipNextIdleRef.current = false;
+        return;
+      }
+      const b = map.getBounds();
+      if (!b) return;
+      const ne = b.getNorthEast();
+      const sw = b.getSouthWest();
+      onViewportBoundsChangedRef.current?.({ north: ne.lat(), south: sw.lat(), east: ne.lng(), west: sw.lng() });
+    });
+
+    return () => window.google.maps.event.removeListener(listener);
+  }, [map, skipNextIdleRef]);
+
+  useEffect(() => {
+    if (!map || !focusBounds) return;
+    skipNextIdleRef.current = true;
+    map.fitBounds(
+      new window.google.maps.LatLngBounds(
+        { lat: focusBounds.south, lng: focusBounds.west },
+        { lat: focusBounds.north, lng: focusBounds.east },
+      ),
+      40,
+    );
+  }, [map, focusBounds, skipNextIdleRef]);
 
   return null;
 }
@@ -226,10 +306,16 @@ function MitEventSegment({
       return;
     }
 
-    const path = [
-      { lat: event.inicio_lat, lng: event.inicio_lng },
-      { lat: event.fin_lat, lng: event.fin_lng },
-    ];
+    // Trazado real por carretera (calculado una vez en el backend vía
+    // `mit:route` y cacheado en `ruta_polyline`) si ya está disponible; si no
+    // (tramo aún no procesado, o sin ruta conocida entre esos dos puntos),
+    // cae de vuelta a la línea recta entre los extremos geocodificados.
+    const path = event.ruta_polyline
+      ? window.google.maps.geometry.encoding.decodePath(event.ruta_polyline)
+      : [
+          { lat: event.inicio_lat, lng: event.inicio_lng },
+          { lat: event.fin_lat, lng: event.fin_lng },
+        ];
     const color = MIT_TIPO_HEX[event.tipo_evento] ?? MIT_TIPO_HEX_DEFAULT;
 
     const line = new window.google.maps.Polyline({
@@ -279,10 +365,18 @@ export default function RouteMap({
   mitSegments = [],
   onSelectMitEvent,
   selectedMitEventId,
+  onViewportBoundsChanged,
+  focusBounds,
 }: RouteMapProps) {
   const selected = routes[selectedRouteIdx] ?? [];
   const { resolvedTheme } = useTheme();
   const colorScheme = resolvedTheme === "dark" ? "DARK" : "LIGHT";
+  // Compartida entre `BoundsFitter`, `IncidentPanner` y `ViewportSync` — CUALQUIERA
+  // de los tres puede mover la cámara programáticamente, y todos deben avisarle a
+  // `ViewportSync` que descarte el próximo 'idle' resultante (si cada uno tuviera
+  // su propia bandera, los movimientos de los otros dos se malinterpretarían como
+  // paneos del usuario y corromperían/resetearían el foco de zoom-detalle activo).
+  const skipNextIdleRef = useRef(false);
 
   return (
     <Map
@@ -298,8 +392,9 @@ export default function RouteMap({
       }}
       style={{ width: "100%", height: "100%" }}
     >
-      <BoundsFitter waypoints={waypoints} selectedRoute={selected} />
-      <IncidentPanner incidents={incidents} selectedIncidentId={selectedIncidentId} />
+      <BoundsFitter waypoints={waypoints} selectedRoute={selected} skipNextIdleRef={skipNextIdleRef} />
+      <IncidentPanner incidents={incidents} selectedIncidentId={selectedIncidentId} skipNextIdleRef={skipNextIdleRef} />
+      <ViewportSync onViewportBoundsChanged={onViewportBoundsChanged} focusBounds={focusBounds} skipNextIdleRef={skipNextIdleRef} />
 
       {/* Rutas alternativas primero (debajo) */}
       {routes.map((coords, idx) =>

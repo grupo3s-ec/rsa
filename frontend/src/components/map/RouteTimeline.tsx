@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 import {
   Area,
   Bar, BarChart,
+  Brush,
   CartesianGrid, Cell,
   ComposedChart,
   ReferenceLine,
@@ -13,10 +14,10 @@ import {
 } from 'recharts';
 import {
   AlertTriangle, Bell, ChevronLeft, ChevronRight, LoaderCircle,
-  Mountain, CloudRain, Route, History, Flame, BarChart2, ShieldCheck, Landmark,
+  Mountain, CloudRain, Route, History, Flame, BarChart2, ShieldCheck, Landmark, ZoomOut,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { subsampleRoute, haversineKm } from '@/lib/geo';
+import { subsampleRoute, haversineKm, type RawLatLngBounds } from '@/lib/geo';
 import { conditionMeta, formatDistance, formatDuration, severityMeta } from '@/lib/incidents/format';
 import { CONDICION_META, getPerfilClimatico, mmToCondicion, mmToColor, MES_NOMBRE } from '@/lib/inamhi';
 import { DATOS_PRECIPITACION, ESTACIONES_META } from '@/lib/precipitacion-data';
@@ -107,8 +108,15 @@ function getHistorialMensual(codigos: string[], anoMin: number, anoMax: number) 
 
 // ─── Helper elevación ─────────────────────────────────────────────────────────
 
+// n=200 (antes 50) para toda la ruta en una sola petición — sigue siendo UNA
+// llamada a /api/elevation (Google acepta cientos de locations por request),
+// pero con suficiente densidad de puntos para que "hacer zoom" a un tramo
+// (recortar este mismo array por km) ya se vea con más detalle, sin tener
+// que pedir datos nuevos por cada cambio de foco.
+const ELEVATION_SAMPLE_COUNT = 200;
+
 async function fetchElevation(routeData: RouteCalculatedData) {
-  const samples = subsampleRoute(routeData.coords, 50);
+  const samples = subsampleRoute(routeData.coords, ELEVATION_SAMPLE_COUNT);
   const locations = samples.map(s => ({ lat: s.point[1], lng: s.point[0] }));
   const res = await fetch('/api/elevation', {
     method: 'POST',
@@ -148,9 +156,20 @@ interface Props {
   /** Provincias con eventos del histórico MIT cercanos a la ruta calculada
    * (fuente de datos distinta a ECU911 — no se debe reusar `conflictProvinces`). */
   mitConflictProvinces?: string[] | null;
+  /** Rango de km (reales, ya escalados) actualmente enfocado — `null` = ver
+   * toda la ruta. Lo controla `RoutePlanner` (mapa o el selector del gráfico). */
+  focusedKmRange?: [number, number] | null;
+  /** El usuario arrastró el selector del gráfico a un nuevo rango (o lo limpió). */
+  onFocusedKmRangeChange?: (range: [number, number] | null) => void;
+  /** Bounds geográficos del rango enfocado — pasa directo al tab MIT para su
+   * filtro "solo lo visible" (no tiene noción de "km de la ruta"). */
+  focusedGeoBounds?: RawLatLngBounds | null;
 }
 
-export function RouteTimeline({ routeData, onSelectIncident, selectedIncidentId, conflictProvinces, mitConflictProvinces }: Props) {
+export function RouteTimeline({
+  routeData, onSelectIncident, selectedIncidentId, conflictProvinces, mitConflictProvinces,
+  focusedKmRange, onFocusedKmRangeChange, focusedGeoBounds,
+}: Props) {
   const [open,         setOpen]         = useState(true);
   const [tab,          setTab]          = useState<TimelineTab>('alertas');
   const [showAltimetria, setShowAltimetria] = useState(true);
@@ -191,16 +210,20 @@ export function RouteTimeline({ routeData, onSelectIncident, selectedIncidentId,
     }).sort((a, b) => a.km - b.km);
   }, [routeData]);
 
-  // Perfil de precipitación por km (datos INAMHI, mes actual)
+  // Perfil de precipitación por km (datos INAMHI, mes actual) — mismo n que la
+  // elevación, ambos cubren la ruta completa siempre (ver ELEVATION_SAMPLE_COUNT).
   const precipKmData = useMemo(() => {
     if (!routeData) return [];
-    return getPerfilClimatico(routeData.coords, routeData.distanceMeters, mesActual);
+    return getPerfilClimatico(routeData.coords, routeData.distanceMeters, mesActual, ELEVATION_SAMPLE_COUNT);
   }, [routeData, mesActual]);
 
   // Altimetría y clima comparten el mismo muestreo por índice (ambos subsample-an
-  // los mismos coords con n=50) — se combinan en un solo array para el gráfico,
-  // ya que recharts no admite un `data` distinto por serie dentro de un Bar.
-  const perfilChartData = useMemo(() => {
+  // los mismos coords con el mismo n) — se combinan en un solo array para el
+  // gráfico, ya que recharts no admite un `data` distinto por serie dentro de un Bar.
+  // Esta es la ruta COMPLETA siempre — alimenta el `<Brush>` (que necesita un
+  // dataset estable para no "saltar" mientras se enfoca un tramo) y es la base
+  // para recortar el detalle de abajo.
+  const perfilChartDataFull = useMemo(() => {
     const len = Math.max(elevPoints.length, precipKmData.length);
     const rows: Array<{ km: number; elevacion?: number; mm?: number; estacion?: string; probLluviaPct?: number; aniosDatos?: number }> = [];
     for (let i = 0; i < len; i++) {
@@ -217,6 +240,19 @@ export function RouteTimeline({ routeData, onSelectIncident, selectedIncidentId,
     }
     return rows;
   }, [elevPoints, precipKmData]);
+
+  // Franja de condiciones (arriba del gráfico) — no es parte del
+  // <ComposedChart> (el Brush de recharts recorta la serie principal
+  // automáticamente, pero esta franja vive fuera de él), así que con un foco
+  // activo se re-muestrea directamente dentro de ese tramo con la misma
+  // densidad `n` en vez de filtrar el arreglo de la ruta completa — así la
+  // franja siempre tiene puntos (nunca queda vacía por un tramo angosto) y
+  // realmente gana detalle al hacer zoom, en vez de solo mostrar menos datos.
+  const precipKmDataVisible = useMemo(() => {
+    if (!routeData) return [];
+    if (!focusedKmRange) return precipKmData;
+    return getPerfilClimatico(routeData.coords, routeData.distanceMeters, mesActual, ELEVATION_SAMPLE_COUNT, focusedKmRange);
+  }, [routeData, mesActual, focusedKmRange, precipKmData]);
 
   // Estaciones más cercanas para historial
   const estacionesCercanas = useMemo(() => {
@@ -238,6 +274,29 @@ export function RouteTimeline({ routeData, onSelectIncident, selectedIncidentId,
   );
 
   const criticalCount = routeData?.incidents.filter(i => i.severity === 'critical').length ?? 0;
+
+  // Incidentes dentro del rango enfocado — sin foco, se muestran todos.
+  const incidentPositionsVisible = useMemo(() => {
+    if (!focusedKmRange) return incidentPositions;
+    const [from, to] = focusedKmRange;
+    return incidentPositions.filter(({ km }) => km >= from && km <= to);
+  }, [incidentPositions, focusedKmRange]);
+
+  // Índice en `perfilChartDataFull` cuyo km está más cerca de `km` — para
+  // posicionar el `<Brush>` (que opera por índice, no por valor de km) cuando
+  // el foco viene del mapa en vez de un arrastre del propio brush.
+  const nearestFullIndexForKm = (km: number): number => {
+    let bestIdx = 0, bestDist = Infinity;
+    for (let i = 0; i < perfilChartDataFull.length; i++) {
+      const d = Math.abs(perfilChartDataFull[i]!.km - km);
+      if (d < bestDist) { bestDist = d; bestIdx = i; }
+    }
+    return bestIdx;
+  };
+
+  const brushRange = focusedKmRange && perfilChartDataFull.length > 0
+    ? { startIndex: nearestFullIndexForKm(focusedKmRange[0]), endIndex: nearestFullIndexForKm(focusedKmRange[1]) }
+    : { startIndex: 0, endIndex: Math.max(0, perfilChartDataFull.length - 1) };
 
   if (!open) {
     return (
@@ -311,6 +370,19 @@ export function RouteTimeline({ routeData, onSelectIncident, selectedIncidentId,
             <ChevronRight className="size-3.5" />
           </button>
         </div>
+
+        {/* Indicador de zoom-detalle — visible en cualquier tab, refleja el
+            enfoque activo (mapa o gráfico) sobre alertas/vías/MIT/gráfico. */}
+        {focusedKmRange && (
+          <button
+            type="button"
+            onClick={() => onFocusedKmRangeChange?.(null)}
+            className="flex w-fit items-center gap-1.5 rounded-full border border-primary/40 bg-primary/10 px-2.5 py-1 text-[10px] font-medium text-primary transition-colors hover:bg-primary/15"
+          >
+            <ZoomOut className="size-3" />
+            km {focusedKmRange[0].toFixed(0)}–{focusedKmRange[1].toFixed(0)} enfocado · Ver toda la ruta
+          </button>
+        )}
 
         {/* Info contextual */}
         {tab === 'perfil' && (
@@ -403,6 +475,11 @@ export function RouteTimeline({ routeData, onSelectIncident, selectedIncidentId,
               </div>
             ) : (() => {
               const totalKm = routeData.distanceMeters / 1000;
+              // Sin foco, la línea de tiempo cubre 0→totalKm de siempre; con
+              // foco, se "acerca" al rango enfocado (mismo efecto que el
+              // gráfico) para que los pines se vean más separados/detallados.
+              const [startKm, endKm] = focusedKmRange ?? [0, totalKm];
+              const rangeKm = Math.max(endKm - startKm, 0.1);
               return (
                 <>
                   {/* Trazado de ruta con pines posicionados por km */}
@@ -416,10 +493,10 @@ export function RouteTimeline({ routeData, onSelectIncident, selectedIncidentId,
                       <span className="absolute -right-1 top-1/2 -translate-y-1/2 size-3 rounded-full bg-slate-700 dark:bg-slate-300 border-2 border-background shadow-sm" />
 
                       {/* Pines de incidentes */}
-                      {incidentPositions.map(({ inc, km }, idx) => {
+                      {incidentPositionsVisible.map(({ inc, km }, idx) => {
                         const sev  = severityMeta[inc.severity];
                         const Icon = conditionMeta[inc.condition ?? 'fisica'].icon;
-                        const pct  = Math.min(98, Math.max(2, (km / totalKm) * 100));
+                        const pct  = Math.min(98, Math.max(2, ((km - startKm) / rangeKm) * 100));
                         const isSelected = selectedIncidentId === inc.id;
                         // Alterna arriba/abajo para incidentes solapados
                         const up = idx % 2 === 0;
@@ -461,15 +538,15 @@ export function RouteTimeline({ routeData, onSelectIncident, selectedIncidentId,
 
                     {/* Eje km */}
                     <div className="flex justify-between mt-1.5 text-[10px] text-muted-foreground px-1">
-                      <span>0 km</span>
-                      <span>{Math.round(totalKm / 2)} km</span>
-                      <span>{Math.round(totalKm)} km</span>
+                      <span>{Math.round(startKm)} km</span>
+                      <span>{Math.round((startKm + endKm) / 2)} km</span>
+                      <span>{Math.round(endKm)} km</span>
                     </div>
                   </div>
 
                   {/* Lista compacta ordenada por km */}
                   <div className="flex-1 min-h-0 overflow-y-auto space-y-1">
-                    {incidentPositions.map(({ inc, km }) => {
+                    {incidentPositionsVisible.map(({ inc, km }) => {
                       const sev  = severityMeta[inc.severity];
                       const Icon = conditionMeta[inc.condition ?? 'fisica'].icon;
                       const isSelected = selectedIncidentId === inc.id;
@@ -538,9 +615,9 @@ export function RouteTimeline({ routeData, onSelectIncident, selectedIncidentId,
           ) : (
             <div className="flex h-full flex-col px-2 pb-1 pt-2 gap-1.5">
               {/* Franja de condiciones por km — mismos colores/íconos que el tab Clima */}
-              {showClima && precipKmData.length > 0 && (
+              {showClima && precipKmDataVisible.length > 0 && (
                 <div className="flex shrink-0 gap-px h-6 rounded-lg overflow-hidden">
-                  {precipKmData.map((d, i) => {
+                  {precipKmDataVisible.map((d, i) => {
                     const C = CONDICION_META[mmToCondicion(d.mm)];
                     return (
                       <div key={i}
@@ -555,7 +632,7 @@ export function RouteTimeline({ routeData, onSelectIncident, selectedIncidentId,
               )}
               <div className="min-h-0 flex-1">
               <ResponsiveContainer width="100%" height="100%">
-                <ComposedChart data={perfilChartData} margin={{ top: 4, right: 16, bottom: 0, left: 0 }}>
+                <ComposedChart data={perfilChartDataFull} margin={{ top: 4, right: 16, bottom: 0, left: 0 }}>
                   <defs>
                     {/*
                       Paleta estilo mapa topográfico físico:
@@ -603,11 +680,44 @@ export function RouteTimeline({ routeData, onSelectIncident, selectedIncidentId,
                   {showClima && (
                     <Bar yAxisId="precip" dataKey="mm"
                       radius={[2, 2, 0, 0]} maxBarSize={10} fillOpacity={0.6}>
-                      {perfilChartData.map((d, i) => (
+                      {perfilChartDataFull.map((d, i) => (
                         <Cell key={i} fill={d.mm !== undefined ? mmToColor(d.mm) : 'transparent'} />
                       ))}
                     </Bar>
                   )}
+                  {/* Selector de zoom estilo línea de tiempo de edición de video —
+                      el <Brush> no recibe `data` propio: recharts v3 lo deriva
+                      internamente del `data` del <ComposedChart> (siempre la ruta
+                      COMPLETA aquí), y recorta la serie principal por índice
+                      usando startIndex/endIndex — el panorama del propio Brush
+                      siempre muestra el 100% de los puntos, sin importar el
+                      recorte. Por eso "hacer zoom" no pide datos nuevos: el mismo
+                      array ya cargado se ve más denso al recortar el rango. */}
+                  <Brush
+                    dataKey="km"
+                    height={22}
+                    travellerWidth={8}
+                    stroke="hsl(var(--primary))"
+                    fill="hsl(var(--muted))"
+                    tickFormatter={(km: number) => km.toFixed(0)}
+                    startIndex={brushRange.startIndex}
+                    endIndex={brushRange.endIndex}
+                    onDragEnd={(range) => {
+                      // onDragEnd (no onChange): recharts ya re-recorta la serie
+                      // principal en cada tick de arrastre por su cuenta (vía su
+                      // propio store interno); si sincronizáramos el mapa en cada
+                      // tick, el fitBounds() saltaría constantemente mientras se
+                      // arrastra. Con onDragEnd, el mapa/listas solo se actualizan
+                      // una vez, al soltar.
+                      const { startIndex, endIndex } = range;
+                      if (startIndex === undefined || endIndex === undefined) return;
+                      const from = perfilChartDataFull[startIndex]?.km;
+                      const to = perfilChartDataFull[endIndex]?.km;
+                      if (from === undefined || to === undefined) return;
+                      const esRutaCompleta = startIndex <= 0 && endIndex >= perfilChartDataFull.length - 1;
+                      onFocusedKmRangeChange?.(esRutaCompleta ? null : [from, to]);
+                    }}
+                  />
                 </ComposedChart>
               </ResponsiveContainer>
               </div>
@@ -618,7 +728,10 @@ export function RouteTimeline({ routeData, onSelectIncident, selectedIncidentId,
         ) : tab === 'vias' ? (
           <ViaEstadoPanel conflictProvinces={routeData ? (conflictProvinces ?? null) : null} />
         ) : tab === 'mit' ? (
-          <MitEventosPanel conflictProvinces={routeData ? (mitConflictProvinces ?? null) : null} />
+          <MitEventosPanel
+            conflictProvinces={routeData ? (mitConflictProvinces ?? null) : null}
+            focusedBounds={routeData ? (focusedGeoBounds ?? null) : null}
+          />
         ) : tab === 'ant' ? (
           <AntStatsPanel />
         ) : (

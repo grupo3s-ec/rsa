@@ -82,8 +82,9 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/audit', [AuditController::class, 'index']);
 
         // Carga inicial del histórico MIT/MTOP (Render free tier no da shell,
-        // así que mit:import/mit:geocode se disparan por HTTP, solo admin).
+        // así que mit:import/mit:geocode/mit:route se disparan por HTTP, solo admin).
         Route::post('/mit/import', [MitImportController::class, 'run']);
+        Route::post('/mit/route',  [MitImportController::class, 'route']);
 
         // Usuarios
         Route::get('/users',         [AdminUserController::class, 'index']);
