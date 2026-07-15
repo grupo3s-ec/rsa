@@ -69,8 +69,28 @@ import { filterIncidentsByRoute } from "@/lib/mapbox/route-filter";
 import { getRouteIncidents } from "@/services/routes.service";
 import { getIncidents } from "@/services/incidents.service";
 import { pointNearPolyline } from "@/lib/geo";
+import { getMitEventos, type MitAdverseEvent } from "@/lib/api/mit-eventos";
 import type { Incident } from "@/types/incident";
 import type { Ecu911Response, ViaGeoMarker } from "@/types/ecu911";
+
+// Mismo color por tipo_evento que `RouteMap` usa para dibujar el tramo — se
+// duplica aquí (en vez de importar desde RouteMap.tsx, que se carga vía
+// `dynamic(..., { ssr: false })`) para no forzar ese módulo a incluirse en el
+// chunk estático de este archivo y romper su carga diferida.
+const MIT_TIPO_HEX: Record<string, string> = {
+  'Deslizamiento/Derrumbe':             '#f59e0b',
+  'Socavamiento/Socavón':               '#0ea5e9',
+  'Caída de rocas':                     '#f97316',
+  'Caída de árboles':                   '#10b981',
+  'Pérdida de calzada':                 '#ef4444',
+  'Hundimiento':                        '#f43f5e',
+  'Falla geológica':                    '#8b5cf6',
+  'Inundación/Nivel de agua':           '#3b82f6',
+  'Trabajos programados/Mantenimiento': '#64748b',
+  'Cierre por conflicto social':        '#d946ef',
+  'Colapso de puente/alcantarilla':     '#dc2626',
+};
+const MIT_TIPO_HEX_DEFAULT = '#78716c'; // Otro
 
 const RouteMap = dynamic(() => import("@/components/map/RouteMap"), {
   ssr: false,
@@ -308,6 +328,80 @@ function RoutePlannerContent({
     if (conflicts.length > 0) setConflictsOpen(true);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [routes, selectedRouteIdx, viaMarkers]);
+
+  // ─── MIT/MTOP — histórico de eventos adversos (boletines mensuales) ────────
+  const [mitEvents,        setMitEvents]        = useState<MitAdverseEvent[]>([]);
+  const [mitConflicts,     setMitConflicts]     = useState<MitAdverseEvent[]>([]);
+  const [selectedMit,      setSelectedMit]      = useState<MitAdverseEvent | null>(null);
+  const [mitConflictsOpen, setMitConflictsOpen] = useState(false);
+  const mitFetchedRef = useRef(false);
+
+  // Provincia tal cual aparece en el boletín MTOP/MIT — una fuente de datos
+  // distinta a ECU911, así que NO se reusa `conflictProvinces` (ECU911) para
+  // acotar este panel: antes filtraba por la provincia equivocada.
+  const mitConflictProvinces = useMemo(
+    () => [...new Set(mitConflicts.map((e) => e.provincia))],
+    [mitConflicts],
+  );
+
+  // Carga el histórico MIT una sola vez — ya viene geocodificado (aproximado)
+  // desde el backend, a diferencia de ECU911 no requiere geocodificar aquí.
+  useEffect(() => {
+    if (mitFetchedRef.current) return;
+    mitFetchedRef.current = true;
+
+    const soloGeocodificados = (rows: MitAdverseEvent[]) => rows.filter((e) =>
+      e.geocoding_status === 'ok'
+      && e.inicio_lat !== null && e.inicio_lng !== null
+      && e.fin_lat !== null && e.fin_lng !== null,
+    );
+
+    void (async () => {
+      // Página 1 primero (para conocer last_page), el resto en paralelo — y
+      // cada página que sí llega se agrega de inmediato: si una falla a
+      // mitad de camino (timeout/500), las demás ya obtenidas no se pierden
+      // (antes, cualquier falla descartaba TODO lo ya descargado porque solo
+      // se llamaba setMitEvents una vez al final, con un array acumulado local).
+      const MAX_PAGES = 100; // tope de seguridad — el histórico crece cada mes con nuevos boletines
+      try {
+        const primera = await getMitEventos({ page: 1 });
+        setMitEvents((prev) => [...prev, ...soloGeocodificados(primera.data)]);
+
+        const ultimaPagina = Math.min(primera.last_page, MAX_PAGES);
+        if (ultimaPagina > 1) {
+          const restantes = await Promise.allSettled(
+            Array.from({ length: ultimaPagina - 1 }, (_, i) => getMitEventos({ page: i + 2 })),
+          );
+          for (const r of restantes) {
+            if (r.status === 'fulfilled') {
+              setMitEvents((prev) => [...prev, ...soloGeocodificados(r.value.data)]);
+            }
+          }
+        }
+      } catch {
+        // La página 1 falló — no bloquea el resto del planificador.
+      }
+    })();
+  }, []);
+
+  // Detectar eventos MIT cuyo tramo geocodificado (inicio o fin) está cerca
+  // de la ruta activa (mismo umbral de 25 km que ECU911).
+  useEffect(() => {
+    const coords = routes[selectedRouteIdx];
+    if (!coords || coords.length === 0 || mitEvents.length === 0) {
+      setMitConflicts([]);
+      return;
+    }
+    const polyline = coords.map(([lng, lat]) => ({ lat, lng }));
+    const conflicts = mitEvents.filter((e) => {
+      const inicio = { lat: e.inicio_lat!, lng: e.inicio_lng! };
+      const fin = { lat: e.fin_lat!, lng: e.fin_lng! };
+      return pointNearPolyline(inicio, polyline, 25) || pointNearPolyline(fin, polyline, 25);
+    });
+    setMitConflicts(conflicts);
+    if (conflicts.length > 0) setMitConflictsOpen(true);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [routes, selectedRouteIdx, mitEvents]);
 
   // ─── Modo de dirección (tabs) ────────────────────────────────────────────
   const [addressMode,       setAddressMode]       = useState<"url" | "buscar" | "coordenadas">("url");
@@ -881,6 +975,23 @@ function RoutePlannerContent({
             </div>
           ) : null}
 
+          {mitConflicts.length > 0 ? (
+            <div className="rounded-lg border border-indigo-500/40 bg-indigo-50/60 p-2.5 dark:bg-indigo-950/30">
+              <p className="mb-1.5 flex items-center gap-2 text-xs font-semibold text-indigo-700 dark:text-indigo-400">
+                <AlertTriangle className="size-4 shrink-0 text-indigo-500" />
+                {mitConflicts.length} evento{mitConflicts.length !== 1 ? "s" : ""} del histórico MIT en la ruta
+              </p>
+              <ul className="max-h-48 space-y-1.5 overflow-y-auto">
+                {mitConflicts.map((e) => (
+                  <li key={e.id} className="text-[11px] text-muted-foreground">
+                    <span className="font-medium text-foreground">{e.tramo}</span>
+                    {" · "}{e.tipo_evento}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
+
         </div>
 
         {searched && !loading && !error ? (
@@ -1143,7 +1254,7 @@ function RoutePlannerContent({
                     <li
                       key={m.via.id}
                       className="flex cursor-pointer items-start gap-2 px-3 py-2 hover:bg-orange-50 dark:hover:bg-orange-950/50"
-                      onClick={() => setSelectedVia(m)}
+                      onClick={() => { setSelectedVia(m); setSelectedMit(null); }}
                     >
                       <span
                         className="mt-1.5 size-2 shrink-0 rotate-45"
@@ -1160,6 +1271,47 @@ function RoutePlannerContent({
                     </li>
                   );
                 })}
+              </ul>
+            ) : null}
+          </div>
+        ) : null}
+
+        {/* ── Eventos del histórico MIT/MTOP sobre la ruta ── */}
+        {mitConflicts.length > 0 ? (
+          <div className="overflow-hidden rounded-lg border border-indigo-500/40 bg-indigo-50/60 dark:bg-indigo-950/30">
+            <button
+              type="button"
+              onClick={() => setMitConflictsOpen((o) => !o)}
+              className="flex w-full items-center gap-2 px-3 py-2 text-left"
+            >
+              <AlertTriangle className="size-4 shrink-0 text-indigo-500" />
+              <span className="flex-1 text-xs font-semibold text-indigo-700 dark:text-indigo-400">
+                {mitConflicts.length} evento{mitConflicts.length !== 1 ? "s" : ""} del histórico MIT en la ruta
+              </span>
+              {mitConflictsOpen ? (
+                <ChevronUp className="size-3.5 text-indigo-500" />
+              ) : (
+                <ChevronDown className="size-3.5 text-indigo-500" />
+              )}
+            </button>
+            {mitConflictsOpen ? (
+              <ul className="max-h-48 divide-y divide-indigo-500/10 overflow-y-auto border-t border-indigo-500/20">
+                {mitConflicts.map((e) => (
+                  <li
+                    key={e.id}
+                    className="flex cursor-pointer items-start gap-2 px-3 py-2 hover:bg-indigo-50 dark:hover:bg-indigo-950/50"
+                    onClick={() => { setSelectedMit(e); setSelectedVia(null); }}
+                  >
+                    <span
+                      className="mt-1.5 size-2 shrink-0 rotate-45"
+                      style={{ backgroundColor: MIT_TIPO_HEX[e.tipo_evento] ?? MIT_TIPO_HEX_DEFAULT }}
+                    />
+                    <div className="min-w-0">
+                      <p className="truncate text-[11px] font-medium text-foreground">{e.tramo}</p>
+                      <p className="text-[10px] text-muted-foreground">{e.tipo_evento} · {e.provincia}</p>
+                    </div>
+                  </li>
+                ))}
               </ul>
             ) : null}
           </div>
@@ -1253,8 +1405,11 @@ function RoutePlannerContent({
                 onSelectRoute={handleSelectRoute}
                 onMapClick={(lngLat) => { void handleMapClick(lngLat); }}
                 viaMarkers={searched && routes.length > 0 ? viaConflicts : viaMarkers}
-                onSelectVia={(m) => setSelectedVia(m)}
+                onSelectVia={(m) => { setSelectedVia(m); setSelectedMit(null); }}
                 selectedViaId={selectedVia?.via.id ?? null}
+                mitSegments={mitConflicts}
+                onSelectMitEvent={(e) => { setSelectedMit(e); setSelectedVia(null); }}
+                selectedMitEventId={selectedMit?.id ?? null}
               />
               {pickModeIndicator}
               {legendPill}
@@ -1311,6 +1466,10 @@ function RoutePlannerContent({
                   </div>
                 </div>
               ) : null}
+              {/* Popup de evento MIT/MTOP seleccionado */}
+              {selectedMit ? (
+                <MitConflictPopup event={selectedMit} onClose={() => setSelectedMit(null)} />
+              ) : null}
             </>
           )}
           {mapOverlay}
@@ -1321,6 +1480,7 @@ function RoutePlannerContent({
           onSelectIncident={handleSelectFromMap}
           selectedIncidentId={selectedIncident?.id ?? null}
           conflictProvinces={conflictProvinces}
+          mitConflictProvinces={mitConflictProvinces}
         />
 
         {sharedDialogs}
@@ -1343,8 +1503,11 @@ function RoutePlannerContent({
           onSelectRoute={handleSelectRoute}
           onMapClick={(lngLat) => { void handleMapClick(lngLat); }}
           viaMarkers={searched && routes.length > 0 ? viaConflicts : viaMarkers}
-          onSelectVia={(m) => setSelectedVia(m)}
+          onSelectVia={(m) => { setSelectedVia(m); setSelectedMit(null); }}
           selectedViaId={selectedVia?.via.id ?? null}
+          mitSegments={mitConflicts}
+          onSelectMitEvent={(e) => { setSelectedMit(e); setSelectedVia(null); }}
+          selectedMitEventId={selectedMit?.id ?? null}
         />
       </div>
 
@@ -1472,6 +1635,11 @@ function RoutePlannerContent({
         </div>
       ) : null}
 
+      {/* Popup de evento MIT/MTOP seleccionado (modo pantalla completa) */}
+      {selectedMit ? (
+        <MitConflictPopup event={selectedMit} onClose={() => setSelectedMit(null)} />
+      ) : null}
+
       {mapOverlay}
       {sharedDialogs}
     </div>
@@ -1479,6 +1647,49 @@ function RoutePlannerContent({
 }
 
 // ─── Sub-componentes ──────────────────────────────────────────────────────────
+
+/** Popup con el detalle completo de un evento del histórico MIT/MTOP
+ * seleccionado en el mapa — mismos datos que la tabla fuente del boletín. */
+function MitConflictPopup({ event, onClose }: { event: MitAdverseEvent; onClose: () => void }) {
+  const color = MIT_TIPO_HEX[event.tipo_evento] ?? MIT_TIPO_HEX_DEFAULT;
+  return (
+    <div className="absolute bottom-16 left-1/2 z-20 w-80 -translate-x-1/2 rounded-xl border border-border/60 bg-background/90 shadow-xl backdrop-blur">
+      <div className="flex items-start justify-between p-3">
+        <div className="min-w-0 flex-1">
+          <p className="text-xs font-semibold leading-snug text-foreground">{event.tramo}</p>
+          <p className="mt-0.5 text-[11px] text-muted-foreground">{event.provincia}{event.ruta_codigo ? ` · ${event.ruta_codigo}` : ''}</p>
+        </div>
+        <button type="button" onClick={onClose} className="ml-2 shrink-0 rounded-md p-0.5 text-muted-foreground hover:text-foreground">
+          <X className="size-3.5" />
+        </button>
+      </div>
+      <div className="max-h-64 overflow-y-auto border-t border-border/40 px-3 py-2.5">
+        <span
+          className="inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold text-white"
+          style={{ backgroundColor: color }}
+        >
+          {event.tipo_evento}
+        </span>
+        <p className="mt-2 text-[11px] leading-relaxed text-muted-foreground">{event.evento}</p>
+        {event.acciones_realizadas ? (
+          <p className="mt-1.5 text-[11px] leading-relaxed text-muted-foreground">
+            <span className="font-medium text-foreground">Acciones: </span>{event.acciones_realizadas}
+          </p>
+        ) : null}
+        {event.observaciones ? (
+          <p className="mt-1.5 text-[11px] leading-relaxed text-muted-foreground">
+            <span className="font-medium text-foreground">Observaciones: </span>{event.observaciones}
+          </p>
+        ) : null}
+        <div className="mt-2 rounded-lg border border-border/40 bg-background/60 p-2 text-[10px] text-muted-foreground">
+          <span className="font-semibold text-foreground">{event.fuente_nombre}</span>
+          <br />
+          {event.fuente_boletin}
+        </div>
+      </div>
+    </div>
+  );
+}
 
 interface SortableWaypointRowProps {
   id: string;

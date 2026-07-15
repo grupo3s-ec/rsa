@@ -13,7 +13,7 @@ import {
 } from 'recharts';
 import {
   AlertTriangle, Bell, ChevronLeft, ChevronRight, LoaderCircle,
-  Mountain, CloudRain, Route, History, Flame, BarChart2, ShieldCheck,
+  Mountain, CloudRain, Route, History, Flame, BarChart2, ShieldCheck, Landmark,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { subsampleRoute, haversineKm } from '@/lib/geo';
@@ -24,12 +24,13 @@ import { CalorPanel } from '@/components/analysis/CalorPanel';
 import { ViaEstadoPanel } from '@/components/analysis/ViaEstadoPanel';
 import { AntStatsPanel } from '@/components/analysis/AntStatsPanel';
 import { EvaluacionRiesgoPanel } from '@/components/analysis/EvaluacionRiesgoPanel';
+import { MitEventosPanel } from '@/components/analysis/MitEventosPanel';
 import type { RouteCalculatedData } from '@/components/routes/RoutePlanner';
 import type { Incident } from '@/types/incident';
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
 
-type TimelineTab = 'alertas' | 'perfil' | 'cierres' | 'vias' | 'ant' | 'riesgo';
+type TimelineTab = 'alertas' | 'perfil' | 'cierres' | 'vias' | 'mit' | 'ant' | 'riesgo';
 interface ElevPoint { km: number; elevacion: number; }
 interface GoogleElevationResponse {
   results: Array<{ elevation: number }>;
@@ -142,11 +143,14 @@ interface Props {
   routeData: RouteCalculatedData | null;
   onSelectIncident?: (incident: Incident) => void;
   selectedIncidentId?: number | null;
-  /** Provincias con restricciones viales cercanas a la ruta calculada (para el tab Cierres). */
+  /** Provincias con restricciones viales ECU911 cercanas a la ruta calculada (para el tab Cierres/Vías). */
   conflictProvinces?: string[] | null;
+  /** Provincias con eventos del histórico MIT cercanos a la ruta calculada
+   * (fuente de datos distinta a ECU911 — no se debe reusar `conflictProvinces`). */
+  mitConflictProvinces?: string[] | null;
 }
 
-export function RouteTimeline({ routeData, onSelectIncident, selectedIncidentId, conflictProvinces }: Props) {
+export function RouteTimeline({ routeData, onSelectIncident, selectedIncidentId, conflictProvinces, mitConflictProvinces }: Props) {
   const [open,         setOpen]         = useState(true);
   const [tab,          setTab]          = useState<TimelineTab>('alertas');
   const [showAltimetria, setShowAltimetria] = useState(true);
@@ -283,6 +287,11 @@ export function RouteTimeline({ routeData, onSelectIncident, selectedIncidentId,
               className={cn('flex items-center gap-1 rounded-md px-2 py-0.5 text-[11px] font-medium transition-colors',
                 tab === 'vias' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground')}>
               <Route className="size-3" /> Vías
+            </button>
+            <button type="button" onClick={() => setTab('mit')} title="Histórico MIT · Eventos Adversos"
+              className={cn('flex items-center gap-1 rounded-md px-2 py-0.5 text-[11px] font-medium transition-colors',
+                tab === 'mit' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground')}>
+              <Landmark className="size-3" /> MIT
             </button>
             <button type="button" onClick={() => setTab('ant')} title="ANT"
               className={cn('flex items-center gap-1 rounded-md px-2 py-0.5 text-[11px] font-medium transition-colors',
@@ -608,6 +617,8 @@ export function RouteTimeline({ routeData, onSelectIncident, selectedIncidentId,
           <CalorPanel filterProvinces={routeData ? (conflictProvinces ?? null) : null} />
         ) : tab === 'vias' ? (
           <ViaEstadoPanel conflictProvinces={routeData ? (conflictProvinces ?? null) : null} />
+        ) : tab === 'mit' ? (
+          <MitEventosPanel conflictProvinces={routeData ? (mitConflictProvinces ?? null) : null} />
         ) : tab === 'ant' ? (
           <AntStatsPanel />
         ) : (

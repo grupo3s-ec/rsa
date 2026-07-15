@@ -48,4 +48,12 @@ return [
         'token' => env('VIA_POLL_TOKEN', ''),
     ],
 
+    'google_maps' => [
+        // Clave server-side (sin restricción por referrer HTTP) para llamar a la
+        // Geocoding API desde el backend. Es distinta de la clave pública del
+        // frontend (NEXT_PUBLIC_GOOGLE_MAPS_API_KEY), que sí está restringida
+        // por referrer y por eso no sirve para llamadas servidor-a-servidor.
+        'server_key' => env('GOOGLE_MAPS_SERVER_KEY', ''),
+    ],
+
 ];

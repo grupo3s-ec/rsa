@@ -11,6 +11,7 @@ use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\HazardTypeController;
 use App\Http\Controllers\Api\IncidentController;
 use App\Http\Controllers\Api\IncidentMediaController;
+use App\Http\Controllers\Api\MitAdverseEventController;
 use App\Http\Controllers\Api\RouteIncidentController;
 use App\Http\Controllers\Api\ViaHistoryController;
 use Illuminate\Support\Facades\Route;
@@ -54,6 +55,10 @@ Route::middleware('auth:sanctum')->group(function () {
 
     // Histórico de cierres viales (ECU911)
     Route::get('/vias/history', [ViaHistoryController::class, 'index']);
+
+    // Histórico de eventos adversos MTOP/MIT (boletines mensuales)
+    Route::get('/mit/eventos-adversos',           [MitAdverseEventController::class, 'index']);
+    Route::get('/mit/eventos-adversos/opciones',  [MitAdverseEventController::class, 'opciones']);
 
     // ── Dashboard y Geotab (admin + operator) ────────────────────────────────
     Route::middleware('operator')->prefix('admin')->group(function () {

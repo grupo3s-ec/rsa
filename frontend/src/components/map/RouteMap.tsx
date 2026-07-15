@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import {
   AdvancedMarker,
   Map,
@@ -13,6 +13,7 @@ import { conditionMeta, severityMeta } from "@/lib/incidents/format";
 import type { LngLat, RouteLineString } from "@/lib/mapbox/directions";
 import type { Incident } from "@/types/incident";
 import type { ViaGeoMarker } from "@/types/ecu911";
+import type { MitAdverseEvent } from "@/lib/api/mit-eventos";
 
 const QUITO_CENTER = { lat: -0.1807, lng: -78.4678 };
 // DEMO_MAP_ID habilita AdvancedMarker; en producción crear uno en Google Cloud Console.
@@ -23,6 +24,24 @@ const VIA_ESTADO_META: Record<number, { color: string; icon: React.ElementType }
   594: { color: '#f59e0b', icon: TriangleAlert }, // Parcial — ámbar
   595: { color: '#dc2626', icon: CircleX       }, // Cerrada — rojo
 };
+
+/** Color por tipo_evento del histórico MIT/MTOP — mismas categorías que
+ * `MitEventosPanel`, aquí en hex plano porque `google.maps.Polyline` no
+ * acepta clases de Tailwind. */
+export const MIT_TIPO_HEX: Record<string, string> = {
+  'Deslizamiento/Derrumbe':             '#f59e0b',
+  'Socavamiento/Socavón':               '#0ea5e9',
+  'Caída de rocas':                     '#f97316',
+  'Caída de árboles':                   '#10b981',
+  'Pérdida de calzada':                 '#ef4444',
+  'Hundimiento':                        '#f43f5e',
+  'Falla geológica':                    '#8b5cf6',
+  'Inundación/Nivel de agua':           '#3b82f6',
+  'Trabajos programados/Mantenimiento': '#64748b',
+  'Cierre por conflicto social':        '#d946ef',
+  'Colapso de puente/alcantarilla':     '#dc2626',
+};
+const MIT_TIPO_HEX_DEFAULT = '#78716c'; // Otro
 
 interface RouteMapProps {
   waypoints: (LngLat | null)[];
@@ -41,6 +60,12 @@ interface RouteMapProps {
   onSelectVia?: (marker: ViaGeoMarker) => void;
   /** ID de la vía actualmente seleccionada (para resaltar). */
   selectedViaId?: string | null;
+  /** Eventos históricos MIT/MTOP cuyo tramo geocodificado intersecta la ruta calculada. */
+  mitSegments?: MitAdverseEvent[];
+  /** Callback al hacer clic en un tramo MIT. */
+  onSelectMitEvent?: (event: MitAdverseEvent) => void;
+  /** ID del evento MIT actualmente seleccionado (para resaltar). */
+  selectedMitEventId?: number | null;
 }
 
 // ─── Auxiliares internos ──────────────────────────────────────────────────────
@@ -171,6 +196,72 @@ function RoutePolyline({
   return null;
 }
 
+/** Dibuja un tramo del histórico MIT/MTOP (línea punteada, coloreada por
+ * tipo_evento) entre los dos extremos geocodificados del evento. */
+function MitEventSegment({
+  event,
+  isSelected,
+  onSelect,
+}: {
+  event: MitAdverseEvent;
+  isSelected: boolean;
+  onSelect?: () => void;
+}) {
+  const map = useMap();
+
+  // El listener llama siempre a la versión más reciente de onSelect vía ref,
+  // así el efecto de abajo no necesita "onSelect" en sus dependencias — sin
+  // esto, cada RouteMap se re-renderiza con una nueva identidad de función
+  // (los onSelectMitEvent={(e) => ...} en RoutePlanner son closures inline) y
+  // el Polyline + su listener se destruían y recreaban en cada render ajeno
+  // (ej. seleccionar una vía ECU911), con parpadeo visible en cada tramo MIT.
+  const onSelectRef = useRef(onSelect);
+  useEffect(() => {
+    onSelectRef.current = onSelect;
+  }, [onSelect]);
+
+  useEffect(() => {
+    if (!map) return;
+    if (event.inicio_lat === null || event.inicio_lng === null || event.fin_lat === null || event.fin_lng === null) {
+      return;
+    }
+
+    const path = [
+      { lat: event.inicio_lat, lng: event.inicio_lng },
+      { lat: event.fin_lat, lng: event.fin_lng },
+    ];
+    const color = MIT_TIPO_HEX[event.tipo_evento] ?? MIT_TIPO_HEX_DEFAULT;
+
+    const line = new window.google.maps.Polyline({
+      map,
+      path,
+      geodesic: true,
+      strokeOpacity: 0,
+      strokeWeight: isSelected ? 5 : 3,
+      // Por debajo de TODAS las polilíneas de ruta (alterna=0, seleccionada
+      // casing=1/línea=2) — un tramo MIT es información histórica secundaria,
+      // no debe competir por el clic con la selección de ruta cuando se cruzan
+      // visualmente (la ruta alterna también es clickable en ese mismo punto).
+      zIndex: isSelected ? -1 : -2,
+      clickable: true,
+      icons: [{
+        icon: { path: 'M 0,-1 0,1', strokeOpacity: 1, strokeColor: color, scale: isSelected ? 4 : 3 },
+        offset: '0',
+        repeat: '16px',
+      }],
+    });
+
+    const listener = line.addListener('click', () => onSelectRef.current?.());
+
+    return () => {
+      window.google.maps.event.removeListener(listener);
+      line.setMap(null);
+    };
+  }, [map, event, isSelected]);
+
+  return null;
+}
+
 // ─── Componente principal ─────────────────────────────────────────────────────
 
 export default function RouteMap({
@@ -185,6 +276,9 @@ export default function RouteMap({
   viaMarkers = [],
   onSelectVia,
   selectedViaId,
+  mitSegments = [],
+  onSelectMitEvent,
+  selectedMitEventId,
 }: RouteMapProps) {
   const selected = routes[selectedRouteIdx] ?? [];
   const { resolvedTheme } = useTheme();
@@ -251,6 +345,16 @@ export default function RouteMap({
           </AdvancedMarker>
         );
       })}
+
+      {/* Tramos del histórico MIT/MTOP que intersectan la ruta calculada */}
+      {mitSegments.map((event) => (
+        <MitEventSegment
+          key={event.id}
+          event={event}
+          isSelected={selectedMitEventId === event.id}
+          onSelect={() => onSelectMitEvent?.(event)}
+        />
+      ))}
 
       {/* Vías ECU911 con restricciones */}
       {viaMarkers.map((m) => {
