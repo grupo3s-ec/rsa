@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { Pencil, Plus, Trash2 } from 'lucide-react';
+import { RoleGuard } from '@/components/auth/RoleGuard';
 import {
   createPredefinedRoute,
   deletePredefinedRoute,
@@ -32,6 +33,14 @@ type FormData = {
 const EMPTY_FORM: FormData = { nombre: '', descripcion: '', origen: '', destino: '', activo: true };
 
 export default function RoutesPage() {
+  return (
+    <RoleGuard allowedRoles={['admin']}>
+      <RoutesPageContent />
+    </RoleGuard>
+  );
+}
+
+function RoutesPageContent() {
   const [routes,  setRoutes]  = useState<PredefinedRoute[]>([]);
   const [loading, setLoading] = useState(true);
   const [error,   setError]   = useState<string | null>(null);

@@ -14,6 +14,7 @@ import {
 } from 'recharts';
 import { AlertTriangle, CheckCircle2, RefreshCw, Route, Truck, Users } from 'lucide-react';
 import { getDashboardStats } from '@/lib/api/admin';
+import { RoleGuard } from '@/components/auth/RoleGuard';
 import { severityMeta, statusMeta } from '@/lib/incidents/format';
 import { Skeleton } from '@/components/ui/skeleton';
 import { SeverityBadge } from '@/components/incidents/SeverityBadge';
@@ -74,6 +75,14 @@ function StatCard({ label, value, sub, icon, valueClass = 'text-foreground' }: S
 // ── Página ────────────────────────────────────────────────────────────────────
 
 export default function DashboardPage() {
+  return (
+    <RoleGuard allowedRoles={['admin', 'operator']}>
+      <DashboardPageContent />
+    </RoleGuard>
+  );
+}
+
+function DashboardPageContent() {
   const [stats, setStats]       = useState<DashboardStats | null>(null);
   const [loading, setLoading]   = useState(true);
   const [refreshing, setRefreshing] = useState(false);

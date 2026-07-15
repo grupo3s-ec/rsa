@@ -50,17 +50,38 @@ class UserController extends Controller
             unset($data['password']);
         }
 
+        if (
+            isset($data['role'])
+            && $data['role'] !== 'admin'
+            && $user->role === 'admin'
+            && User::query()->where('role', 'admin')->count() <= 1
+        ) {
+            abort(422, 'No puedes quitarle el rol admin al último administrador del sistema.');
+        }
+
+        $roleChanged = isset($data['role']) && $data['role'] !== $user->role;
+        $previousRole = $user->role;
+
         $user->update($data);
 
-        Audit::log('user.update', 'user', $user->id, $user->email);
+        $label = $user->email;
+        if ($roleChanged) {
+            $label .= sprintf(' (rol: %s → %s)', $previousRole, $data['role']);
+        }
 
-        return response()->json($user->fresh(['id', 'name', 'email', 'role', 'created_at']));
+        Audit::log('user.update', 'user', $user->id, $label);
+
+        return response()->json($user->fresh()->only(['id', 'name', 'email', 'role', 'created_at']));
     }
 
     public function destroy(Request $request, User $user): JsonResponse
     {
         if ($user->id === $request->user()->id) {
             abort(422, 'No puedes eliminar tu propia cuenta.');
+        }
+
+        if ($user->role === 'admin' && User::query()->where('role', 'admin')->count() <= 1) {
+            abort(422, 'No puedes eliminar al último administrador del sistema.');
         }
 
         Audit::log('user.delete', 'user', $user->id, $user->email);

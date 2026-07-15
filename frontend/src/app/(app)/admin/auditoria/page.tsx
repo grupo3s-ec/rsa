@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { RoleGuard } from '@/components/auth/RoleGuard';
 import { getAuditLog } from '@/lib/api/admin';
 import type { AuditLogEntry, AuditLogPage } from '@/lib/types/admin';
 
@@ -40,6 +41,14 @@ function relativeTime(iso: string): string {
 }
 
 export default function AuditoriaPage() {
+  return (
+    <RoleGuard allowedRoles={['admin']}>
+      <AuditoriaPageContent />
+    </RoleGuard>
+  );
+}
+
+function AuditoriaPageContent() {
   const [page,          setPage]          = useState(1);
   const [actionFilter,  setActionFilter]  = useState('');
   const [result,        setResult]        = useState<AuditLogPage | null>(null);

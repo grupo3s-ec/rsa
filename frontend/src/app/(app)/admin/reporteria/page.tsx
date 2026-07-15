@@ -1,13 +1,14 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { Download } from 'lucide-react';
+import { Download, FileText } from 'lucide-react';
+import { RoleGuard } from '@/components/auth/RoleGuard';
 import {
   Bar, BarChart, CartesianGrid, Cell, Legend,
   Line, LineChart, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis,
 } from 'recharts';
 import { Button } from '@/components/ui/button';
-import { getIncidentReport, getReportExportUrl } from '@/lib/api/admin';
+import { getIncidentReport, getReportExportUrl, getReportExportPdfUrl } from '@/lib/api/admin';
 import { getToken } from '@/lib/auth/token';
 import type { IncidentReport } from '@/lib/types/admin';
 
@@ -44,11 +45,20 @@ const today = new Date().toISOString().split('T')[0]!;
 const thirtyDaysAgo = new Date(Date.now() - 29 * 86_400_000).toISOString().split('T')[0]!;
 
 export default function ReporteriaPage() {
+  return (
+    <RoleGuard allowedRoles={['admin']}>
+      <ReporteriaPageContent />
+    </RoleGuard>
+  );
+}
+
+function ReporteriaPageContent() {
   const [from,    setFrom]    = useState(thirtyDaysAgo);
   const [to,      setTo]      = useState(today);
   const [data,    setData]    = useState<IncidentReport | null>(null);
   const [loading, setLoading] = useState(true);
   const [error,   setError]   = useState<string | null>(null);
+  const [downloading, setDownloading] = useState(false);
 
   async function load(f: string, t: string) {
     setLoading(true);
@@ -66,19 +76,36 @@ export default function ReporteriaPage() {
 
   function handleApply() { void load(from, to); }
 
-  function handleExport() {
-    const url = getReportExportUrl(from, to);
+  function downloadWithAuth(url: string, filename: string) {
+    if (downloading) return;
     const token = getToken();
+    setError(null);
+    setDownloading(true);
     // Descarga directa con token en header no es posible desde <a>, usamos fetch
     void fetch(url, { headers: token ? { Authorization: `Bearer ${token}` } : {} })
-      .then(r => r.blob())
+      .then(r => {
+        if (!r.ok) throw new Error(`No se pudo generar el archivo (${r.status}).`);
+        return r.blob();
+      })
       .then(blob => {
         const a = document.createElement('a');
         a.href = URL.createObjectURL(blob);
-        a.download = 'incidentes.csv';
+        a.download = filename;
         a.click();
         URL.revokeObjectURL(a.href);
-      });
+      })
+      .catch((e: unknown) => {
+        setError(e instanceof Error ? e.message : 'No se pudo descargar el archivo.');
+      })
+      .finally(() => setDownloading(false));
+  }
+
+  function handleExport() {
+    downloadWithAuth(getReportExportUrl(from, to), 'incidentes.csv');
+  }
+
+  function handleExportPdf() {
+    downloadWithAuth(getReportExportPdfUrl(from, to), 'reporte-incidentes.pdf');
   }
 
   return (
@@ -114,9 +141,13 @@ export default function ReporteriaPage() {
           <Button size="sm" variant="outline" onClick={handleApply} disabled={loading}>
             Aplicar
           </Button>
-          <Button size="sm" variant="outline" onClick={handleExport} disabled={loading || !data}>
+          <Button size="sm" variant="outline" onClick={handleExport} disabled={loading || !data || downloading}>
             <Download className="size-3.5" />
             CSV
+          </Button>
+          <Button size="sm" variant="outline" onClick={handleExportPdf} disabled={loading || !data || downloading}>
+            <FileText className="size-3.5" />
+            PDF
           </Button>
         </div>
       </div>

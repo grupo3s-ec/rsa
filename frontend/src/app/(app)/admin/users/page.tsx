@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { Pencil, Plus, Trash2 } from 'lucide-react';
+import { RoleGuard } from '@/components/auth/RoleGuard';
 import {
   createUser,
   deleteUser,
@@ -38,6 +39,14 @@ const ROLE_BADGE: Record<UserRole, string> = {
 };
 
 export default function UsersPage() {
+  return (
+    <RoleGuard allowedRoles={['admin']}>
+      <UsersPageContent />
+    </RoleGuard>
+  );
+}
+
+function UsersPageContent() {
   const [users,   setUsers]   = useState<AdminUser[]>([]);
   const [loading, setLoading] = useState(true);
   const [error,   setError]   = useState<string | null>(null);

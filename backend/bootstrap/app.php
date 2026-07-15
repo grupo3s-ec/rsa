@@ -20,6 +20,11 @@ return Application::configure(basePath: dirname(__DIR__))
             'admin'    => \App\Http\Middleware\AdminMiddleware::class,
             'operator' => \App\Http\Middleware\OperatorMiddleware::class,
         ]);
+        // API 100% sin vistas de login — nunca redirigir a un invitado no
+        // autenticado. Sin esto, Authenticate::redirectTo() intenta
+        // route('login') (inexistente) y lanza un 500 en vez del 401 normal
+        // de Sanctum cuando la petición no manda `Accept: application/json`.
+        $middleware->redirectGuestsTo(fn () => null);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
         $exceptions->shouldRenderJsonWhen(

@@ -2,9 +2,18 @@
 
 import { useEffect, useState } from 'react';
 import { getDashboardStats } from '@/lib/api/admin';
+import { RoleGuard } from '@/components/auth/RoleGuard';
 import type { DashboardStats } from '@/types/dashboard';
 
 export default function SistemaPage() {
+  return (
+    <RoleGuard allowedRoles={['admin']}>
+      <SistemaPageContent />
+    </RoleGuard>
+  );
+}
+
+function SistemaPageContent() {
   const [stats, setStats] = useState<DashboardStats | null>(null);
 
   useEffect(() => {

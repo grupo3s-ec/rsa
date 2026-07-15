@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { Pencil, Plus, Trash2 } from 'lucide-react';
+import { RoleGuard } from '@/components/auth/RoleGuard';
 import {
   createVehicle,
   deleteVehicle,
@@ -31,6 +32,14 @@ type FormData = {
 const EMPTY_FORM: FormData = { placa: '', marca: '', modelo: '', anio: '', activo: true };
 
 export default function VehiclesPage() {
+  return (
+    <RoleGuard allowedRoles={['admin']}>
+      <VehiclesPageContent />
+    </RoleGuard>
+  );
+}
+
+function VehiclesPageContent() {
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
   const [loading,  setLoading]  = useState(true);
   const [error,    setError]    = useState<string | null>(null);

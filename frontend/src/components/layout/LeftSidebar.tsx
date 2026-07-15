@@ -21,7 +21,7 @@ const NAV_LINKS: Array<{
   { href: '/mapa',      label: 'Mapa',       icon: Map,             roles: null },
   { href: '/incidents', label: 'Incidentes', icon: List,            roles: null },
   { href: '/dashboard', label: 'Dashboard',  icon: LayoutDashboard, roles: ['admin', 'operator'] },
-  { href: '/admin',     label: 'Admin',      icon: Settings2,       roles: ['admin'] },
+  { href: '/admin',     label: 'Admin',      icon: Settings2,       roles: ['admin', 'operator'] },
 ];
 
 export function LeftSidebar() {
