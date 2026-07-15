@@ -3,6 +3,7 @@
 use App\Http\Controllers\Api\Admin\AuditController;
 use App\Http\Controllers\Api\Admin\DashboardController;
 use App\Http\Controllers\Api\Admin\GeotabController;
+use App\Http\Controllers\Api\Admin\MitImportController;
 use App\Http\Controllers\Api\Admin\PredefinedRouteController as AdminRouteController;
 use App\Http\Controllers\Api\Admin\ReportController;
 use App\Http\Controllers\Api\Admin\UserController as AdminUserController;
@@ -79,6 +80,10 @@ Route::middleware('auth:sanctum')->group(function () {
 
         // Auditoría
         Route::get('/audit', [AuditController::class, 'index']);
+
+        // Carga inicial del histórico MIT/MTOP (Render free tier no da shell,
+        // así que mit:import/mit:geocode se disparan por HTTP, solo admin).
+        Route::post('/mit/import', [MitImportController::class, 'run']);
 
         // Usuarios
         Route::get('/users',         [AdminUserController::class, 'index']);
