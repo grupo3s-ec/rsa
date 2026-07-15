@@ -13,7 +13,7 @@ class ComputeMitEventRoutes extends Command
 
     protected $description = 'Calcula (por carretera, vía Directions API) el trazado entre inicio y fin de cada tramo geocodificado del histórico MIT pendiente, para dibujarlo alineado a la vía real en vez de una línea recta';
 
-    /** @var array<string, string|null> */
+    /** @var array<string, list<string>|null> */
     private array $cachePorCoordenadas = [];
 
     public function handle(GoogleDirectionsService $directions): int
@@ -49,7 +49,7 @@ class ComputeMitEventRoutes extends Command
             $primero = $eventos->first();
 
             try {
-                $polyline = $this->rutearConCache(
+                $polylines = $this->rutearConCache(
                     (float) $primero->inicio_lat,
                     (float) $primero->inicio_lng,
                     (float) $primero->fin_lat,
@@ -69,10 +69,13 @@ class ComputeMitEventRoutes extends Command
 
             $procesados++;
 
-            if ($polyline !== null) {
+            if ($polylines !== null) {
+                // JSON, no una sola polyline: el frontend decodifica cada
+                // tramo (`step`) por separado y los concatena — más preciso
+                // que la `overview_polyline` única (ver doc de `stepPolylines`).
                 MitAdverseEvent::query()
                     ->whereIn('id', $eventos->pluck('id'))
-                    ->update(['ruta_polyline' => $polyline]);
+                    ->update(['ruta_polyline' => json_encode($polylines)]);
                 $ok++;
             } else {
                 // Sin ruta conocida entre esos dos puntos (ZERO_RESULTS) — el
@@ -89,17 +92,18 @@ class ComputeMitEventRoutes extends Command
         return self::SUCCESS;
     }
 
+    /** @return list<string>|null */
     private function rutearConCache(
         float $originLat,
         float $originLng,
         float $destLat,
         float $destLng,
         GoogleDirectionsService $directions,
-    ): ?string {
+    ): ?array {
         $clave = "{$originLat},{$originLng}|{$destLat},{$destLng}";
 
         if (!array_key_exists($clave, $this->cachePorCoordenadas)) {
-            $this->cachePorCoordenadas[$clave] = $directions->overviewPolyline($originLat, $originLng, $destLat, $destLng);
+            $this->cachePorCoordenadas[$clave] = $directions->stepPolylines($originLat, $originLng, $destLat, $destLng);
         }
 
         return $this->cachePorCoordenadas[$clave];

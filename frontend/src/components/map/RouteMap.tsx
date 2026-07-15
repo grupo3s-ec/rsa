@@ -307,15 +307,23 @@ function MitEventSegment({
     }
 
     // Trazado real por carretera (calculado una vez en el backend vía
-    // `mit:route` y cacheado en `ruta_polyline`) si ya está disponible; si no
-    // (tramo aún no procesado, o sin ruta conocida entre esos dos puntos),
-    // cae de vuelta a la línea recta entre los extremos geocodificados.
-    const path = event.ruta_polyline
-      ? window.google.maps.geometry.encoding.decodePath(event.ruta_polyline)
-      : [
-          { lat: event.inicio_lat, lng: event.inicio_lng },
-          { lat: event.fin_lat, lng: event.fin_lng },
-        ];
+    // `mit:route`) si ya está disponible; si no (tramo aún no procesado, o sin
+    // ruta conocida entre esos dos puntos), cae de vuelta a la línea recta
+    // entre los extremos geocodificados. `ruta_polyline` es un JSON con la
+    // polyline codificada de CADA tramo (`step`) de la ruta por separado (no
+    // la `overview_polyline` única, que Google simplifica para mapas de
+    // escala pequeña) — se decodifica y concatena cada una para un trazado
+    // fiel a la vía real incluso en curvas cerradas.
+    let path: google.maps.LatLng[] | { lat: number; lng: number }[];
+    if (event.ruta_polyline) {
+      const steps = JSON.parse(event.ruta_polyline) as string[];
+      path = steps.flatMap((step) => window.google.maps.geometry.encoding.decodePath(step));
+    } else {
+      path = [
+        { lat: event.inicio_lat, lng: event.inicio_lng },
+        { lat: event.fin_lat, lng: event.fin_lng },
+      ];
+    }
     const color = MIT_TIPO_HEX[event.tipo_evento] ?? MIT_TIPO_HEX_DEFAULT;
 
     const line = new window.google.maps.Polyline({
@@ -324,11 +332,12 @@ function MitEventSegment({
       geodesic: true,
       strokeOpacity: 0,
       strokeWeight: isSelected ? 5 : 3,
-      // Por debajo de TODAS las polilíneas de ruta (alterna=0, seleccionada
-      // casing=1/línea=2) — un tramo MIT es información histórica secundaria,
-      // no debe competir por el clic con la selección de ruta cuando se cruzan
-      // visualmente (la ruta alterna también es clickable en ese mismo punto).
-      zIndex: isSelected ? -1 : -2,
+      // Por ENCIMA de las polilíneas de ruta (alterna=0, seleccionada
+      // casing=1/línea=2) — antes iba por debajo para no competir por el clic
+      // con la ruta, pero eso hacía que la ruta tapara visualmente el tramo
+      // MIT en cualquier punto donde se cruzan. Prioriza verse (información
+      // histórica) sobre la prioridad de clic en el cruce exacto.
+      zIndex: isSelected ? 4 : 3,
       clickable: true,
       icons: [{
         icon: { path: 'M 0,-1 0,1', strokeOpacity: 1, strokeColor: color, scale: isSelected ? 4 : 3 },
