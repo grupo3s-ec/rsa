@@ -20,6 +20,7 @@ import {
   statusMeta,
   toEmbedUrl,
 } from '@/lib/incidents/format';
+import { getHazardTypeIcon } from '@/lib/incidents/hazard-types';
 import { toast } from 'sonner';
 import {
   addIncidentMedia,
@@ -205,7 +206,7 @@ export function IncidentDetailDialog({
   // pero sí constantes declaradas tras la guarda de null.
   const inc      = local;
   const severity = severityMeta[inc.severity];
-  const TypeIcon = conditionMeta[inc.condition ?? 'fisica'].icon;
+  const TypeIcon = getHazardTypeIcon(inc.type);
   const actions  = STATUS_TRANSITIONS[inc.status];
 
   // ── Handlers ─────────────────────────────────────────────────────────────────

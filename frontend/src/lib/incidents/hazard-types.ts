@@ -1,3 +1,9 @@
+import {
+  Signpost, CircleDot, Ticket, CornerUpRight, CornerDownRight, Mountain,
+  Footprints, Fuel, PersonStanding, Waypoints, ChevronsDown, School, Gauge,
+  RotateCw, CloudFog, EyeOff, Skull, UsersRound, Flame, ShieldOff, HelpCircle,
+  type LucideIcon,
+} from 'lucide-react';
 import type { HazardType } from '@/types/incident';
 
 /**
@@ -34,3 +40,34 @@ export const HAZARD_TYPES: HazardType[] = [
   { id: 19, condition: 'entorno_riesgo_publico',  name: 'Paros, huelgas, manifestaciones',  risks: 'Incendio del vehículo y mercancía, robo, hurto', severity: 'medium' },
   { id: 20, condition: 'entorno_riesgo_publico',  name: 'Guerrilla en la zona',              risks: 'Incendio del vehículo y mercancía, robo, hurto', severity: 'medium' },
 ];
+
+/** Ícono distinto por tipo de condición — antes se reusaba el mismo ícono
+ * de la condición (Física/Natural/Entorno) para los 20 tipos, lo que se veía
+ * genérico (14 botones idénticos bajo "Física"). Clave = `name` exacto de
+ * `HAZARD_TYPES`. */
+const HAZARD_TYPE_ICONS: Record<string, LucideIcon> = {
+  'Intersección':                     Signpost,
+  'Semáforo':                         CircleDot,
+  'Peaje':                            Ticket,
+  'Curva peligrosa':                  CornerUpRight,
+  'Curva':                            CornerDownRight,
+  'Caída de rocas':                   Mountain,
+  'Pasos peatonales':                 Footprints,
+  'Estación de servicios':            Fuel,
+  'Puente peatonal':                  PersonStanding,
+  'Cruce peligroso':                  Waypoints,
+  'Descenso':                         ChevronsDown,
+  'Zona escolar':                     School,
+  'Límite de velocidad':              Gauge,
+  'Glorieta':                         RotateCw,
+  'Neblina':                          CloudFog,
+  'Poca visibilidad':                 EyeOff,
+  'Piratería':                        Skull,
+  'Polizones':                        UsersRound,
+  'Paros, huelgas, manifestaciones':  Flame,
+  'Guerrilla en la zona':             ShieldOff,
+};
+
+export function getHazardTypeIcon(name: string): LucideIcon {
+  return HAZARD_TYPE_ICONS[name] ?? HelpCircle;
+}

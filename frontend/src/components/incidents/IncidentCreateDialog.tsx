@@ -15,7 +15,7 @@ import { Input } from '@/components/ui/input';
 import { SeverityBadge } from '@/components/incidents/SeverityBadge';
 import { RiskMatrixLegend } from '@/components/incidents/RiskMatrixLegend';
 import { conditionMeta, severityMeta } from '@/lib/incidents/format';
-import { HAZARD_TYPES } from '@/lib/incidents/hazard-types';
+import { HAZARD_TYPES, getHazardTypeIcon } from '@/lib/incidents/hazard-types';
 import { createIncident, uploadIncidentPhoto } from '@/services/incidents.service';
 import { cn } from '@/lib/utils';
 import type { HazardType, IncidentCondition } from '@/types/incident';
@@ -48,6 +48,7 @@ export function IncidentCreateDialog({
   onPickedCoordsConsumed,
 }: IncidentCreateDialogProps) {
   const [hazardTypeId, setHazardTypeId] = useState<number | null>(null);
+  const [activeCondition, setActiveCondition] = useState<IncidentCondition>('fisica');
   const [title,        setTitle]        = useState('');
   const [description,  setDescription]  = useState('');
   const [coords,        setCoords]      = useState<{ lat: number; lng: number } | null>(null);
@@ -83,6 +84,7 @@ export function IncidentCreateDialog({
 
   function reset() {
     setHazardTypeId(null);
+    setActiveCondition('fisica');
     setTitle('');
     setDescription('');
     setCoords(null);
@@ -131,7 +133,7 @@ export function IncidentCreateDialog({
 
   return (
     <Dialog open={open} onOpenChange={(v) => { if (!v && !pickActive) reset(); onOpenChange(v); }}>
-      <DialogContent className="max-h-[92dvh] overflow-y-auto sm:max-w-md">
+      <DialogContent className="max-h-[92dvh] overflow-y-auto sm:max-w-[30vw]">
         <DialogHeader>
           <DialogTitle>Reportar novedad</DialogTitle>
         </DialogHeader>
@@ -158,47 +160,57 @@ export function IncidentCreateDialog({
                 </Popover.Portal>
               </Popover.Root>
             </div>
-            <div className="space-y-3">
-                {CONDITION_ORDER.map(condition => {
-                  const items = groupedHazardTypes.get(condition) ?? [];
-                  if (items.length === 0) return null;
-                  const meta = conditionMeta[condition];
-                  const ConditionIcon = meta.icon;
-                  return (
-                    <div key={condition} className="space-y-1.5">
-                      <p className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-                        <ConditionIcon className="size-3.5" />
-                        {meta.label}
-                      </p>
-                      <div className="flex flex-wrap gap-1.5">
-                        {items.map(hazardType => {
-                          const active = hazardTypeId === hazardType.id;
-                          return (
-                            <button
-                              key={hazardType.id}
-                              type="button"
-                              onClick={() => setHazardTypeId(hazardType.id)}
-                              className={cn(
-                                'flex items-center gap-1.5 rounded-full border px-2.5 py-1.5 text-xs font-medium transition-colors',
-                                active
-                                  ? 'border-primary bg-primary/10 text-primary'
-                                  : 'border-border/50 text-muted-foreground hover:text-foreground hover:border-border',
-                              )}
-                            >
-                              <ConditionIcon className="size-3.5 shrink-0" />
-                              {hazardType.name}
-                              <span
-                                className="size-1.5 shrink-0 rounded-full"
-                                style={{ backgroundColor: severityMeta[hazardType.severity].hex }}
-                              />
-                            </button>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
+            {/* Tabs por categoría — antes se mostraban las 3 categorías
+                apiladas (14 botones de Física siempre visibles), lo que
+                hacía el diálogo muy alto. Ahora solo se ve una a la vez. */}
+            <div className="flex items-center gap-0.5 rounded-lg border border-border/50 bg-muted/40 p-0.5">
+              {CONDITION_ORDER.map(condition => {
+                const meta = conditionMeta[condition];
+                const ConditionIcon = meta.icon;
+                const active = activeCondition === condition;
+                return (
+                  <button
+                    key={condition}
+                    type="button"
+                    onClick={() => setActiveCondition(condition)}
+                    className={cn(
+                      'flex flex-1 items-center justify-center gap-1.5 rounded-md px-2 py-1.5 text-[11px] font-medium transition-colors',
+                      active ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground',
+                    )}
+                  >
+                    <ConditionIcon className="size-3.5" />
+                    {meta.label}
+                  </button>
+                );
+              })}
+            </div>
+
+            <div className="flex flex-wrap gap-1.5">
+              {(groupedHazardTypes.get(activeCondition) ?? []).map(hazardType => {
+                const active = hazardTypeId === hazardType.id;
+                const TypeIcon = getHazardTypeIcon(hazardType.name);
+                return (
+                  <button
+                    key={hazardType.id}
+                    type="button"
+                    onClick={() => setHazardTypeId(hazardType.id)}
+                    className={cn(
+                      'flex items-center gap-1.5 rounded-full border px-2.5 py-1.5 text-xs font-medium transition-colors',
+                      active
+                        ? 'border-primary bg-primary/10 text-primary'
+                        : 'border-border/50 text-muted-foreground hover:text-foreground hover:border-border',
+                    )}
+                  >
+                    <TypeIcon className="size-3.5 shrink-0" />
+                    {hazardType.name}
+                    <span
+                      className="size-1.5 shrink-0 rounded-full"
+                      style={{ backgroundColor: severityMeta[hazardType.severity].hex }}
+                    />
+                  </button>
+                );
+              })}
+            </div>
           </div>
 
           {/* Condición + Riesgos + Severidad — auto-derivados del tipo elegido, no editables */}
