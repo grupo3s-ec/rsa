@@ -549,7 +549,7 @@ function RoutePlannerContent({
   }, [focusedKmRange, routeSamples, routeKmScale]);
 
   // ─── Modo de dirección (tabs) ────────────────────────────────────────────
-  const [addressMode,       setAddressMode]       = useState<"url" | "buscar" | "coordenadas">("url");
+  const [addressMode,       setAddressMode]       = useState<"url" | "buscar" | "coordenadas">("buscar");
   const [pasteRouteLinkRaw, setPasteRouteLinkRaw] = useState("");
   const [pasteOriginCoords, setPasteOriginCoords] = useState<{ lngLat: LngLat; address: string } | null>(null);
   const [pasteDestCoords,   setPasteDestCoords]   = useState<{ lngLat: LngLat; address: string } | null>(null);
@@ -982,7 +982,7 @@ function RoutePlannerContent({
 
   const addressTabs = (
     <div className="flex border-b border-border/50">
-      {(["url", "buscar", "coordenadas"] as const).map((tab) => {
+      {(["buscar", "url", "coordenadas"] as const).map((tab) => {
         const labels   = { url: "URL", buscar: "Buscar", coordenadas: "Coords" } as const;
         const tabIcons = {
           url:          <Link2      className="size-3" />,
