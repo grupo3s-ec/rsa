@@ -1,9 +1,8 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Select } from '@base-ui/react/select';
 import { Popover } from '@base-ui/react/popover';
-import { Camera, Check, ChevronsUpDown, HelpCircle, MapPin, X } from 'lucide-react';
+import { Camera, HelpCircle, MapPin, X } from 'lucide-react';
 import { toast } from 'sonner';
 import {
   Dialog,
@@ -17,7 +16,8 @@ import { SeverityBadge } from '@/components/incidents/SeverityBadge';
 import { RiskMatrixLegend } from '@/components/incidents/RiskMatrixLegend';
 import { conditionMeta, severityMeta } from '@/lib/incidents/format';
 import { createIncident, getHazardTypes, uploadIncidentPhoto } from '@/services/incidents.service';
-import type { HazardType, IncidentSeverity } from '@/types/incident';
+import { cn } from '@/lib/utils';
+import type { HazardType, IncidentCondition } from '@/types/incident';
 import type { LngLat } from '@/lib/mapbox/directions';
 
 export interface IncidentCreateDialogProps {
@@ -34,8 +34,8 @@ export interface IncidentCreateDialogProps {
   onPickedCoordsConsumed?: () => void;
 }
 
-/** Orden de urgencia para los grupos del select: Alta → Media → Baja. */
-const SEVERITY_GROUP_ORDER: IncidentSeverity[] = ['high', 'medium', 'low'];
+/** Orden de las secciones de tipo de condición, agrupadas por condición. */
+const CONDITION_ORDER: IncidentCondition[] = ['fisica', 'natural', 'entorno_riesgo_publico'];
 
 export function IncidentCreateDialog({
   open,
@@ -80,10 +80,10 @@ export function IncidentCreateDialog({
   }, [open, hazardTypes.length]);
 
   const groupedHazardTypes = useMemo(() => {
-    const groups = new Map<IncidentSeverity, HazardType[]>();
-    for (const severity of SEVERITY_GROUP_ORDER) groups.set(severity, []);
+    const groups = new Map<IncidentCondition, HazardType[]>();
+    for (const condition of CONDITION_ORDER) groups.set(condition, []);
     for (const hazardType of hazardTypes) {
-      groups.get(hazardType.severity)?.push(hazardType);
+      groups.get(hazardType.condition)?.push(hazardType);
     }
     for (const list of groups.values()) list.sort((a, b) => a.name.localeCompare(b.name, 'es'));
     return groups;
@@ -168,57 +168,51 @@ export function IncidentCreateDialog({
                 </Popover.Portal>
               </Popover.Root>
             </div>
-            <Select.Root<number>
-              value={hazardTypeId ?? undefined}
-              onValueChange={(value) => { if (value !== null) setHazardTypeId(value); }}
-              disabled={loadingTypes}
-              modal={false}
-            >
-              <Select.Trigger className="flex h-11 w-full items-center gap-2 rounded-xl border border-transparent bg-muted/40 px-3 text-sm outline-none transition-colors focus-visible:border-ring">
-                <span className="flex-1 truncate text-left">
-                  {loadingTypes
-                    ? 'Cargando…'
-                    : selectedHazardType?.name ?? 'Selecciona un tipo'
-                  }
-                </span>
-                <Select.Icon>
-                  <ChevronsUpDown className="size-3.5 text-muted-foreground" />
-                </Select.Icon>
-              </Select.Trigger>
-              <Select.Portal>
-                <Select.Positioner className="z-[60] outline-none" sideOffset={6} alignItemWithTrigger={false}>
-                  <Select.Popup className="max-h-80 w-[var(--anchor-width)] overflow-y-auto rounded-2xl border border-border/60 bg-popover p-1 text-popover-foreground shadow-xl outline-none">
-                    {SEVERITY_GROUP_ORDER.map(severityLevel => {
-                      const items = groupedHazardTypes.get(severityLevel) ?? [];
-                      if (items.length === 0) return null;
-                      const meta = severityMeta[severityLevel];
-                      return (
-                        <Select.Group key={severityLevel}>
-                          <Select.GroupLabel
-                            className="px-2.5 pb-1 pt-2 text-[11px] font-semibold uppercase tracking-wide"
-                            style={{ color: meta.hex }}
-                          >
-                            {meta.label}
-                          </Select.GroupLabel>
-                          {items.map(hazardType => (
-                            <Select.Item
+            {loadingTypes ? (
+              <p className="text-xs text-muted-foreground">Cargando catálogo…</p>
+            ) : (
+              <div className="space-y-3">
+                {CONDITION_ORDER.map(condition => {
+                  const items = groupedHazardTypes.get(condition) ?? [];
+                  if (items.length === 0) return null;
+                  const meta = conditionMeta[condition];
+                  const ConditionIcon = meta.icon;
+                  return (
+                    <div key={condition} className="space-y-1.5">
+                      <p className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                        <ConditionIcon className="size-3.5" />
+                        {meta.label}
+                      </p>
+                      <div className="flex flex-wrap gap-1.5">
+                        {items.map(hazardType => {
+                          const active = hazardTypeId === hazardType.id;
+                          return (
+                            <button
                               key={hazardType.id}
-                              value={hazardType.id}
-                              className="grid cursor-default grid-cols-[1fr_1rem] items-center gap-2 rounded-xl px-2.5 py-2 text-sm outline-none data-[highlighted]:bg-muted"
+                              type="button"
+                              onClick={() => setHazardTypeId(hazardType.id)}
+                              className={cn(
+                                'flex items-center gap-1.5 rounded-full border px-2.5 py-1.5 text-xs font-medium transition-colors',
+                                active
+                                  ? 'border-primary bg-primary/10 text-primary'
+                                  : 'border-border/50 text-muted-foreground hover:text-foreground hover:border-border',
+                              )}
                             >
-                              <Select.ItemText>{hazardType.name}</Select.ItemText>
-                              <Select.ItemIndicator>
-                                <Check className="size-3.5 text-primary" />
-                              </Select.ItemIndicator>
-                            </Select.Item>
-                          ))}
-                        </Select.Group>
-                      );
-                    })}
-                  </Select.Popup>
-                </Select.Positioner>
-              </Select.Portal>
-            </Select.Root>
+                              <ConditionIcon className="size-3.5 shrink-0" />
+                              {hazardType.name}
+                              <span
+                                className="size-1.5 shrink-0 rounded-full"
+                                style={{ backgroundColor: severityMeta[hazardType.severity].hex }}
+                              />
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
           </div>
 
           {/* Condición + Riesgos + Severidad — auto-derivados del tipo elegido, no editables */}

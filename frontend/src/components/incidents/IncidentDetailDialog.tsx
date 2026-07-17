@@ -4,7 +4,6 @@ import { useEffect, useId, useRef, useState } from 'react';
 import {
   Dialog,
   DialogContent,
-  DialogDescription,
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
@@ -282,15 +281,34 @@ export function IncidentDetailDialog({
             >
               <TypeIcon className="size-5" />
             </span>
-            <div className="min-w-0 flex-1 space-y-1.5">
+            <div className="min-w-0 flex-1">
               <DialogTitle className="leading-snug">{inc.title}</DialogTitle>
-              <DialogDescription className="flex flex-wrap items-center gap-2">
-                <SeverityBadge severity={inc.severity} />
-                <span className="text-xs">{inc.type}</span>
-              </DialogDescription>
             </div>
           </div>
         </DialogHeader>
+
+        {/* Clasificación del peligro — Condición, Tipo de Condición, Riesgos
+            y Severidad, agrupados en un solo bloque (antes dispersos entre
+            el encabezado y la fila de meta). */}
+        <div className="space-y-1.5 rounded-xl border border-border/50 bg-muted/20 p-3.5 text-xs">
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-muted-foreground">
+              <span className="font-medium text-foreground/80">Condición: </span>
+              {conditionMeta[inc.condition ?? 'fisica'].label}
+            </span>
+            <SeverityBadge severity={inc.severity} />
+          </div>
+          <p className="text-foreground/90">
+            <span className="font-medium text-foreground/80">Tipo de condición: </span>
+            {inc.type}
+          </p>
+          {inc.risks && (
+            <p className="text-muted-foreground">
+              <span className="font-medium text-foreground/80">Riesgos: </span>
+              {inc.risks}
+            </p>
+          )}
+        </div>
 
         {/* Video */}
         <VideoSection videoUrl={inc.video_url} title={inc.title} />
@@ -298,14 +316,6 @@ export function IncidentDetailDialog({
         {/* Descripción */}
         {inc.description && (
           <p className="text-sm leading-relaxed text-foreground/90">{inc.description}</p>
-        )}
-
-        {/* Riesgos asociados al tipo de condición */}
-        {inc.risks && (
-          <p className="text-xs text-muted-foreground">
-            <span className="font-medium text-foreground/80">Riesgos: </span>
-            {inc.risks}
-          </p>
         )}
 
         <Separator />
@@ -320,7 +330,6 @@ export function IncidentDetailDialog({
             }`} />
             {statusMeta[inc.status].label}
           </span>
-          {inc.condition && <span>{conditionMeta[inc.condition].label}</span>}
           <span>{SOURCE_LABELS[inc.source]}</span>
           <span>{formatDateEs(inc.occurred_at)}</span>
           <span className="flex items-center gap-1 font-mono">
