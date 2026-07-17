@@ -61,6 +61,7 @@ import { getRouteIncidents } from "@/services/routes.service";
 import { getIncidents } from "@/services/incidents.service";
 import {
   pointNearPolyline,
+  boundsIntersect,
   subsampleRoute,
   kmPositionAlongRoute,
   kmRangeVisibleInBounds,
@@ -362,10 +363,31 @@ function RoutePlannerContent({
       return next;
     });
   }, []);
-  const mitSegmentsVisible = useMemo(
-    () => hiddenMitTipos.size === 0 ? mitConflicts : mitConflicts.filter((e) => !hiddenMitTipos.has(e.tipo_evento)),
-    [mitConflicts, hiddenMitTipos],
-  );
+  // Viewport crudo del mapa (se actualiza vía el mismo callback ya debounced
+  // de zoom-detalle, ver más abajo) — se usa solo para no dibujar tramos MIT
+  // fuera de la pantalla actual. `mitConflicts` ya está acotado a ~25km de la
+  // ruta completa, pero en una ruta larga eso puede ser decenas de tramos con
+  // trazado real (polylines multi-punto con ícono punteado) simultáneos, que
+  // Google Maps recalcula en cada zoom — costoso aunque nuestro propio estado
+  // de React no cambie. null = aún no hay viewport conocido, no se filtra.
+  const [viewportBounds, setViewportBounds] = useState<RawLatLngBounds | null>(null);
+
+  const mitSegmentsVisible = useMemo(() => {
+    const byTipo = hiddenMitTipos.size === 0
+      ? mitConflicts
+      : mitConflicts.filter((e) => !hiddenMitTipos.has(e.tipo_evento));
+    if (!viewportBounds) return byTipo;
+    return byTipo.filter((e) => {
+      if (e.inicio_lat === null || e.inicio_lng === null || e.fin_lat === null || e.fin_lng === null) return true;
+      const segBounds: RawLatLngBounds = {
+        north: Math.max(e.inicio_lat, e.fin_lat),
+        south: Math.min(e.inicio_lat, e.fin_lat),
+        east:  Math.max(e.inicio_lng, e.fin_lng),
+        west:  Math.min(e.inicio_lng, e.fin_lng),
+      };
+      return boundsIntersect(segBounds, viewportBounds);
+    });
+  }, [mitConflicts, hiddenMitTipos, viewportBounds]);
 
   // Carga el histórico MIT una sola vez — ya viene geocodificado (aproximado)
   // desde el backend, a diferencia de ECU911 no requiere geocodificar aquí.
@@ -497,6 +519,10 @@ function RoutePlannerContent({
   // decide si eso cuenta como "enfocado" (menos del 85% de la ruta total
   // visible) o si el usuario se alejó a ver el overview completo.
   const handleViewportBoundsChanged = useCallback((bounds: RawLatLngBounds) => {
+    // Ya viene debounced (150ms) desde ViewportSync — aprovechamos el mismo
+    // callback para guardar el viewport crudo (usado para no dibujar tramos
+    // MIT fuera de pantalla) sin agregar un listener/debounce nuevo.
+    setViewportBounds(bounds);
     focusDriverRef.current = 'map';
     if (routeSamples.length === 0) { setFocusedKmRangeState(null); return; }
     const visible = kmRangeVisibleInBounds(routeSamples, bounds);

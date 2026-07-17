@@ -2,7 +2,6 @@ import { apiClient } from "@/lib/api/client";
 import type {
   ApiResourceResponse,
   CreateIncidentPayload,
-  HazardType,
   Incident,
   IncidentHistoryEntry,
   IncidentMedia,
@@ -12,10 +11,6 @@ import type {
 
 export function getIncidents(): Promise<PaginatedApiResponse<Incident>> {
   return apiClient.get<PaginatedApiResponse<Incident>>("/incidents");
-}
-
-export function getHazardTypes(): Promise<ApiResourceResponse<HazardType[]>> {
-  return apiClient.get<ApiResourceResponse<HazardType[]>>("/hazard-types");
 }
 
 export function getIncident(id: number): Promise<ApiResourceResponse<Incident>> {

@@ -15,7 +15,8 @@ import { Input } from '@/components/ui/input';
 import { SeverityBadge } from '@/components/incidents/SeverityBadge';
 import { RiskMatrixLegend } from '@/components/incidents/RiskMatrixLegend';
 import { conditionMeta, severityMeta } from '@/lib/incidents/format';
-import { createIncident, getHazardTypes, uploadIncidentPhoto } from '@/services/incidents.service';
+import { HAZARD_TYPES } from '@/lib/incidents/hazard-types';
+import { createIncident, uploadIncidentPhoto } from '@/services/incidents.service';
 import { cn } from '@/lib/utils';
 import type { HazardType, IncidentCondition } from '@/types/incident';
 import type { LngLat } from '@/lib/mapbox/directions';
@@ -46,8 +47,6 @@ export function IncidentCreateDialog({
   pickedCoords,
   onPickedCoordsConsumed,
 }: IncidentCreateDialogProps) {
-  const [hazardTypes,  setHazardTypes]  = useState<HazardType[]>([]);
-  const [loadingTypes, setLoadingTypes] = useState(false);
   const [hazardTypeId, setHazardTypeId] = useState<number | null>(null);
   const [title,        setTitle]        = useState('');
   const [description,  setDescription]  = useState('');
@@ -70,26 +69,17 @@ export function IncidentCreateDialog({
     wasPickActive.current = pickActive;
   }, [pickActive, onOpenChange]);
 
-  useEffect(() => {
-    if (!open || hazardTypes.length > 0) return;
-    setLoadingTypes(true);
-    getHazardTypes()
-      .then(({ data }) => setHazardTypes(data))
-      .catch(() => toast.error('No se pudo cargar el catálogo de peligros'))
-      .finally(() => setLoadingTypes(false));
-  }, [open, hazardTypes.length]);
-
   const groupedHazardTypes = useMemo(() => {
     const groups = new Map<IncidentCondition, HazardType[]>();
     for (const condition of CONDITION_ORDER) groups.set(condition, []);
-    for (const hazardType of hazardTypes) {
+    for (const hazardType of HAZARD_TYPES) {
       groups.get(hazardType.condition)?.push(hazardType);
     }
     for (const list of groups.values()) list.sort((a, b) => a.name.localeCompare(b.name, 'es'));
     return groups;
-  }, [hazardTypes]);
+  }, []);
 
-  const selectedHazardType = hazardTypes.find(h => h.id === hazardTypeId) ?? null;
+  const selectedHazardType = HAZARD_TYPES.find(h => h.id === hazardTypeId) ?? null;
 
   function reset() {
     setHazardTypeId(null);
@@ -168,10 +158,7 @@ export function IncidentCreateDialog({
                 </Popover.Portal>
               </Popover.Root>
             </div>
-            {loadingTypes ? (
-              <p className="text-xs text-muted-foreground">Cargando catálogo…</p>
-            ) : (
-              <div className="space-y-3">
+            <div className="space-y-3">
                 {CONDITION_ORDER.map(condition => {
                   const items = groupedHazardTypes.get(condition) ?? [];
                   if (items.length === 0) return null;
@@ -212,7 +199,6 @@ export function IncidentCreateDialog({
                   );
                 })}
               </div>
-            )}
           </div>
 
           {/* Condición + Riesgos + Severidad — auto-derivados del tipo elegido, no editables */}

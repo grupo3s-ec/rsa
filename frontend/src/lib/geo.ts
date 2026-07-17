@@ -107,6 +107,16 @@ export function subsampleRouteRange(
  * `RouteMap` construye el `google.maps.LatLngBounds` real a partir de esto. */
 export interface RawLatLngBounds { north: number; south: number; east: number; west: number; }
 
+/** ¿Se superponen dos bounding boxes lat/lng? Sin envolver el antimeridiano
+ * (no aplica a rutas en Ecuador). Se usa para "¿este tramo se ve en el
+ * viewport actual?" a partir de la caja de sus 2 extremos — más correcto que
+ * chequear solo si un extremo cae dentro, ya que un tramo largo puede
+ * atravesar el viewport sin tener ningún extremo visible en pantalla. */
+export function boundsIntersect(a: RawLatLngBounds, b: RawLatLngBounds): boolean {
+  return a.south <= b.north && a.north >= b.south
+    && a.west <= b.east && a.east >= b.west;
+}
+
 /** Posición en km a lo largo de la ruta del punto de `samples` más cercano a
  * `point` (línea recta, no por carretera) — `scale` corrige el km acumulado
  * por Haversine contra el km real de la ruta (distancia por carretera de la
