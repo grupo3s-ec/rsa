@@ -120,11 +120,17 @@ interface MitEventosPanelProps {
    * cambios de backend (el histórico completo sí tiene coordenadas, a
    * diferencia del de Vías ECU911). */
   focusedBounds?: RawLatLngBounds | null;
+  /** Tipos de evento actualmente ocultos (toggle mostrar/ocultar por tipo) —
+   * controlado por el padre porque también filtra los tramos dibujados en el
+   * mapa, no solo esta lista. */
+  hiddenTipos?: Set<string>;
+  onToggleTipo?: (tipo: string) => void;
 }
 
 const today = new Date().toISOString().split('T')[0]!;
+const NOOP_HIDDEN_TIPOS = new Set<string>();
 
-export function MitEventosPanel({ conflictProvinces, focusedBounds }: MitEventosPanelProps = {}) {
+export function MitEventosPanel({ conflictProvinces, focusedBounds, hiddenTipos = NOOP_HIDDEN_TIPOS, onToggleTipo }: MitEventosPanelProps = {}) {
   const hasRouteProvinces = !!conflictProvinces && conflictProvinces.length > 0;
   const [useRoute, setUseRoute] = useState(true);
 
@@ -136,6 +142,8 @@ export function MitEventosPanel({ conflictProvinces, focusedBounds }: MitEventos
   const [tipoEvento, setTipoEvento] = useState('');
   const [from, setFrom] = useState('');
   const [to, setTo] = useState(today);
+  const [boletinMes, setBoletinMes] = useState('');
+  const [boletinAnio, setBoletinAnio] = useState('');
   const [search, setSearch] = useState('');
 
   const [eventos,   setEventos]   = useState<MitAdverseEvent[]>([]);
@@ -174,6 +182,8 @@ export function MitEventosPanel({ conflictProvinces, focusedBounds }: MitEventos
         provincias: routeProvincias,
         from: from || undefined,
         to: to || undefined,
+        boletinMes: boletinMes ? Number(boletinMes) : undefined,
+        boletinAnio: boletinAnio ? Number(boletinAnio) : undefined,
         search: debouncedSearch || undefined,
         page: pageToLoad,
       });
@@ -188,25 +198,27 @@ export function MitEventosPanel({ conflictProvinces, focusedBounds }: MitEventos
     } finally {
       if (requestId === requestIdRef.current) setLoading(false);
     }
-  }, [rutaCodigo, tipoEvento, routeProvincias, from, to, debouncedSearch]);
+  }, [rutaCodigo, tipoEvento, routeProvincias, from, to, boletinMes, boletinAnio, debouncedSearch]);
 
   useEffect(() => {
     void load(1, false);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [rutaCodigo, tipoEvento, routeProvincias, from, to, debouncedSearch]);
+  }, [rutaCodigo, tipoEvento, routeProvincias, from, to, boletinMes, boletinAnio, debouncedSearch]);
 
   // Filtra lo YA cargado por contención geográfica (zoom-detalle) — 100%
   // client-side, no dispara peticiones nuevas. Solo cubre lo que ya se trajo
   // del backend, así que "Cargar más" puede revelar más eventos dentro del
   // área enfocada que aún no se han descargado.
   const eventosVisibles = useMemo(() => {
-    if (!useFocused || !focusedBounds) return eventos;
+    let rows = eventos;
+    if (hiddenTipos.size > 0) rows = rows.filter((e) => !hiddenTipos.has(e.tipo_evento));
+    if (!useFocused || !focusedBounds) return rows;
     const dentro = (lat: number | null, lng: number | null) =>
       lat !== null && lng !== null
       && lat <= focusedBounds.north && lat >= focusedBounds.south
       && lng >= focusedBounds.west && lng <= focusedBounds.east;
-    return eventos.filter((e) => dentro(e.inicio_lat, e.inicio_lng) || dentro(e.fin_lat, e.fin_lng));
-  }, [eventos, useFocused, focusedBounds]);
+    return rows.filter((e) => dentro(e.inicio_lat, e.inicio_lng) || dentro(e.fin_lat, e.fin_lng));
+  }, [eventos, useFocused, focusedBounds, hiddenTipos]);
 
   return (
     <div className="flex h-full flex-col bg-background">
@@ -246,6 +258,36 @@ export function MitEventosPanel({ conflictProvinces, focusedBounds }: MitEventos
           )}
         </div>
 
+        {/* Mostrar/ocultar por tipo de evento — afecta esta lista y los tramos
+            dibujados en el mapa. Solo íconos+color (título al pasar el mouse)
+            para no saturar con 11 etiquetas largas; el color/opacidad marca
+            visible vs. oculto sin necesitar texto adicional. */}
+        {onToggleTipo && !!opciones?.tipos_evento.length && (
+          <div className="flex flex-wrap items-center gap-1 mb-2">
+            {opciones.tipos_evento.map(t => {
+              const meta = getTipoMeta(t);
+              const Icon = meta.icon;
+              const visible = !hiddenTipos.has(t);
+              return (
+                <button
+                  key={t}
+                  type="button"
+                  title={visible ? `${t} (clic para ocultar)` : `${t} (oculto — clic para mostrar)`}
+                  onClick={() => onToggleTipo(t)}
+                  className={cn(
+                    'flex size-6 shrink-0 items-center justify-center rounded-full border transition-all',
+                    visible
+                      ? cn(meta.bg, meta.text, 'border-current/30')
+                      : 'border-border/40 text-muted-foreground/30 opacity-50 grayscale',
+                  )}
+                >
+                  <Icon className="size-3" />
+                </button>
+              );
+            })}
+          </div>
+        )}
+
         {/* Ruta / tramo y tipo de evento — mismas cabeceras que la tabla fuente */}
         <div className="flex items-center gap-1.5 mb-2">
           <select value={rutaCodigo} onChange={e => setRutaCodigo(e.target.value)}
@@ -269,6 +311,24 @@ export function MitEventosPanel({ conflictProvinces, focusedBounds }: MitEventos
           <input type="date" value={to} min={from} max={today}
             onChange={e => setTo(e.target.value)}
             className="h-7 flex-1 min-w-0 rounded-md border border-border/50 bg-background px-2 text-[11px]" />
+        </div>
+
+        {/* Boletín (mes/año) — filtro más genérico que la fecha exacta de
+            arriba: no todos los eventos tienen fecha_evento_inicio/fin, pero
+            todos pertenecen a un boletín mensual conocido. */}
+        <div className="flex items-center gap-1.5 mb-2">
+          <select value={boletinMes} onChange={e => setBoletinMes(e.target.value)}
+            className="h-7 flex-1 min-w-0 rounded-md border border-border/50 bg-background px-2 text-[11px] text-foreground">
+            <option value="">Cualquier mes</option>
+            {Array.from({ length: 12 }, (_, i) => i + 1).map(m => (
+              <option key={m} value={m}>{MES_NOMBRE(m)}</option>
+            ))}
+          </select>
+          <select value={boletinAnio} onChange={e => setBoletinAnio(e.target.value)}
+            className="h-7 flex-1 min-w-0 rounded-md border border-border/50 bg-background px-2 text-[11px] text-foreground">
+            <option value="">Cualquier año</option>
+            {opciones?.boletin_anios.map(a => <option key={a} value={a}>{a}</option>)}
+          </select>
         </div>
 
         {/* Búsqueda libre */}

@@ -174,19 +174,30 @@ function ViewportSync({
   useEffect(() => {
     if (!map) return;
 
+    // Un solo gesto de zoom con scroll dispara varios 'idle' seguidos (uno por
+    // cada paso intermedio), y cada uno antes disparaba un re-render completo
+    // del gráfico/alertas — se sentía como lag acumulado durante el zoom. Se
+    // debounce-a 150ms para reportar solo el estado final del gesto.
+    let debounceId: ReturnType<typeof setTimeout> | undefined;
     const listener = map.addListener('idle', () => {
       if (skipNextIdleRef.current) {
         skipNextIdleRef.current = false;
         return;
       }
-      const b = map.getBounds();
-      if (!b) return;
-      const ne = b.getNorthEast();
-      const sw = b.getSouthWest();
-      onViewportBoundsChangedRef.current?.({ north: ne.lat(), south: sw.lat(), east: ne.lng(), west: sw.lng() });
+      if (debounceId) clearTimeout(debounceId);
+      debounceId = setTimeout(() => {
+        const b = map.getBounds();
+        if (!b) return;
+        const ne = b.getNorthEast();
+        const sw = b.getSouthWest();
+        onViewportBoundsChangedRef.current?.({ north: ne.lat(), south: sw.lat(), east: ne.lng(), west: sw.lng() });
+      }, 150);
     });
 
-    return () => window.google.maps.event.removeListener(listener);
+    return () => {
+      if (debounceId) clearTimeout(debounceId);
+      window.google.maps.event.removeListener(listener);
+    };
   }, [map, skipNextIdleRef]);
 
   useEffect(() => {

@@ -164,11 +164,15 @@ interface Props {
   /** Bounds geográficos del rango enfocado — pasa directo al tab MIT para su
    * filtro "solo lo visible" (no tiene noción de "km de la ruta"). */
   focusedGeoBounds?: RawLatLngBounds | null;
+  /** Tipos de evento MIT ocultos (toggle mostrar/ocultar) — controla tanto el
+   * tab MIT como los tramos dibujados en el mapa (estado vive en RoutePlanner). */
+  hiddenMitTipos?: Set<string>;
+  onToggleMitTipo?: (tipo: string) => void;
 }
 
 export function RouteTimeline({
   routeData, onSelectIncident, selectedIncidentId, conflictProvinces, mitConflictProvinces,
-  focusedKmRange, onFocusedKmRangeChange, focusedGeoBounds,
+  focusedKmRange, onFocusedKmRangeChange, focusedGeoBounds, hiddenMitTipos, onToggleMitTipo,
 }: Props) {
   const [open,         setOpen]         = useState(true);
   const [tab,          setTab]          = useState<TimelineTab>('alertas');
@@ -675,10 +679,11 @@ export function RouteTimeline({
                     <Area yAxisId="elev" dataKey="elevacion" type="monotone"
                       stroke="rgba(255,255,255,0.82)" strokeWidth={1.8}
                       fill="url(#tlElevTopoFill)" dot={false} connectNulls
+                      isAnimationActive={false}
                       activeDot={{ r: 4, fill: '#ffffff', stroke: '#ea580c', strokeWidth: 2 }} />
                   )}
                   {showClima && (
-                    <Bar yAxisId="precip" dataKey="mm"
+                    <Bar yAxisId="precip" dataKey="mm" isAnimationActive={false}
                       radius={[2, 2, 0, 0]} maxBarSize={10} fillOpacity={0.6}>
                       {perfilChartDataFull.map((d, i) => (
                         <Cell key={i} fill={d.mm !== undefined ? mmToColor(d.mm) : 'transparent'} />
@@ -731,6 +736,8 @@ export function RouteTimeline({
           <MitEventosPanel
             conflictProvinces={routeData ? (mitConflictProvinces ?? null) : null}
             focusedBounds={routeData ? (focusedGeoBounds ?? null) : null}
+            hiddenTipos={hiddenMitTipos}
+            onToggleTipo={onToggleMitTipo}
           />
         ) : tab === 'ant' ? (
           <AntStatsPanel />

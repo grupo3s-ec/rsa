@@ -32,14 +32,12 @@ import {
   HelpCircle,
   Link2,
   LoaderCircle,
-  Lock,
   Maximize2,
   Navigation,
   PanelLeft,
   Plus,
   Route as RouteIcon,
   Search,
-  ShieldAlert,
   Timer,
   X,
 } from "lucide-react";
@@ -47,13 +45,6 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
-} from "@/components/ui/dialog";
 import { IncidentDetailDialog } from "@/components/incidents/IncidentDetailDialog";
 import { IncidentSidebar } from "@/components/incidents/IncidentSidebar";
 import { MapHelpDialog } from "@/components/map/MapHelpDialog";
@@ -110,10 +101,6 @@ const RouteMap = dynamic(() => import("@/components/map/RouteMap"), {
 
 
 const MAX_WAYPOINTS = 8;
-
-// ─── Modo demo — por ahora el planificador queda fijo a esta única ruta ──────
-const DEMO_MODE      = true;
-const DEMO_ROUTE_URL = "https://maps.app.goo.gl/Ym9Hwza2EqTMAk3RA";
 
 type PickingIndex = number | null;
 type LayoutMode   = "full" | "panel";
@@ -273,12 +260,6 @@ function RoutePlannerContent({
   const [layoutMode,    setLayoutMode]    = useState<LayoutMode>("panel");
   const [plannerCollapsed, setPlannerCollapsed] = useState(false);
 
-  // ─── Modo demo: ruta fija, panel de solo lectura ─────────────────────────
-  const [demoTampered, setDemoTampered] = useState(false);
-  const demoAppliedRef  = useRef(false);
-  const demoPanelRef    = useRef<HTMLDivElement>(null);
-  const demoObserverRef = useRef<MutationObserver | null>(null);
-
   // ─── ECU911 — vías con restricciones ────────────────────────────────────
   const [viaMarkers,       setViaMarkers]       = useState<ViaGeoMarker[]>([]);
   const [viaConflicts,     setViaConflicts]     = useState<ViaGeoMarker[]>([]);
@@ -329,21 +310,31 @@ function RoutePlannerContent({
     })();
   }, [geocoder]);
 
-  // Detectar conflictos con la ruta activa (umbral 25 km)
-  useEffect(() => {
+  // Muestras de alta resolución de la ruta activa (km en escala Haversine,
+  // sin corregir) — única fuente para las conversiones bounds↔km más abajo, y
+  // (declarada aquí arriba) para los filtros de conflictos Vías/MIT que siguen.
+  const routeSamples = useMemo(() => {
     const coords = routes[selectedRouteIdx];
-    if (!coords || coords.length === 0 || viaMarkers.length === 0) {
+    return coords && coords.length > 0 ? subsampleRoute(coords, 200) : [];
+  }, [routes, selectedRouteIdx]);
+
+  // Detectar conflictos con la ruta activa (umbral 25 km) — usa `routeSamples`
+  // (200 puntos, ya submuestreados) en vez de los coords crudos de Directions
+  // (pueden ser miles de puntos): con cientos de marcadores/eventos esto era
+  // un escaneo O(marcadores × miles de puntos) que saturaba el hilo principal
+  // justo después de pintar la ruta, dando la sensación de que tardaba en aparecer.
+  useEffect(() => {
+    if (routeSamples.length === 0 || viaMarkers.length === 0) {
       setViaConflicts([]);
       return;
     }
-    const polyline = coords.map(([lng, lat]) => ({ lat, lng }));
+    const polyline = routeSamples.map((s) => ({ lat: s.point[1], lng: s.point[0] }));
     const conflicts = viaMarkers.filter((m) =>
       pointNearPolyline(m.location, polyline, 25),
     );
     setViaConflicts(conflicts);
     if (conflicts.length > 0) setConflictsOpen(true);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [routes, selectedRouteIdx, viaMarkers]);
+  }, [routeSamples, viaMarkers]);
 
   // ─── MIT/MTOP — histórico de eventos adversos (boletines mensuales) ────────
   const [mitEvents,        setMitEvents]        = useState<MitAdverseEvent[]>([]);
@@ -358,6 +349,22 @@ function RoutePlannerContent({
   const mitConflictProvinces = useMemo(
     () => [...new Set(mitConflicts.map((e) => e.provincia))],
     [mitConflicts],
+  );
+
+  // Toggle mostrar/ocultar tipo de evento MIT — controla qué tramos se dibujan
+  // en el mapa (el panel lateral tiene sus propios botones para esto, pero el
+  // estado vive aquí porque el mapa recibe `mitSegments` desde este componente).
+  const [hiddenMitTipos, setHiddenMitTipos] = useState<Set<string>>(new Set());
+  const toggleMitTipo = useCallback((tipo: string) => {
+    setHiddenMitTipos(prev => {
+      const next = new Set(prev);
+      if (next.has(tipo)) next.delete(tipo); else next.add(tipo);
+      return next;
+    });
+  }, []);
+  const mitSegmentsVisible = useMemo(
+    () => hiddenMitTipos.size === 0 ? mitConflicts : mitConflicts.filter((e) => !hiddenMitTipos.has(e.tipo_evento)),
+    [mitConflicts, hiddenMitTipos],
   );
 
   // Carga el histórico MIT una sola vez — ya viene geocodificado (aproximado)
@@ -401,14 +408,16 @@ function RoutePlannerContent({
   }, []);
 
   // Detectar eventos MIT cuyo tramo geocodificado (inicio o fin) está cerca
-  // de la ruta activa (mismo umbral de 25 km que ECU911).
+  // de la ruta activa (mismo umbral de 25 km que ECU911) — usa `routeSamples`
+  // por la misma razón que el efecto de Vías arriba: este efecto se re-ejecuta
+  // en cada página que llega del histórico MIT, así que escanear miles de
+  // puntos crudos en vez de 200 se multiplicaba por cada página cargada.
   useEffect(() => {
-    const coords = routes[selectedRouteIdx];
-    if (!coords || coords.length === 0 || mitEvents.length === 0) {
+    if (routeSamples.length === 0 || mitEvents.length === 0) {
       setMitConflicts([]);
       return;
     }
-    const polyline = coords.map(([lng, lat]) => ({ lat, lng }));
+    const polyline = routeSamples.map((s) => ({ lat: s.point[1], lng: s.point[0] }));
     const conflicts = mitEvents.filter((e) => {
       const inicio = { lat: e.inicio_lat!, lng: e.inicio_lng! };
       const fin = { lat: e.fin_lat!, lng: e.fin_lng! };
@@ -416,8 +425,7 @@ function RoutePlannerContent({
     });
     setMitConflicts(conflicts);
     if (conflicts.length > 0) setMitConflictsOpen(true);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [routes, selectedRouteIdx, mitEvents]);
+  }, [routeSamples, mitEvents]);
 
   // ─── Zoom-detalle: el viewport del mapa (o el selector del gráfico) enfoca
   // el detalle mostrado en el resto de la UI — como el zoom de una línea de
@@ -427,13 +435,6 @@ function RoutePlannerContent({
   // empujen el uno al otro en un loop cuando uno de los dos originó el cambio.
   const [focusedKmRange, setFocusedKmRangeState] = useState<[number, number] | null>(null);
   const focusDriverRef = useRef<'map' | 'chart' | null>(null);
-
-  // Muestras de alta resolución de la ruta activa (km en escala Haversine,
-  // sin corregir) — única fuente para las conversiones bounds↔km de abajo.
-  const routeSamples = useMemo(() => {
-    const coords = routes[selectedRouteIdx];
-    return coords && coords.length > 0 ? subsampleRoute(coords, 200) : [];
-  }, [routes, selectedRouteIdx]);
 
   // Corrige el km acumulado por Haversine (línea recta) contra el km real de
   // la ruta (distancia de la API de rutas, siempre algo mayor). Multiplicar
@@ -502,9 +503,16 @@ function RoutePlannerContent({
     if (!visible) { setFocusedKmRangeState(null); return; }
     const [fromKm, toKm] = visible;
     const widthReal = (toKm - fromKm) * routeKmScale;
-    setFocusedKmRangeState(
-      widthReal < totalRouteKm * 0.85 ? [fromKm * routeKmScale, toKm * routeKmScale] : null,
-    );
+    const next: [number, number] | null =
+      widthReal < totalRouteKm * 0.85 ? [fromKm * routeKmScale, toKm * routeKmScale] : null;
+    // El mapa dispara un 'idle' por cada micro-ajuste de viewport aunque el
+    // rango visible de la ruta apenas cambie — sin este chequeo, cada uno
+    // fuerza un re-render (y re-animación) completo del gráfico/alertas.
+    setFocusedKmRangeState(prev => {
+      if (prev === next) return prev;
+      if (prev && next && Math.abs(prev[0] - next[0]) < 0.05 && Math.abs(prev[1] - next[1]) < 0.05) return prev;
+      return next;
+    });
   }, [routeSamples, routeKmScale, totalRouteKm]);
 
   // El usuario arrastró el selector del gráfico — enfoca ese rango (en km
@@ -870,46 +878,6 @@ function RoutePlannerContent({
     await handleSearchWith(newWps);
   }
 
-  // ─── Modo demo: carga automática de la ruta fija ─────────────────────────
-
-  useEffect(() => {
-    if (!DEMO_MODE || !geocoder || demoAppliedRef.current) return;
-    demoAppliedRef.current = true;
-    void handlePasteRouteLink(DEMO_ROUTE_URL);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [geocoder]);
-
-  useEffect(() => {
-    if (!DEMO_MODE || searched || !pasteOriginCoords || !pasteDestCoords) return;
-    void handleApplyPaste();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pasteOriginCoords, pasteDestCoords, searched]);
-
-  // Una vez la ruta demo termina de cargar y el panel se asienta, se arma la
-  // vigilancia del DOM — cualquier mutación después de esto solo puede venir
-  // de una manipulación externa (devtools), nunca del propio render de React.
-  // Se re-arma en cada cambio de layout (panel ↔ pantalla completa) o al
-  // colapsar/expandir el aside del planificador, porque ambos desmontan el
-  // nodo vigilado y montan uno nuevo.
-  useEffect(() => {
-    if (!DEMO_MODE || !searched || loading || plannerCollapsed) return;
-    const timer = setTimeout(() => {
-      const el = demoPanelRef.current;
-      if (!el) return;
-      const observer = new MutationObserver(() => {
-        setDemoTampered(true);
-        observer.disconnect();
-      });
-      observer.observe(el, { childList: true, subtree: true, attributes: true, characterData: true });
-      demoObserverRef.current = observer;
-    }, 800);
-    return () => {
-      clearTimeout(timer);
-      demoObserverRef.current?.disconnect();
-      demoObserverRef.current = null;
-    };
-  }, [searched, loading, layoutMode, plannerCollapsed]);
-
   // ─── Atajos de teclado ────────────────────────────────────────────────────
 
   const kbHandlerRef = useRef<((e: KeyboardEvent) => void) | null>(null);
@@ -923,7 +891,7 @@ function RoutePlannerContent({
 
     switch (event.key) {
       case "Enter":
-        if (!DEMO_MODE && canSearch && !detailOpen && !helpOpen) {
+        if (canSearch && !detailOpen && !helpOpen) {
           event.preventDefault();
           void handleSearch();
         }
@@ -1012,16 +980,9 @@ function RoutePlannerContent({
 
   // ─── Tabs de modo (se renderizan fuera del formulario, bajo el header) ───────
 
-  const addressTabs = DEMO_MODE ? (
-    <div className="flex items-center gap-1.5 border-b border-border/50 px-3 py-2">
-      <span className="flex items-center gap-1 rounded-full bg-amber-500/15 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-600 dark:text-amber-400">
-        <Lock className="size-2.5" />
-        Demo
-      </span>
-    </div>
-  ) : (
+  const addressTabs = (
     <div className="flex border-b border-border/50">
-      {(["url", "buscar"] as const).map((tab) => {
+      {(["url", "buscar", "coordenadas"] as const).map((tab) => {
         const labels   = { url: "URL", buscar: "Buscar", coordenadas: "Coords" } as const;
         const tabIcons = {
           url:          <Link2      className="size-3" />,
@@ -1048,135 +1009,9 @@ function RoutePlannerContent({
     </div>
   );
 
-  // ─── Formulario de planificación (modo demo: solo lectura, ruta fija) ────
-
-  function renderDemoForm(compact = false) {
-    return (
-      <div className={cn("space-y-3", compact && "text-sm")}>
-        {/* Todo lo estático (nunca cambia tras cargar) vive dentro de este contenedor
-            vigilado por el detector de manipulación — afuera va todo lo que sí puede
-            actualizarse legítimamente: el contador de incidentes (ej. al reportar uno
-            nuevo) y los conteos de vías/MIT visibles, que cambian con el zoom-detalle
-            (foco de mapa/gráfico) sin que eso sea una manipulación externa. */}
-        <div ref={demoPanelRef} className="space-y-3">
-
-          <div className="space-y-1">
-            {waypoints.map((_, idx) => {
-              const isFirst = idx === 0;
-              const isLast  = idx === waypoints.length - 1;
-              const label   = isFirst ? "Punto de salida" : isLast ? "Destino" : `Parada ${idx}`;
-              return (
-                <div key={idx} className="flex items-stretch gap-2">
-                  <div className="flex w-6 shrink-0 flex-col items-center">
-                    <div className={cn("flex size-6 shrink-0 items-center justify-center", isLast && "mt-0.5")}>
-                      {isFirst ? (
-                        <span className="flex size-4 items-center justify-center rounded-full border-2 border-emerald-500">
-                          <span className="size-1.5 rounded-full bg-emerald-500" />
-                        </span>
-                      ) : isLast ? (
-                        <span className="flex size-6 items-center justify-center rounded-full bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900">
-                          <Flag className="size-3" />
-                        </span>
-                      ) : (
-                        <span className="size-1.5 rounded-full bg-muted-foreground/40" />
-                      )}
-                    </div>
-                    {!isLast && <div className="w-px flex-1 bg-border/50 my-0.5" />}
-                  </div>
-                  <div className="flex min-w-0 flex-1 items-center pb-1">
-                    <p className="min-w-0 flex-1 truncate rounded-lg bg-muted/40 px-2.5 py-2 text-xs text-muted-foreground">
-                      {addresses[idx] ?? label}
-                    </p>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-
-          <Separator />
-
-          {loading || (!searched && !error) ? (
-            <p className="flex items-center gap-2 text-xs text-muted-foreground">
-              <LoaderCircle className="size-3.5 animate-spin" />
-              Cargando ruta de demostración…
-            </p>
-          ) : error ? (
-            <p className="text-xs text-destructive">{error}</p>
-          ) : routeInfo ? (
-            <div className="flex items-center gap-4 text-sm">
-              <span className="flex items-center gap-1.5 font-semibold">
-                <Timer className="size-4 text-primary" />
-                {formatDuration(routeInfo.durationSeconds)}
-              </span>
-              <span className="flex items-center gap-1.5 text-muted-foreground">
-                <RouteIcon className="size-4" />
-                {formatDistance(routeInfo.distanceMeters)}
-              </span>
-            </div>
-          ) : null}
-
-        </div>
-
-        {viaConflictsVisible.length > 0 ? (
-          <div className="rounded-lg border border-orange-500/40 bg-orange-50/60 p-2.5 dark:bg-orange-950/30">
-            <p className="mb-1.5 flex items-center gap-2 text-xs font-semibold text-orange-700 dark:text-orange-400">
-              <AlertTriangle className="size-4 shrink-0 text-orange-500" />
-              {viaConflictsVisible.length} vía{viaConflictsVisible.length !== 1 ? "s" : ""} con restricción
-              {focusedKmRange ? ' en el tramo enfocado' : ' en la ruta'}
-              {focusedKmRange && viaConflictsVisible.length !== viaConflicts.length
-                ? ` (${viaConflicts.length} en toda la ruta)` : ''}
-            </p>
-            <ul className="max-h-48 space-y-1.5 overflow-y-auto">
-              {viaConflictsVisible.map((m) => (
-                <li key={m.via.id} className="text-[11px] text-muted-foreground">
-                  <span className="font-medium text-foreground">{m.via.descripcion}</span>
-                  {" · "}{m.via.EstadoActual.nombre}
-                </li>
-              ))}
-            </ul>
-          </div>
-        ) : null}
-
-        {mitConflictsVisible.length > 0 ? (
-          <div className="rounded-lg border border-indigo-500/40 bg-indigo-50/60 p-2.5 dark:bg-indigo-950/30">
-            <p className="mb-1.5 flex items-center gap-2 text-xs font-semibold text-indigo-700 dark:text-indigo-400">
-              <AlertTriangle className="size-4 shrink-0 text-indigo-500" />
-              {mitConflictsVisible.length} evento{mitConflictsVisible.length !== 1 ? "s" : ""} del histórico MIT
-              {focusedKmRange ? ' en el tramo enfocado' : ' en la ruta'}
-              {focusedKmRange && mitConflictsVisible.length !== mitConflicts.length
-                ? ` (${mitConflicts.length} en toda la ruta)` : ''}
-            </p>
-            <ul className="max-h-48 space-y-1.5 overflow-y-auto">
-              {mitConflictsVisible.map((e) => (
-                <li key={e.id} className="text-[11px] text-muted-foreground">
-                  <span className="font-medium text-foreground">{e.tramo}</span>
-                  {" · "}{e.tipo_evento}
-                </li>
-              ))}
-            </ul>
-          </div>
-        ) : null}
-
-        {searched && !loading && !error ? (
-          <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-            <Bell className="size-4" />
-            <span className="tabular-nums">{incidents.length}</span>
-            {criticalCount > 0 ? (
-              <span
-                className="size-2 rounded-full bg-red-500 shadow-[0_0_6px_rgba(239,68,68,0.8)]"
-                aria-label={`${criticalCount} alertas críticas`}
-              />
-            ) : null}
-          </div>
-        ) : null}
-      </div>
-    );
-  }
-
   // ─── Formulario de planificación ──────────────────────────────────────────
 
   function renderPlannerForm(compact = false) {
-    if (DEMO_MODE) return renderDemoForm(compact);
 
     const isUrlMode   = addressMode === "url";
     const canPasteUrl = !!(pasteOriginCoords && pasteDestCoords) && !loading;
@@ -1503,21 +1338,6 @@ function RoutePlannerContent({
         }}
       />
       <MapHelpDialog open={helpOpen} onOpenChange={setHelpOpen} />
-      {DEMO_MODE && (
-        <Dialog open={demoTampered} onOpenChange={() => {}}>
-          <DialogContent showCloseButton={false} className="sm:max-w-sm">
-            <DialogHeader>
-              <div className="flex items-center gap-2">
-                <ShieldAlert className="size-5 text-amber-500" />
-                <DialogTitle>Versión de demostración</DialogTitle>
-              </div>
-              <DialogDescription>
-                Para utilizar todos los beneficios de RSA debe adquirir la licencia de uso.
-              </DialogDescription>
-            </DialogHeader>
-          </DialogContent>
-        </Dialog>
-      )}
     </>
   );
 
@@ -1576,7 +1396,7 @@ function RoutePlannerContent({
                 viaMarkers={searched && routes.length > 0 ? viaConflicts : viaMarkers}
                 onSelectVia={(m) => { setSelectedVia(m); setSelectedMit(null); }}
                 selectedViaId={selectedVia?.via.id ?? null}
-                mitSegments={mitConflicts}
+                mitSegments={mitSegmentsVisible}
                 onSelectMitEvent={(e) => { setSelectedMit(e); setSelectedVia(null); }}
                 selectedMitEventId={selectedMit?.id ?? null}
                 onViewportBoundsChanged={handleViewportBoundsChanged}
@@ -1655,6 +1475,8 @@ function RoutePlannerContent({
           focusedKmRange={focusedKmRange}
           onFocusedKmRangeChange={handleChartRangeChanged}
           focusedGeoBounds={focusedGeoBounds}
+          hiddenMitTipos={hiddenMitTipos}
+          onToggleMitTipo={toggleMitTipo}
         />
 
         {sharedDialogs}
@@ -1679,7 +1501,7 @@ function RoutePlannerContent({
           viaMarkers={searched && routes.length > 0 ? viaConflicts : viaMarkers}
           onSelectVia={(m) => { setSelectedVia(m); setSelectedMit(null); }}
           selectedViaId={selectedVia?.via.id ?? null}
-          mitSegments={mitConflicts}
+          mitSegments={mitSegmentsVisible}
           onSelectMitEvent={(e) => { setSelectedMit(e); setSelectedVia(null); }}
           selectedMitEventId={selectedMit?.id ?? null}
           onViewportBoundsChanged={handleViewportBoundsChanged}

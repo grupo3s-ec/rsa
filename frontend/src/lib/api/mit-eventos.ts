@@ -50,12 +50,18 @@ export interface MitEventosFilters {
   to?: string;
   search?: string;
   page?: number;
+  /** Filtro genérico por boletín (mes 1-12 / año) — a diferencia de from/to
+   * (fecha exacta, puede no conocerse), todo evento tiene boletín asignado. */
+  boletinMes?: number;
+  boletinAnio?: number;
 }
 
 export interface MitEventosOpciones {
   tipos_evento: string[];
   rutas: string[];
   provincias: string[];
+  /** Años con al menos un boletín cargado, orden descendente. */
+  boletin_anios: number[];
 }
 
 export function getMitEventos(filters: MitEventosFilters = {}): Promise<MitEventosPage> {
@@ -68,6 +74,8 @@ export function getMitEventos(filters: MitEventosFilters = {}): Promise<MitEvent
       to: filters.to,
       search: filters.search,
       page: filters.page,
+      boletin_mes: filters.boletinMes,
+      boletin_anio: filters.boletinAnio,
     },
   });
 }
