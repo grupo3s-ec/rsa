@@ -14,7 +14,7 @@ import {
 } from 'recharts';
 import {
   AlertTriangle, Bell, ChevronLeft, ChevronRight, LoaderCircle,
-  Mountain, CloudRain, Route, History, Flame, BarChart2, ShieldCheck, Landmark, ZoomOut,
+  Mountain, CloudRain, Route, History, Flame, BarChart2, ShieldCheck, ShieldAlert, Landmark, ZoomOut,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { subsampleRoute, haversineKm, type RawLatLngBounds } from '@/lib/geo';
@@ -31,7 +31,14 @@ import type { Incident } from '@/types/incident';
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
 
-type TimelineTab = 'alertas' | 'perfil' | 'cierres' | 'vias' | 'mit' | 'ant' | 'riesgo';
+// 7 pestañas → 4: Cierres/Vías/MIT comparten forma (lista + filtros por
+// provincia) y se agrupan bajo "Riesgos en ruta"; ANT/Evaluación de Riesgo
+// son ambos reportes externos embebidos (iframe) y se agrupan bajo
+// "Reportes". Cada grupo mantiene un sub-switcher de pills — nada queda más
+// de 1 clic más lejos que antes, solo se ordena la navegación de primer nivel.
+type TimelineTab = 'alertas' | 'perfil' | 'riesgos' | 'reportes';
+type RiesgosSubTab = 'cierres' | 'vias' | 'mit';
+type ReportesSubTab = 'ant' | 'riesgo';
 interface ElevPoint { km: number; elevacion: number; }
 interface GoogleElevationResponse {
   results: Array<{ elevation: number }>;
@@ -176,6 +183,8 @@ export function RouteTimeline({
 }: Props) {
   const [open,         setOpen]         = useState(true);
   const [tab,          setTab]          = useState<TimelineTab>('alertas');
+  const [riesgosSubTab,  setRiesgosSubTab]  = useState<RiesgosSubTab>('cierres');
+  const [reportesSubTab, setReportesSubTab] = useState<ReportesSubTab>('ant');
   const [showAltimetria, setShowAltimetria] = useState(true);
   const [showClima,      setShowClima]      = useState(true);
   const [showHistorial,setShowHistorial]= useState(false);
@@ -341,30 +350,15 @@ export function RouteTimeline({
                 tab === 'perfil' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground')}>
               <Mountain className="size-3" /> Altimetría · Clima
             </button>
-            <button type="button" onClick={() => setTab('cierres')} title="Cierres Viales"
+            <button type="button" onClick={() => setTab('riesgos')} title="Cierres · Vías ECU911 · Histórico MIT"
               className={cn('flex items-center gap-1 rounded-md px-2 py-0.5 text-[11px] font-medium transition-colors',
-                tab === 'cierres' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground')}>
-              <Flame className="size-3" /> Cierres
+                tab === 'riesgos' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground')}>
+              <ShieldAlert className="size-3" /> Riesgos en ruta
             </button>
-            <button type="button" onClick={() => setTab('vias')} title="Estado Vías ECU911"
+            <button type="button" onClick={() => setTab('reportes')} title="ANT · Evaluación de Riesgo"
               className={cn('flex items-center gap-1 rounded-md px-2 py-0.5 text-[11px] font-medium transition-colors',
-                tab === 'vias' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground')}>
-              <Route className="size-3" /> Vías
-            </button>
-            <button type="button" onClick={() => setTab('mit')} title="Histórico MIT · Eventos Adversos"
-              className={cn('flex items-center gap-1 rounded-md px-2 py-0.5 text-[11px] font-medium transition-colors',
-                tab === 'mit' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground')}>
-              <Landmark className="size-3" /> MIT
-            </button>
-            <button type="button" onClick={() => setTab('ant')} title="ANT"
-              className={cn('flex items-center gap-1 rounded-md px-2 py-0.5 text-[11px] font-medium transition-colors',
-                tab === 'ant' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground')}>
-              <BarChart2 className="size-3" /> ANT
-            </button>
-            <button type="button" onClick={() => setTab('riesgo')} title="Evaluación de Riesgo"
-              className={cn('flex items-center gap-1 rounded-md px-2 py-0.5 text-[11px] font-medium transition-colors',
-                tab === 'riesgo' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground')}>
-              <ShieldCheck className="size-3" /> Riesgo
+                tab === 'reportes' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground')}>
+              <BarChart2 className="size-3" /> Reportes
             </button>
           </div>
 
@@ -728,21 +722,63 @@ export function RouteTimeline({
               </div>
             </div>
           )
-        ) : tab === 'cierres' ? (
-          <CalorPanel filterProvinces={routeData ? (conflictProvinces ?? null) : null} />
-        ) : tab === 'vias' ? (
-          <ViaEstadoPanel conflictProvinces={routeData ? (conflictProvinces ?? null) : null} />
-        ) : tab === 'mit' ? (
-          <MitEventosPanel
-            conflictProvinces={routeData ? (mitConflictProvinces ?? null) : null}
-            focusedBounds={routeData ? (focusedGeoBounds ?? null) : null}
-            hiddenTipos={hiddenMitTipos}
-            onToggleTipo={onToggleMitTipo}
-          />
-        ) : tab === 'ant' ? (
-          <AntStatsPanel />
+        ) : tab === 'riesgos' ? (
+          <div className="flex h-full flex-col">
+            {/* Sub-switcher — Cierres/Vías/MIT comparten forma (lista +
+                filtros), agrupadas aquí en vez de ser 3 pestañas de primer
+                nivel; mismos íconos que tenían como pestaña propia. */}
+            <div className="flex shrink-0 items-center gap-0.5 border-b border-border/40 p-1.5">
+              <button type="button" onClick={() => setRiesgosSubTab('cierres')} title="Cierres Viales"
+                className={cn('flex flex-1 items-center justify-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium transition-colors',
+                  riesgosSubTab === 'cierres' ? 'bg-muted text-foreground' : 'text-muted-foreground hover:text-foreground')}>
+                <Flame className="size-3" /> Cierres
+              </button>
+              <button type="button" onClick={() => setRiesgosSubTab('vias')} title="Estado Vías ECU911"
+                className={cn('flex flex-1 items-center justify-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium transition-colors',
+                  riesgosSubTab === 'vias' ? 'bg-muted text-foreground' : 'text-muted-foreground hover:text-foreground')}>
+                <Route className="size-3" /> Vías
+              </button>
+              <button type="button" onClick={() => setRiesgosSubTab('mit')} title="Histórico MIT · Eventos Adversos"
+                className={cn('flex flex-1 items-center justify-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium transition-colors',
+                  riesgosSubTab === 'mit' ? 'bg-muted text-foreground' : 'text-muted-foreground hover:text-foreground')}>
+                <Landmark className="size-3" /> MIT
+              </button>
+            </div>
+            <div className="min-h-0 flex-1">
+              {riesgosSubTab === 'cierres' ? (
+                <CalorPanel filterProvinces={routeData ? (conflictProvinces ?? null) : null} />
+              ) : riesgosSubTab === 'vias' ? (
+                <ViaEstadoPanel conflictProvinces={routeData ? (conflictProvinces ?? null) : null} />
+              ) : (
+                <MitEventosPanel
+                  conflictProvinces={routeData ? (mitConflictProvinces ?? null) : null}
+                  focusedBounds={routeData ? (focusedGeoBounds ?? null) : null}
+                  hiddenTipos={hiddenMitTipos}
+                  onToggleTipo={onToggleMitTipo}
+                />
+              )}
+            </div>
+          </div>
         ) : (
-          <EvaluacionRiesgoPanel />
+          <div className="flex h-full flex-col">
+            {/* Sub-switcher — ANT y Evaluación de Riesgo son ambos reportes
+                externos embebidos (iframe), sin datos propios de la ruta. */}
+            <div className="flex shrink-0 items-center gap-0.5 border-b border-border/40 p-1.5">
+              <button type="button" onClick={() => setReportesSubTab('ant')} title="ANT"
+                className={cn('flex flex-1 items-center justify-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium transition-colors',
+                  reportesSubTab === 'ant' ? 'bg-muted text-foreground' : 'text-muted-foreground hover:text-foreground')}>
+                <BarChart2 className="size-3" /> ANT
+              </button>
+              <button type="button" onClick={() => setReportesSubTab('riesgo')} title="Evaluación de Riesgo"
+                className={cn('flex flex-1 items-center justify-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium transition-colors',
+                  reportesSubTab === 'riesgo' ? 'bg-muted text-foreground' : 'text-muted-foreground hover:text-foreground')}>
+                <ShieldCheck className="size-3" /> Riesgo
+              </button>
+            </div>
+            <div className="min-h-0 flex-1">
+              {reportesSubTab === 'ant' ? <AntStatsPanel /> : <EvaluacionRiesgoPanel />}
+            </div>
+          </div>
         )}
       </div>
     </div>
