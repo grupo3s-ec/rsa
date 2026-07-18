@@ -13,10 +13,11 @@ import { Button } from '@/components/ui/button';
 const ANT_URL = 'https://app.powerbi.com/view?r=eyJrIjoiMTJjMjUyZjQtNDMzZS00NmViLThiY2UtZDQwMDk2ZjYwMTFhIiwidCI6IjMwMGM3OTYyLTRmMzYtNDA5ZC04NDc0LTc2ZjRkNTBkZDI5ZiIsImMiOjR9&pageName=ReportSection97a60f7c854f06ea5bb5';
 
 /** El reporte Power BI es ilegible en el ancho angosto del panel lateral
- * (~300px) — en vez de forzar el iframe ahí, se muestra una vista previa
- * compacta con un botón que abre el reporte completo en un diálogo grande. */
+ * (~300px) — se abre directo en un diálogo grande apenas se entra a este
+ * tab, sin paso intermedio. El panel de atrás solo sirve para reabrirlo si
+ * el usuario lo cierra. */
 export function AntStatsPanel() {
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(true);
 
   return (
     <div className="flex h-full flex-col bg-background">
@@ -55,15 +56,19 @@ export function AntStatsPanel() {
       </div>
 
       <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent className="flex h-[85vh] flex-col sm:max-w-5xl">
+        {/* Sin altura fija (antes h-[85vh] dejaba mucho espacio en blanco
+            debajo del reporte, que no se estira para llenar el contenedor) —
+            el iframe vive en una caja con el aspecto real del reporte, y el
+            diálogo se ajusta a eso en vez de forzar una caja más grande. */}
+        <DialogContent className="sm:max-w-5xl">
           <DialogHeader>
             <DialogTitle>Siniestralidad Vial · ANT Ecuador</DialogTitle>
           </DialogHeader>
-          <div className="min-h-0 flex-1">
+          <div className="aspect-video w-full overflow-hidden rounded-lg">
             <iframe
               src={ANT_URL}
               title="Estadísticas de Siniestralidad Vial — ANT Ecuador"
-              className="w-full h-full rounded-lg border-0"
+              className="w-full h-full border-0"
               allowFullScreen
             />
           </div>
