@@ -3,10 +3,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   AlertTriangle, ChevronDown, ChevronUp, Construction, Droplets,
-  Gem, Landmark, Layers, Link2Off, Mountain, RefreshCw, Route,
+  Gem, Landmark, Layers, Link2Off, Mountain, Route,
   TreePine, TrendingDown, Users, Waves, HelpCircle, ZoomIn,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { Skeleton } from '@/components/ui/skeleton';
 import { getMitEventos, getMitEventosOpciones, type MitAdverseEvent, type MitEventosOpciones } from '@/lib/api/mit-eventos';
 import type { RawLatLngBounds } from '@/lib/geo';
 
@@ -352,9 +353,17 @@ export function MitEventosPanel({ conflictProvinces, focusedBounds, hiddenTipos 
       {/* Lista */}
       <div className="flex-1 min-h-0 overflow-y-auto p-4 space-y-2">
         {loading && eventos.length === 0 ? (
-          <div className="flex flex-col items-center justify-center h-32 gap-2 text-muted-foreground">
-            <RefreshCw className="size-5 animate-spin" />
-            <span className="text-xs">Consultando histórico…</span>
+          <div className="space-y-2">
+            {[1, 2, 3].map(i => (
+              <div key={i} className="space-y-2 rounded-xl border border-border/40 p-3.5">
+                <div className="flex items-start justify-between gap-2">
+                  <Skeleton className="h-4 w-3/5" />
+                  <Skeleton className="h-4 w-20 shrink-0 rounded-full" />
+                </div>
+                <Skeleton className="h-3 w-2/5" />
+                <Skeleton className="h-3 w-full" />
+              </div>
+            ))}
           </div>
         ) : error ? (
           <div className="flex flex-col items-center justify-center h-32 gap-2 text-muted-foreground">

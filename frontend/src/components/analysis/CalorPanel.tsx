@@ -1,8 +1,9 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { Flame, LoaderCircle, RefreshCw } from 'lucide-react';
+import { Flame, RefreshCw } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { Skeleton } from '@/components/ui/skeleton';
 import type { Ecu911Response, Ecu911Via } from '@/types/ecu911';
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
@@ -164,11 +165,20 @@ export function CalorPanel({ filterProvinces }: CalorPanelProps) {
         </div>
       </div>
 
-      {/* Estado carga / error */}
+      {/* Estado carga / error — placeholders con la forma real de la card de
+          provincia (antes un spinner genérico), misma sensación de progreso
+          ya usada en el dashboard/detalle de incidente. */}
       {loading && provincias.length === 0 ? (
-        <div className="flex flex-1 items-center justify-center gap-2 text-sm text-muted-foreground">
-          <LoaderCircle className="size-4 animate-spin" />
-          Cargando datos ECU911…
+        <div className="flex flex-col gap-2">
+          {[1, 2, 3].map(i => (
+            <div key={i} className="space-y-2.5 rounded-xl border border-border/40 p-4">
+              <div className="flex items-center justify-between gap-2">
+                <Skeleton className="h-4 w-24" />
+                <Skeleton className="h-4 w-14" />
+              </div>
+              <Skeleton className="h-1.5 w-full rounded-full" />
+            </div>
+          ))}
         </div>
       ) : error ? (
         <div className="rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">

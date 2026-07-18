@@ -17,6 +17,7 @@ import {
   Mountain, CloudRain, Route, History, Flame, BarChart2, ShieldCheck, ShieldAlert, Landmark, ZoomOut,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { Skeleton } from '@/components/ui/skeleton';
 import { subsampleRoute, haversineKm, type RawLatLngBounds } from '@/lib/geo';
 import { conditionMeta, formatDistance, formatDuration, severityMeta } from '@/lib/incidents/format';
 import { CONDICION_META, getPerfilClimatico, mmToCondicion, mmToColor, MES_NOMBRE } from '@/lib/inamhi';
@@ -607,8 +608,9 @@ export function RouteTimeline({
               <p className="text-sm">Activa Altimetría o Clima para ver el gráfico</p>
             </div>
           ) : (showAltimetria && elevPoints.length === 0 && loading) ? (
-            <div className="flex h-full items-center justify-center gap-3 text-muted-foreground/60">
-              <LoaderCircle className="size-4 animate-spin" />
+            <div className="flex h-full flex-col gap-1.5 px-2 pb-1 pt-2">
+              <Skeleton className="h-6 shrink-0 rounded-lg" />
+              <Skeleton className="min-h-0 flex-1 rounded-lg" />
             </div>
           ) : (
             <div className="flex h-full flex-col px-2 pb-1 pt-2 gap-1.5">

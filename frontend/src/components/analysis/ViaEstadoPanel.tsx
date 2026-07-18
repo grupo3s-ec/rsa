@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { RefreshCw, Route, AlertTriangle, ChevronDown, ChevronUp, History, ArrowRight } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { Skeleton } from '@/components/ui/skeleton';
 import { relativeTime } from '@/lib/ui/relative-time';
 import { getViaHistory, type ViaStatusEvent } from '@/lib/api/vias';
 import type { Ecu911Via, Ecu911Response } from '@/types/ecu911';
@@ -46,6 +47,22 @@ type FilterEstado = 'todas' | 592 | 594 | 595;
 
 function getEstadoMeta(id: number) {
   return ESTADO_META[id] ?? DEFAULT_ESTADO_META;
+}
+
+/** Placeholder con la forma real de una `ViaCard` — reemplaza el spinner
+ * genérico en la carga inicial, misma sensación de progreso que el
+ * dashboard/detalle de incidente ya usan. */
+function ViaCardSkeleton() {
+  return (
+    <div className="space-y-2 rounded-xl border border-border/40 p-3.5">
+      <div className="flex items-start justify-between gap-2">
+        <Skeleton className="h-4 w-3/5" />
+        <Skeleton className="h-4 w-14 shrink-0 rounded-full" />
+      </div>
+      <Skeleton className="h-3 w-2/5" />
+      <Skeleton className="h-3 w-full" />
+    </div>
+  );
 }
 
 function ViaCard({ via }: { via: Ecu911Via }) {
@@ -378,9 +395,8 @@ export function ViaEstadoPanel({ conflictProvinces }: ViaEstadoPanelProps = {}) 
       {mode === 'actual' ? (
         <div className="flex-1 min-h-0 overflow-y-auto p-4 space-y-2">
           {loading && vias.length === 0 ? (
-            <div className="flex flex-col items-center justify-center h-32 gap-2 text-muted-foreground">
-              <RefreshCw className="size-5 animate-spin" />
-              <span className="text-xs">Consultando ECU911…</span>
+            <div className="space-y-2">
+              {[1, 2, 3].map(i => <ViaCardSkeleton key={i} />)}
             </div>
           ) : error ? (
             <div className="flex flex-col items-center justify-center h-32 gap-2 text-muted-foreground">
@@ -405,9 +421,8 @@ export function ViaEstadoPanel({ conflictProvinces }: ViaEstadoPanelProps = {}) 
       ) : (
         <div className="flex-1 min-h-0 overflow-y-auto p-4 space-y-2">
           {histLoading && histEvents.length === 0 ? (
-            <div className="flex flex-col items-center justify-center h-32 gap-2 text-muted-foreground">
-              <RefreshCw className="size-5 animate-spin" />
-              <span className="text-xs">Consultando histórico…</span>
+            <div className="space-y-2">
+              {[1, 2, 3].map(i => <ViaCardSkeleton key={i} />)}
             </div>
           ) : histError ? (
             <div className="flex flex-col items-center justify-center h-32 gap-2 text-muted-foreground">
