@@ -276,7 +276,7 @@ export function MitEventosPanel({ conflictProvinces, focusedBounds, hiddenTipos 
                   title={visible ? `${t} (clic para ocultar)` : `${t} (oculto — clic para mostrar)`}
                   onClick={() => onToggleTipo(t)}
                   className={cn(
-                    'flex size-6 shrink-0 items-center justify-center rounded-full border transition-all',
+                    'flex size-6 shrink-0 items-center justify-center rounded-full border transition-all hover:scale-110 active:scale-95',
                     visible
                       ? cn(meta.bg, meta.text, 'border-current/30')
                       : 'border-border/40 text-muted-foreground/30 opacity-50 grayscale',

@@ -1021,7 +1021,7 @@ function RoutePlannerContent({
             type="button"
             onClick={() => setAddressMode(tab)}
             className={cn(
-              "flex flex-1 items-center justify-center gap-1.5 py-2.5 text-[11px] font-medium transition-colors",
+              "flex flex-1 items-center justify-center gap-1.5 py-2.5 text-[11px] font-medium transition-all hover:scale-[1.02] active:scale-[0.98]",
               addressMode === tab
                 ? "-mb-px border-b-2 border-[var(--brand-navy)] text-foreground dark:border-[var(--brand-cyan)]"
                 : "text-muted-foreground hover:text-foreground",
@@ -1205,7 +1205,7 @@ function RoutePlannerContent({
                     type="button"
                     onClick={() => handleSelectRoute(idx)}
                     className={cn(
-                      "flex flex-1 items-center justify-center gap-1 rounded-lg border py-1.5 text-xs font-medium transition-colors",
+                      "flex flex-1 items-center justify-center gap-1 rounded-lg border py-1.5 text-xs font-medium transition-all hover:scale-[1.02] active:scale-[0.98]",
                       idx === selectedRouteIdx
                         ? "border-primary/40 bg-primary/10 text-primary"
                         : "border-border/60 text-muted-foreground hover:bg-muted/60",

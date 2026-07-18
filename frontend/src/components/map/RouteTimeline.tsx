@@ -336,7 +336,7 @@ export function RouteTimeline({
           {/* Tabs */}
           <div className="flex flex-wrap items-center gap-0.5 rounded-lg border border-border/50 bg-muted/40 p-0.5">
             <button type="button" onClick={() => setTab('alertas')}
-              className={cn('relative flex items-center gap-1 rounded-md px-2 py-0.5 text-[11px] font-medium transition-colors',
+              className={cn('relative flex items-center gap-1 rounded-md px-2 py-0.5 text-[11px] font-medium transition-all hover:scale-[1.03] active:scale-[0.97]',
                 tab === 'alertas' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground')}>
               <Bell className="size-3" /> Alertas
               {(routeData?.incidents.length ?? 0) > 0 && (
@@ -347,17 +347,17 @@ export function RouteTimeline({
               )}
             </button>
             <button type="button" onClick={() => setTab('perfil')}
-              className={cn('flex items-center gap-1 rounded-md px-2 py-0.5 text-[11px] font-medium transition-colors',
+              className={cn('flex items-center gap-1 rounded-md px-2 py-0.5 text-[11px] font-medium transition-all hover:scale-[1.03] active:scale-[0.97]',
                 tab === 'perfil' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground')}>
               <Mountain className="size-3" /> Altimetría · Clima
             </button>
             <button type="button" onClick={() => setTab('riesgos')} title="Cierres · Vías ECU911 · Histórico MIT"
-              className={cn('flex items-center gap-1 rounded-md px-2 py-0.5 text-[11px] font-medium transition-colors',
+              className={cn('flex items-center gap-1 rounded-md px-2 py-0.5 text-[11px] font-medium transition-all hover:scale-[1.03] active:scale-[0.97]',
                 tab === 'riesgos' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground')}>
               <ShieldAlert className="size-3" /> Riesgos en ruta
             </button>
             <button type="button" onClick={() => setTab('reportes')} title="ANT · Evaluación de Riesgo"
-              className={cn('flex items-center gap-1 rounded-md px-2 py-0.5 text-[11px] font-medium transition-colors',
+              className={cn('flex items-center gap-1 rounded-md px-2 py-0.5 text-[11px] font-medium transition-all hover:scale-[1.03] active:scale-[0.97]',
                 tab === 'reportes' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground')}>
               <BarChart2 className="size-3" /> Reportes
             </button>
@@ -731,17 +731,17 @@ export function RouteTimeline({
                 nivel; mismos íconos que tenían como pestaña propia. */}
             <div className="flex shrink-0 items-center gap-0.5 border-b border-border/40 p-1.5">
               <button type="button" onClick={() => setRiesgosSubTab('cierres')} title="Cierres Viales"
-                className={cn('flex flex-1 items-center justify-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium transition-colors',
+                className={cn('flex flex-1 items-center justify-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium transition-all hover:scale-[1.02] active:scale-[0.98]',
                   riesgosSubTab === 'cierres' ? 'bg-muted text-foreground' : 'text-muted-foreground hover:text-foreground')}>
                 <Flame className="size-3" /> Cierres
               </button>
               <button type="button" onClick={() => setRiesgosSubTab('vias')} title="Estado Vías ECU911"
-                className={cn('flex flex-1 items-center justify-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium transition-colors',
+                className={cn('flex flex-1 items-center justify-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium transition-all hover:scale-[1.02] active:scale-[0.98]',
                   riesgosSubTab === 'vias' ? 'bg-muted text-foreground' : 'text-muted-foreground hover:text-foreground')}>
                 <Route className="size-3" /> Vías
               </button>
               <button type="button" onClick={() => setRiesgosSubTab('mit')} title="Histórico MIT · Eventos Adversos"
-                className={cn('flex flex-1 items-center justify-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium transition-colors',
+                className={cn('flex flex-1 items-center justify-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium transition-all hover:scale-[1.02] active:scale-[0.98]',
                   riesgosSubTab === 'mit' ? 'bg-muted text-foreground' : 'text-muted-foreground hover:text-foreground')}>
                 <Landmark className="size-3" /> MIT
               </button>
@@ -767,12 +767,12 @@ export function RouteTimeline({
                 externos embebidos (iframe), sin datos propios de la ruta. */}
             <div className="flex shrink-0 items-center gap-0.5 border-b border-border/40 p-1.5">
               <button type="button" onClick={() => setReportesSubTab('ant')} title="ANT"
-                className={cn('flex flex-1 items-center justify-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium transition-colors',
+                className={cn('flex flex-1 items-center justify-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium transition-all hover:scale-[1.02] active:scale-[0.98]',
                   reportesSubTab === 'ant' ? 'bg-muted text-foreground' : 'text-muted-foreground hover:text-foreground')}>
                 <BarChart2 className="size-3" /> ANT
               </button>
               <button type="button" onClick={() => setReportesSubTab('riesgo')} title="Evaluación de Riesgo"
-                className={cn('flex flex-1 items-center justify-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium transition-colors',
+                className={cn('flex flex-1 items-center justify-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium transition-all hover:scale-[1.02] active:scale-[0.98]',
                   reportesSubTab === 'riesgo' ? 'bg-muted text-foreground' : 'text-muted-foreground hover:text-foreground')}>
                 <ShieldCheck className="size-3" /> Riesgo
               </button>

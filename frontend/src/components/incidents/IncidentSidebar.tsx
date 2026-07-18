@@ -108,7 +108,7 @@ export function IncidentSidebar({
                   type="button"
                   onClick={() => onSelectIncident(incident)}
                   className={cn(
-                    "flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left transition-colors duration-200 hover:bg-muted/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40",
+                    "flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left transition-all duration-200 hover:scale-[1.015] hover:bg-muted/70 active:scale-[0.985] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40",
                     isSelected && cn("bg-muted/70 ring-2", severity.ring),
                   )}
                 >
