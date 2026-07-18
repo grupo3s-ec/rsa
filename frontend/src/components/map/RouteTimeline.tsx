@@ -14,7 +14,7 @@ import {
 } from 'recharts';
 import {
   AlertTriangle, Bell, ChevronLeft, ChevronRight, LoaderCircle,
-  Mountain, CloudRain, Route, History, Flame, BarChart2, ShieldCheck, ShieldAlert, Landmark, ZoomOut,
+  Mountain, CloudRain, Route, History, Flame, ShieldCheck, ShieldAlert, Landmark, ZoomOut,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -24,7 +24,6 @@ import { CONDICION_META, getPerfilClimatico, mmToCondicion, mmToColor, MES_NOMBR
 import { DATOS_PRECIPITACION, ESTACIONES_META } from '@/lib/precipitacion-data';
 import { CalorPanel } from '@/components/analysis/CalorPanel';
 import { ViaEstadoPanel } from '@/components/analysis/ViaEstadoPanel';
-import { AntStatsPanel } from '@/components/analysis/AntStatsPanel';
 import { EvaluacionRiesgoPanel } from '@/components/analysis/EvaluacionRiesgoPanel';
 import { MitEventosPanel } from '@/components/analysis/MitEventosPanel';
 import type { RouteCalculatedData } from '@/components/routes/RoutePlanner';
@@ -33,13 +32,11 @@ import type { Incident } from '@/types/incident';
 // ─── Tipos ────────────────────────────────────────────────────────────────────
 
 // 7 pestañas → 4: Cierres/Vías/MIT comparten forma (lista + filtros por
-// provincia) y se agrupan bajo "Riesgos en ruta"; ANT/Evaluación de Riesgo
-// son ambos reportes externos embebidos (iframe) y se agrupan bajo
-// "Reportes". Cada grupo mantiene un sub-switcher de pills — nada queda más
-// de 1 clic más lejos que antes, solo se ordena la navegación de primer nivel.
+// provincia) y se agrupan bajo "Riesgos en ruta". El reporte ANT se accede
+// desde un botón flotante siempre visible sobre el mapa (ver RoutePlanner),
+// no desde una pestaña — "reportes" ahora solo contiene Evaluación de Riesgo.
 type TimelineTab = 'alertas' | 'perfil' | 'riesgos' | 'reportes';
 type RiesgosSubTab = 'cierres' | 'vias' | 'mit';
-type ReportesSubTab = 'ant' | 'riesgo';
 interface ElevPoint { km: number; elevacion: number; }
 interface GoogleElevationResponse {
   results: Array<{ elevation: number }>;
@@ -176,29 +173,15 @@ interface Props {
    * tab MIT como los tramos dibujados en el mapa (estado vive en RoutePlanner). */
   hiddenMitTipos?: Set<string>;
   onToggleMitTipo?: (tipo: string) => void;
-  /** El diálogo del reporte ANT se controla desde `RoutePlanner` porque su
-   * botón de apertura vive flotando sobre el mapa (no dentro de este panel
-   * angosto, donde pasaba desapercibido). */
-  antReportOpen?: boolean;
-  onAntReportOpenChange?: (open: boolean) => void;
-  /** Avisa al padre si el sub-tab ANT está activo, para mostrar/ocultar ese
-   * botón flotante solo cuando es relevante. */
-  onAntTabActiveChange?: (active: boolean) => void;
 }
 
 export function RouteTimeline({
   routeData, onSelectIncident, selectedIncidentId, conflictProvinces, mitConflictProvinces,
   focusedKmRange, onFocusedKmRangeChange, focusedGeoBounds, hiddenMitTipos, onToggleMitTipo,
-  antReportOpen, onAntReportOpenChange, onAntTabActiveChange,
 }: Props) {
   const [open,         setOpen]         = useState(true);
   const [tab,          setTab]          = useState<TimelineTab>('alertas');
   const [riesgosSubTab,  setRiesgosSubTab]  = useState<RiesgosSubTab>('cierres');
-  const [reportesSubTab, setReportesSubTab] = useState<ReportesSubTab>('ant');
-
-  useEffect(() => {
-    onAntTabActiveChange?.(tab === 'reportes' && reportesSubTab === 'ant');
-  }, [tab, reportesSubTab, onAntTabActiveChange]);
   const [showAltimetria, setShowAltimetria] = useState(true);
   const [showClima,      setShowClima]      = useState(true);
   const [showHistorial,setShowHistorial]= useState(false);
@@ -369,10 +352,10 @@ export function RouteTimeline({
                 tab === 'riesgos' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground')}>
               <ShieldAlert className="size-3" /> Riesgos en ruta
             </button>
-            <button type="button" onClick={() => setTab('reportes')} title="ANT · Evaluación de Riesgo"
+            <button type="button" onClick={() => setTab('reportes')} title="Evaluación de Riesgo"
               className={cn('flex items-center gap-1 rounded-md px-2 py-0.5 text-[11px] font-medium transition-all hover:scale-[1.03] active:scale-[0.97]',
                 tab === 'reportes' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground')}>
-              <BarChart2 className="size-3" /> Reportes
+              <ShieldCheck className="size-3" /> Evaluación
             </button>
           </div>
 
@@ -775,27 +758,7 @@ export function RouteTimeline({
             </div>
           </div>
         ) : (
-          <div className="flex h-full flex-col">
-            {/* Sub-switcher — ANT y Evaluación de Riesgo son ambos reportes
-                externos embebidos (iframe), sin datos propios de la ruta. */}
-            <div className="flex shrink-0 items-center gap-0.5 border-b border-border/40 p-1.5">
-              <button type="button" onClick={() => setReportesSubTab('ant')} title="ANT"
-                className={cn('flex flex-1 items-center justify-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium transition-all hover:scale-[1.02] active:scale-[0.98]',
-                  reportesSubTab === 'ant' ? 'bg-muted text-foreground' : 'text-muted-foreground hover:text-foreground')}>
-                <BarChart2 className="size-3" /> ANT
-              </button>
-              <button type="button" onClick={() => setReportesSubTab('riesgo')} title="Evaluación de Riesgo"
-                className={cn('flex flex-1 items-center justify-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium transition-all hover:scale-[1.02] active:scale-[0.98]',
-                  reportesSubTab === 'riesgo' ? 'bg-muted text-foreground' : 'text-muted-foreground hover:text-foreground')}>
-                <ShieldCheck className="size-3" /> Riesgo
-              </button>
-            </div>
-            <div className="min-h-0 flex-1">
-              {reportesSubTab === 'ant' ? (
-                <AntStatsPanel open={antReportOpen ?? false} onOpenChange={onAntReportOpenChange ?? (() => {})} />
-              ) : <EvaluacionRiesgoPanel />}
-            </div>
-          </div>
+          <EvaluacionRiesgoPanel />
         )}
       </div>
     </div>

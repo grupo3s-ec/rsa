@@ -50,6 +50,7 @@ import { IncidentDetailDialog } from "@/components/incidents/IncidentDetailDialo
 import { IncidentSidebar } from "@/components/incidents/IncidentSidebar";
 import { MapHelpDialog } from "@/components/map/MapHelpDialog";
 import { RouteTimeline } from "@/components/map/RouteTimeline";
+import { AntReportDialog } from "@/components/analysis/AntReportDialog";
 import { cn } from "@/lib/utils";
 import { GOOGLE_MAPS_API_KEY } from "@/lib/config";
 import { formatDistance, formatDuration } from "@/lib/incidents/format";
@@ -360,11 +361,9 @@ function RoutePlannerContent({
     });
   }, []);
 
-  // Diálogo del reporte ANT — el botón que lo abre flota sobre el mapa (no
-  // dentro del panel angosto de la derecha, donde pasaba desapercibido), así
-  // que su estado vive aquí, sibling del mapa y de RouteTimeline.
+  // Diálogo del reporte ANT — botón flotante siempre visible sobre el mapa
+  // (no una pestaña ni algo condicional; el usuario pidió que quede fijo).
   const [antReportOpen, setAntReportOpen] = useState(false);
-  const [showAntButton, setShowAntButton] = useState(false);
   // Viewport crudo del mapa (se actualiza vía el mismo callback ya debounced
   // de zoom-detalle, ver más abajo) — se usa solo para no dibujar tramos MIT
   // fuera de la pantalla actual. `mitConflicts` ya está acotado a ~25km de la
@@ -1431,20 +1430,17 @@ function RoutePlannerContent({
               />
               {pickModeIndicator}
               {legendPill}
-              {/* Botón del reporte ANT — flotando centrado arriba del mapa
-                  (no dentro del panel angosto de la derecha, donde antes
-                  pasaba desapercibido), visible solo cuando ese sub-tab
-                  está activo. */}
-              {showAntButton && (
-                <button
-                  type="button"
-                  onClick={() => setAntReportOpen(true)}
-                  className="absolute top-4 left-1/2 z-20 flex -translate-x-1/2 items-center gap-1.5 rounded-full bg-primary px-4 py-2 text-xs font-medium text-primary-foreground shadow-lg transition-transform hover:scale-105 active:scale-95"
-                >
-                  <BarChart2 className="size-3.5" />
-                  Ver Siniestralidad Vial (ANT)
-                </button>
-              )}
+              {/* Botón del reporte ANT — flotando centrado arriba del mapa,
+                  siempre visible (no depende de ninguna pestaña). */}
+              <button
+                type="button"
+                onClick={() => setAntReportOpen(true)}
+                className="absolute top-4 left-1/2 z-20 flex -translate-x-1/2 items-center gap-1.5 rounded-full bg-primary px-4 py-2 text-xs font-medium text-primary-foreground shadow-lg transition-transform hover:scale-105 active:scale-95"
+              >
+                <BarChart2 className="size-3.5" />
+                Ver Siniestralidad Vial (ANT)
+              </button>
+              <AntReportDialog open={antReportOpen} onOpenChange={setAntReportOpen} />
               {/* Popup de vía ECU911 seleccionada */}
               {selectedVia ? (
                 <div className="absolute bottom-16 left-1/2 z-20 w-72 -translate-x-1/2 rounded-xl border border-border/60 bg-background/90 shadow-xl backdrop-blur">
@@ -1517,9 +1513,6 @@ function RoutePlannerContent({
           focusedGeoBounds={focusedGeoBounds}
           hiddenMitTipos={hiddenMitTipos}
           onToggleMitTipo={toggleMitTipo}
-          antReportOpen={antReportOpen}
-          onAntReportOpenChange={setAntReportOpen}
-          onAntTabActiveChange={setShowAntButton}
         />
 
         {sharedDialogs}
