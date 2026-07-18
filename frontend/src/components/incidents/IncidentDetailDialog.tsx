@@ -2,11 +2,12 @@
 
 import { useEffect, useId, useRef, useState } from 'react';
 import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog';
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetBody,
+  SheetTitle,
+} from '@/components/ui/sheet';
 import { Separator } from '@/components/ui/separator';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -270,11 +271,11 @@ export function IncidentDetailDialog({
   // ─────────────────────────────────────────────────────────────────────────────
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[90vh] gap-4 overflow-y-auto sm:max-w-lg">
+    <Sheet open={open} onOpenChange={onOpenChange}>
+      <SheetContent className="sm:max-w-[36vw]">
 
         {/* Cabecera */}
-        <DialogHeader>
+        <SheetHeader>
           <div className="flex items-start gap-3 pr-8">
             <span
               className="flex size-10 shrink-0 items-center justify-center rounded-full text-white shadow-md"
@@ -283,11 +284,12 @@ export function IncidentDetailDialog({
               <TypeIcon className="size-5" />
             </span>
             <div className="min-w-0 flex-1">
-              <DialogTitle className="leading-snug">{inc.title}</DialogTitle>
+              <SheetTitle className="leading-snug">{inc.title}</SheetTitle>
             </div>
           </div>
-        </DialogHeader>
+        </SheetHeader>
 
+        <SheetBody>
         {/* Clasificación del peligro — Condición, Tipo de Condición, Riesgos
             y Severidad, agrupados en un solo bloque (antes dispersos entre
             el encabezado y la fila de meta). */}
@@ -496,8 +498,9 @@ export function IncidentDetailDialog({
             </ol>
           )}
         </div>
+        </SheetBody>
 
-      </DialogContent>
-    </Dialog>
+      </SheetContent>
+    </Sheet>
   );
 }

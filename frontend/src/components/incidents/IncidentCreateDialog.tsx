@@ -5,11 +5,12 @@ import { Popover } from '@base-ui/react/popover';
 import { Camera, HelpCircle, MapPin, X } from 'lucide-react';
 import { toast } from 'sonner';
 import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog';
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetBody,
+  SheetTitle,
+} from '@/components/ui/sheet';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { SeverityBadge } from '@/components/incidents/SeverityBadge';
@@ -132,12 +133,13 @@ export function IncidentCreateDialog({
   }
 
   return (
-    <Dialog open={open} onOpenChange={(v) => { if (!v && !pickActive) reset(); onOpenChange(v); }}>
-      <DialogContent className="max-h-[92dvh] overflow-y-auto sm:max-w-[30vw]">
-        <DialogHeader>
-          <DialogTitle>Reportar novedad</DialogTitle>
-        </DialogHeader>
+    <Sheet open={open} onOpenChange={(v) => { if (!v && !pickActive) reset(); onOpenChange(v); }}>
+      <SheetContent className="sm:max-w-[30vw]">
+        <SheetHeader>
+          <SheetTitle>Reportar novedad</SheetTitle>
+        </SheetHeader>
 
+        <SheetBody>
         <form onSubmit={(e) => { void handleSubmit(e); }} className="space-y-5 pb-2">
 
           {/* Tipo de incidente */}
@@ -315,7 +317,8 @@ export function IncidentCreateDialog({
           </Button>
 
         </form>
-      </DialogContent>
-    </Dialog>
+        </SheetBody>
+      </SheetContent>
+    </Sheet>
   );
 }
