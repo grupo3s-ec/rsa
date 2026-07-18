@@ -221,7 +221,7 @@ export function IncidentDetailDialog({
       getIncidentHistory(inc.id).then(setHistory).catch(() => {});
       toast.success(`Estado: ${statusMeta[to].label}`);
     } catch {
-      toast.error('No se pudo actualizar el estado');
+      toast.error('Error al actualizar');
     } finally {
       setChangingTo(null);
     }
@@ -236,9 +236,9 @@ export function IncidentDetailDialog({
       setMedia(prev => [...prev, created]);
       setNewUrl('');
       setShowAddMedia(false);
-      toast.success('Evidencia añadida');
+      toast.success('Añadida ✓');
     } catch {
-      toast.error('No se pudo añadir la evidencia');
+      toast.error('Error al añadir');
     } finally {
       setSavingMedia(false);
     }
@@ -248,10 +248,10 @@ export function IncidentDetailDialog({
     setMedia(prev => prev.filter(m => m.id !== mediaId));
     try {
       await deleteIncidentMedia(inc.id, mediaId);
-      toast.success('Evidencia eliminada');
+      toast.success('Eliminada ✓');
     } catch {
       getIncidentMedia(inc.id).then(setMedia).catch(() => {});
-      toast.error('No se pudo eliminar');
+      toast.error('Error al eliminar');
     }
   }
 
@@ -260,9 +260,9 @@ export function IncidentDetailDialog({
     try {
       const created = await uploadIncidentPhoto(inc.id, file);
       setMedia(prev => [...prev, created]);
-      toast.success('Foto subida');
+      toast.success('Foto subida ✓');
     } catch {
-      toast.error('No se pudo subir la foto');
+      toast.error('Error al subir');
     } finally {
       setUploading(false);
     }

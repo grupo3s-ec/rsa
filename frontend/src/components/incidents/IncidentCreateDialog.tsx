@@ -55,6 +55,11 @@ export function IncidentCreateDialog({
   const [coords,        setCoords]      = useState<{ lat: number; lng: number } | null>(null);
   const [saving,        setSaving]      = useState(false);
   const [photoFile,     setPhotoFile]   = useState<File | null>(null);
+  // Se activa solo tras un intento de submit fallido — antes de eso no se
+  // resalta nada en rojo (el usuario aún no "hizo algo mal", solo no ha
+  // terminado). Reemplaza los toasts de validación: la señal vive en el
+  // campo que falta, no en una esquina de la pantalla.
+  const [attemptedSubmit, setAttemptedSubmit] = useState(false);
   const photoRef = useRef<HTMLInputElement>(null);
   const wasPickActive = useRef(false);
 
@@ -90,6 +95,7 @@ export function IncidentCreateDialog({
     setDescription('');
     setCoords(null);
     setPhotoFile(null);
+    setAttemptedSubmit(false);
   }
 
   function handlePickLocation() {
@@ -99,9 +105,7 @@ export function IncidentCreateDialog({
 
   async function handleSubmit(e: React.FormEvent): Promise<void> {
     e.preventDefault();
-    if (!coords) { toast.error('Marca la ubicación en el mapa antes de continuar'); return; }
-    if (!hazardTypeId) { toast.error('Selecciona el tipo de incidente'); return; }
-    if (!title.trim()) return;
+    if (!coords || !hazardTypeId || !title.trim()) { setAttemptedSubmit(true); return; }
 
     setSaving(true);
     try {
@@ -121,12 +125,12 @@ export function IncidentCreateDialog({
         catch { /* no bloquea — incidente ya creado */ }
       }
 
-      toast.success('Novedad reportada');
+      toast.success('Reportado ✓');
       reset();
       onOpenChange(false);
       onCreated?.();
     } catch {
-      toast.error('No se pudo guardar el incidente');
+      toast.error('Error al guardar');
     } finally {
       setSaving(false);
     }
@@ -143,7 +147,12 @@ export function IncidentCreateDialog({
         <form onSubmit={(e) => { void handleSubmit(e); }} className="space-y-5 pb-2">
 
           {/* Tipo de incidente */}
-          <div className="space-y-2">
+          <div
+            className={cn(
+              'space-y-2 rounded-xl transition-shadow',
+              attemptedSubmit && !hazardTypeId && 'ring-2 ring-destructive/50',
+            )}
+          >
             <div className="flex items-center gap-1.5">
               <p className="text-xs font-medium text-muted-foreground">Tipo de incidente</p>
               <Popover.Root>
@@ -239,6 +248,7 @@ export function IncidentCreateDialog({
               onChange={e => setTitle(e.target.value)}
               placeholder="Ej. Derrumbe bloquea carril derecho"
               required
+              aria-invalid={attemptedSubmit && !title.trim()}
               className="h-11 text-sm"
             />
           </div>
@@ -249,6 +259,7 @@ export function IncidentCreateDialog({
             <Button
               type="button"
               variant="outline"
+              aria-invalid={attemptedSubmit && !coords}
               className="h-11 w-full justify-start gap-2 text-sm"
               onClick={handlePickLocation}
             >
