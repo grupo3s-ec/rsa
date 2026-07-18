@@ -176,16 +176,29 @@ interface Props {
    * tab MIT como los tramos dibujados en el mapa (estado vive en RoutePlanner). */
   hiddenMitTipos?: Set<string>;
   onToggleMitTipo?: (tipo: string) => void;
+  /** El diálogo del reporte ANT se controla desde `RoutePlanner` porque su
+   * botón de apertura vive flotando sobre el mapa (no dentro de este panel
+   * angosto, donde pasaba desapercibido). */
+  antReportOpen?: boolean;
+  onAntReportOpenChange?: (open: boolean) => void;
+  /** Avisa al padre si el sub-tab ANT está activo, para mostrar/ocultar ese
+   * botón flotante solo cuando es relevante. */
+  onAntTabActiveChange?: (active: boolean) => void;
 }
 
 export function RouteTimeline({
   routeData, onSelectIncident, selectedIncidentId, conflictProvinces, mitConflictProvinces,
   focusedKmRange, onFocusedKmRangeChange, focusedGeoBounds, hiddenMitTipos, onToggleMitTipo,
+  antReportOpen, onAntReportOpenChange, onAntTabActiveChange,
 }: Props) {
   const [open,         setOpen]         = useState(true);
   const [tab,          setTab]          = useState<TimelineTab>('alertas');
   const [riesgosSubTab,  setRiesgosSubTab]  = useState<RiesgosSubTab>('cierres');
   const [reportesSubTab, setReportesSubTab] = useState<ReportesSubTab>('ant');
+
+  useEffect(() => {
+    onAntTabActiveChange?.(tab === 'reportes' && reportesSubTab === 'ant');
+  }, [tab, reportesSubTab, onAntTabActiveChange]);
   const [showAltimetria, setShowAltimetria] = useState(true);
   const [showClima,      setShowClima]      = useState(true);
   const [showHistorial,setShowHistorial]= useState(false);
@@ -778,7 +791,9 @@ export function RouteTimeline({
               </button>
             </div>
             <div className="min-h-0 flex-1">
-              {reportesSubTab === 'ant' ? <AntStatsPanel /> : <EvaluacionRiesgoPanel />}
+              {reportesSubTab === 'ant' ? (
+                <AntStatsPanel open={antReportOpen ?? false} onOpenChange={onAntReportOpenChange ?? (() => {})} />
+              ) : <EvaluacionRiesgoPanel />}
             </div>
           </div>
         )}
