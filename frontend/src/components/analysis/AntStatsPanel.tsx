@@ -1,26 +1,25 @@
 'use client';
 
 import { useState } from 'react';
-import { ExternalLink, BarChart2, Maximize2 } from 'lucide-react';
+import { BarChart2, Maximize2 } from 'lucide-react';
 import {
   Dialog,
   DialogContent,
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import { Button } from '@/components/ui/button';
 
 const ANT_URL = 'https://app.powerbi.com/view?r=eyJrIjoiMTJjMjUyZjQtNDMzZS00NmViLThiY2UtZDQwMDk2ZjYwMTFhIiwidCI6IjMwMGM3OTYyLTRmMzYtNDA5ZC04NDc0LTc2ZjRkNTBkZDI5ZiIsImMiOjR9&pageName=ReportSection97a60f7c854f06ea5bb5';
 
 /** El reporte Power BI es ilegible en el ancho angosto del panel lateral
- * (~300px) — se abre directo en un diálogo grande apenas se entra a este
- * tab, sin paso intermedio. El panel de atrás solo sirve para reabrirlo si
- * el usuario lo cierra. */
+ * (~300px) — no se abre solo (interrumpiría al entrar al tab); un botón
+ * flotante (mismo patrón que `IncidentFab`) lo abre en un diálogo grande
+ * cuando el usuario lo pide. */
 export function AntStatsPanel() {
-  const [open, setOpen] = useState(true);
+  const [open, setOpen] = useState(false);
 
   return (
-    <div className="flex h-full flex-col bg-background">
+    <div className="relative flex h-full flex-col bg-background">
       <div className="shrink-0 flex items-center justify-between px-4 py-3 border-b border-border/40">
         <div>
           <h2 className="text-sm font-semibold text-foreground flex items-center gap-2">
@@ -33,27 +32,20 @@ export function AntStatsPanel() {
         </div>
       </div>
 
-      <div className="flex flex-1 flex-col items-center justify-center gap-3 px-6 text-center">
-        <span className="flex size-12 items-center justify-center rounded-full bg-[var(--brand-navy)]/10 text-[var(--brand-navy)] dark:text-[var(--brand-cyan)]">
-          <BarChart2 className="size-6" />
-        </span>
-        <p className="text-xs text-muted-foreground">
-          Este reporte necesita más espacio del que da este panel.
-        </p>
-        <Button onClick={() => setOpen(true)} className="gap-1.5">
-          <Maximize2 className="size-3.5" />
-          Ver reporte completo
-        </Button>
-        <a
-          href={ANT_URL}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
-        >
-          <ExternalLink className="size-3" />
-          Abrir en pestaña nueva
-        </a>
+      <div className="flex flex-1 flex-col items-center justify-center gap-2 px-6 text-center text-muted-foreground/60">
+        <BarChart2 className="size-8" />
+        <p className="text-xs">Este reporte necesita más espacio del que da este panel.</p>
       </div>
+
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        aria-label="Ver reporte completo"
+        className="absolute bottom-4 right-4 flex items-center gap-1.5 rounded-full bg-primary px-3.5 py-2.5 text-xs font-medium text-primary-foreground shadow-lg transition-transform hover:scale-105 active:scale-95"
+      >
+        <Maximize2 className="size-3.5" />
+        Ver reporte
+      </button>
 
       <Dialog open={open} onOpenChange={setOpen}>
         {/* Sin altura fija (antes h-[85vh] dejaba mucho espacio en blanco
