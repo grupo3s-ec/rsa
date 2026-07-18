@@ -121,8 +121,6 @@ export interface RouteCalculatedData {
 }
 
 interface RoutePlannerProps {
-  /** Si se provee, reemplaza el mapa en el slot derecho (para paneles de análisis). */
-  rightSlot?: React.ReactNode;
   /** Elemento que se superpone en la esquina del mapa (ej. FAB de reporte). */
   mapOverlay?: React.ReactNode;
   /** Callback con datos de la ruta calculada, o null si falló. */
@@ -139,7 +137,7 @@ interface RoutePlannerProps {
   onExternalPickCancel?: () => void;
 }
 
-export function RoutePlanner({ rightSlot, mapOverlay, onRouteCalculated, incidentRefreshKey, externalPickActive, externalPickLabel, onExternalPick, onExternalPickCancel }: RoutePlannerProps = {}) {
+export function RoutePlanner({ mapOverlay, onRouteCalculated, incidentRefreshKey, externalPickActive, externalPickLabel, onExternalPick, onExternalPickCancel }: RoutePlannerProps = {}) {
   // "geometry" habilita `google.maps.geometry.encoding.decodePath` — usada por
   // `MitEventSegment` en RouteMap.tsx para dibujar el trazado real de cada
   // tramo MIT (polyline pre-calculada por el backend) en vez de una línea
@@ -147,7 +145,6 @@ export function RoutePlanner({ rightSlot, mapOverlay, onRouteCalculated, inciden
   return (
     <APIProvider apiKey={GOOGLE_MAPS_API_KEY} libraries={["geocoding", "geometry"]}>
       <RoutePlannerContent
-        rightSlot={rightSlot}
         mapOverlay={mapOverlay}
         onRouteCalculated={onRouteCalculated}
         incidentRefreshKey={incidentRefreshKey}
@@ -163,7 +160,6 @@ export function RoutePlanner({ rightSlot, mapOverlay, onRouteCalculated, inciden
 // ─── Contenido real (dentro del contexto de Google Maps) ─────────────────────
 
 function RoutePlannerContent({
-  rightSlot,
   mapOverlay,
   onRouteCalculated,
   incidentRefreshKey,
@@ -172,7 +168,6 @@ function RoutePlannerContent({
   onExternalPick,
   onExternalPickCancel,
 }: {
-  rightSlot?: React.ReactNode;
   mapOverlay?: React.ReactNode;
   onRouteCalculated?: (data: RouteCalculatedData | null) => void;
   incidentRefreshKey?: number;
@@ -1407,9 +1402,8 @@ function RoutePlannerContent({
           </aside>
         )}
 
-        <div className={cn("relative flex-1 overflow-hidden", !rightSlot && activePickMode && "cursor-crosshair")}>
-          {rightSlot ?? (
-            <>
+        <div className={cn("relative flex-1 overflow-hidden", activePickMode && "cursor-crosshair")}>
+          <>
               <RouteMap
                 waypoints={waypoints}
                 routes={routes}
@@ -1487,8 +1481,7 @@ function RoutePlannerContent({
               {selectedMit ? (
                 <MitConflictPopup event={selectedMit} onClose={() => setSelectedMit(null)} />
               ) : null}
-            </>
-          )}
+          </>
           {mapOverlay}
         </div>
 

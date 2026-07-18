@@ -48,13 +48,24 @@ function SheetOverlay({
   )
 }
 
+const sheetSideClasses = {
+  right: "inset-y-0 right-0 h-full w-full max-w-[calc(100%-2rem)] border-l sm:max-w-md data-open:slide-in-from-right data-closed:slide-out-to-right",
+  bottom: "inset-x-0 bottom-0 max-h-[85vh] w-full rounded-t-[min(var(--radius-4xl),24px)] border-t data-open:slide-in-from-bottom data-closed:slide-out-to-bottom",
+  top: "inset-x-0 top-0 max-h-[85vh] w-full rounded-b-[min(var(--radius-4xl),24px)] border-b data-open:slide-in-from-top data-closed:slide-out-to-top",
+} as const
+
 function SheetContent({
   className,
   children,
   showCloseButton = true,
+  side = "right",
   ...props
 }: DialogPrimitive.Popup.Props & {
   showCloseButton?: boolean
+  /** Borde desde donde se desliza — "right" (por defecto, detalle/formularios
+   * largos) o "bottom"/"top" (acciones rápidas tipo "reportar", no compite
+   * por espacio con paneles laterales ya abiertos). */
+  side?: keyof typeof sheetSideClasses
 }) {
   return (
     <SheetPortal>
@@ -62,7 +73,8 @@ function SheetContent({
       <DialogPrimitive.Popup
         data-slot="sheet-content"
         className={cn(
-          "fixed inset-y-0 right-0 z-50 flex h-full w-full max-w-[calc(100%-2rem)] flex-col gap-6 border-l border-border/60 bg-popover p-6 text-sm text-popover-foreground shadow-xl outline-none duration-200 sm:max-w-md data-open:animate-in data-open:slide-in-from-right data-closed:animate-out data-closed:slide-out-to-right",
+          "fixed z-50 flex flex-col gap-6 border-border/60 bg-popover p-6 text-sm text-popover-foreground shadow-xl outline-none duration-200 data-open:animate-in data-closed:animate-out",
+          sheetSideClasses[side],
           className
         )}
         {...props}
