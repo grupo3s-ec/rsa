@@ -9,14 +9,12 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useAuth } from '@/lib/auth/context';
 
-const API_BASE = (process.env.NEXT_PUBLIC_API_BASE_URL ?? '').replace(/\/$/, '');
-
 function isNetworkError(err: unknown): boolean {
   return err instanceof TypeError;
 }
 
 export default function LoginPage() {
-  const { user, loading, login } = useAuth();
+  const { user, loading, warming, login } = useAuth();
   const router = useRouter();
 
   const [email,      setEmail]      = useState('');
@@ -24,30 +22,6 @@ export default function LoginPage() {
   const [remember,   setRemember]   = useState(false);
   const [error,      setError]      = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
-  const [warming,    setWarming]    = useState(false);
-
-  // Despierta el backend de Render (free tier duerme a los 15 min)
-  // Reintenta hasta 6 veces en caso de fallo inmediato (connection refused al despertar)
-  useEffect(() => {
-    let cancelled = false;
-
-    async function warmup() {
-      for (let i = 0; i < 6; i++) {
-        if (cancelled) return;
-        try {
-          await fetch(`${API_BASE}/ping`, { signal: AbortSignal.timeout(10_000) });
-          break;
-        } catch {
-          if (i < 5 && !cancelled) await new Promise(r => setTimeout(r, 8_000));
-        }
-      }
-      if (!cancelled) setWarming(false);
-    }
-
-    setWarming(true);
-    void warmup();
-    return () => { cancelled = true; };
-  }, []);
 
   useEffect(() => {
     if (!loading && user) router.replace('/mapa');
