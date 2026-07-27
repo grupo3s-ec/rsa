@@ -858,15 +858,15 @@ function RoutePlannerContent({
 
     const route = extractRouteFromGoogleMapsUrl(resolved);
     if (route && geocoder) {
-      // Primero se resuelven los waypoints que ya son coordenadas (instantáneo, sin
-      // geocoding) para armar un sesgo geográfico — así, un waypoint de texto ambiguo
-      // (misma calle/iglesia existe en varias ciudades) se geocodifica cerca del resto
-      // de la ruta en vez de en cualquier ciudad de Ecuador que matchee el nombre.
-      const coordRegex = /^(-?\d+(?:\.\d+)?)[,\s]+(-?\d+(?:\.\d+)?)$/;
-      const knownPoints = route.waypoints
-        .map((wp) => wp.match(coordRegex))
-        .filter((m): m is RegExpMatchArray => m !== null)
-        .map((m) => ({ lat: parseFloat(m[1]!), lng: parseFloat(m[2]!) }));
+      // Sesgo geográfico para los waypoints que sí necesitan geocoding: se arma con
+      // todos los puntos ya conocidos (coordenadas crudas en la URL + coordenadas
+      // embebidas en "data=" para los nombres de lugar) — así, un waypoint de texto
+      // ambiguo restante (misma calle/iglesia existe en varias ciudades) se
+      // geocodifica cerca del resto de la ruta en vez de en cualquier ciudad de
+      // Ecuador que matchee el nombre.
+      const knownPoints = route.coords
+        .filter((c): c is LngLat => c !== null)
+        .map(([lng, lat]) => ({ lat, lng }));
 
       let bias: google.maps.LatLngBounds | undefined;
       if (knownPoints.length > 0) {
@@ -875,7 +875,13 @@ function RoutePlannerContent({
       }
 
       const allResults = await Promise.allSettled(
-        route.waypoints.map((wp) => resolveLocationText(wp, geocoder, bias)),
+        route.waypoints.map((wp, i) => {
+          // Coordenada ya resuelta por Google (venía en "data="): usarla tal cual
+          // en vez de volver a geocodificar el nombre de texto libre.
+          const known = route.coords[i];
+          if (known) return Promise.resolve({ lngLat: known, address: wp });
+          return resolveLocationText(wp, geocoder, bias);
+        }),
       );
       const allCoords = allResults
         .map((r) => (r.status === "fulfilled" ? r.value : null))
@@ -2073,14 +2079,17 @@ async function resolveLocationText(
   return null;
 }
 
-function extractRouteFromGoogleMapsUrl(text: string): { waypoints: string[] } | null {
+function extractRouteFromGoogleMapsUrl(
+  text: string,
+): { waypoints: string[]; coords: (LngLat | null)[] } | null {
   try {
     const url = new URL(text.trim());
     if (!url.hostname.includes("google")) return null;
     const m = url.pathname.match(/\/maps\/dir\/([^?#]+)/);
     if (!m) return null;
-    const segments = m[1]!
-      .split("/")
+    const rawSegments = m[1]!.split("/");
+    const dataSegment = rawSegments.find((s) => s.startsWith("data="));
+    const segments = rawSegments
       .map((s) => decodeURIComponent(s.replace(/\+/g, " ")).trim())
       // Google a veces envuelve un waypoint ambiguo entre comillas simples/dobles
       // (ej. "'-2.88969,-78.98785'") — sin esto, el regex de coordenadas no matchea
@@ -2088,7 +2097,22 @@ function extractRouteFromGoogleMapsUrl(text: string): { waypoints: string[] } | 
       .map((s) => s.replace(/^['"]+|['"]+$/g, "").trim())
       .filter((s) => s && !s.startsWith("@") && !s.startsWith("data="));
     if (segments.length < 2) return null;
-    return { waypoints: segments };
+
+    // Google incrusta la coordenada YA resuelta de cada punto (incluidos los
+    // nombres de lugar de texto libre) en el bloque "data=" como pares
+    // "!1d<lng>!2d<lat>", en el mismo orden que los segmentos de la ruta. Si el
+    // conteo coincide 1:1, usarlas evita volver a geocodificar un nombre ambiguo
+    // (ej. "Iglesia Católica de X") y terminar en un punto distinto al que
+    // Google Maps mostraba — que es justo lo que pasaba con el punto medio.
+    let coords: (LngLat | null)[] = segments.map(() => null);
+    if (dataSegment) {
+      const pairs = [...dataSegment.matchAll(/!1d(-?\d+(?:\.\d+)?)!2d(-?\d+(?:\.\d+)?)/g)].map(
+        (mm) => [parseFloat(mm[1]!), parseFloat(mm[2]!)] as LngLat,
+      );
+      if (pairs.length === segments.length) coords = pairs;
+    }
+
+    return { waypoints: segments, coords };
   } catch {
     return null;
   }
