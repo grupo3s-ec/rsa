@@ -181,6 +181,15 @@ export function RouteTimeline({
 }: Props) {
   const [open,         setOpen]         = useState(true);
   const [tab,          setTab]          = useState<TimelineTab>('alertas');
+
+  // El tab "Alertas" se oculta cuando la ruta ya se calculó y no tiene
+  // siniestros reportados — sin esto, quedaría seleccionado un tab cuyo
+  // botón desapareció, mostrando el estado vacío sin ningún tab activo.
+  useEffect(() => {
+    if (tab === 'alertas' && routeData && routeData.incidents.length === 0) {
+      setTab('perfil');
+    }
+  }, [tab, routeData]);
   const [riesgosSubTab,  setRiesgosSubTab]  = useState<RiesgosSubTab>('cierres');
   const [showAltimetria, setShowAltimetria] = useState(true);
   const [showClima,      setShowClima]      = useState(true);
@@ -331,17 +340,22 @@ export function RouteTimeline({
         <div className="flex items-center justify-between gap-2">
           {/* Tabs */}
           <div className="flex flex-wrap items-center gap-0.5 rounded-lg border border-border/50 bg-muted/40 p-0.5">
-            <button type="button" onClick={() => setTab('alertas')}
-              className={cn('relative flex items-center gap-1 rounded-md px-2 py-0.5 text-[11px] font-medium transition-all hover:scale-[1.03] active:scale-[0.97]',
-                tab === 'alertas' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground')}>
-              <Bell className="size-3" /> Alertas
-              {(routeData?.incidents.length ?? 0) > 0 && (
-                <span className={cn('ml-0.5 rounded-full px-1 text-[9px] font-bold',
-                  (routeData?.incidents.some(i => i.severity === 'critical')) ? 'bg-red-500 text-white' : 'bg-amber-500 text-white')}>
-                  {routeData!.incidents.length}
-                </span>
-              )}
-            </button>
+            {/* Sin siniestros reportados en la ruta calculada, este tab no
+                tiene nada que mostrar — mejor no ofrecerlo que dejar al
+                usuario mirando un estado vacío. */}
+            {(!routeData || routeData.incidents.length > 0) && (
+              <button type="button" onClick={() => setTab('alertas')}
+                className={cn('relative flex items-center gap-1 rounded-md px-2 py-0.5 text-[11px] font-medium transition-all hover:scale-[1.03] active:scale-[0.97]',
+                  tab === 'alertas' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground')}>
+                <Bell className="size-3" /> Alertas
+                {(routeData?.incidents.length ?? 0) > 0 && (
+                  <span className={cn('ml-0.5 rounded-full px-1 text-[9px] font-bold',
+                    (routeData?.incidents.some(i => i.severity === 'critical')) ? 'bg-red-500 text-white' : 'bg-amber-500 text-white')}>
+                    {routeData!.incidents.length}
+                  </span>
+                )}
+              </button>
+            )}
             <button type="button" onClick={() => setTab('perfil')}
               className={cn('flex items-center gap-1 rounded-md px-2 py-0.5 text-[11px] font-medium transition-all hover:scale-[1.03] active:scale-[0.97]',
                 tab === 'perfil' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground')}>
