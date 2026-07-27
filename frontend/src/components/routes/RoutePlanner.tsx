@@ -22,6 +22,7 @@ import {
   AlertTriangle,
   BarChart2,
   Bell,
+  BellOff,
   ChevronDown,
   ChevronLeft,
   ChevronRight,
@@ -269,6 +270,10 @@ function RoutePlannerContent({
   const [error,         setError]         = useState<string | null>(null);
   const [pickingIndex,  setPickingIndex]  = useState<PickingIndex>(null);
   const [panelOpen,     setPanelOpen]     = useState(true);
+  /** Muestra/oculta los pines de alertas de la ruta EN EL MAPA (no afecta el
+   * conteo ni la lista) — para poder despejar el mapa cuando no se quieren
+   * ver como ruido visual. */
+  const [showRouteAlerts, setShowRouteAlerts] = useState(true);
   const [searched,      setSearched]      = useState(() => session.searched);
   const [helpOpen,      setHelpOpen]      = useState(false);
   const [layoutMode,    setLayoutMode]    = useState<LayoutMode>("panel");
@@ -1046,6 +1051,23 @@ function RoutePlannerContent({
     </div>
   );
 
+  // Solo tiene sentido si hay algo que mostrar/ocultar en el mapa.
+  const alertsToggleButton = incidents.length > 0 ? (
+    <Button
+      variant="outline"
+      size="icon-lg"
+      aria-pressed={showRouteAlerts}
+      aria-label={showRouteAlerts ? "Ocultar alertas de la ruta en el mapa" : "Mostrar alertas de la ruta en el mapa"}
+      onClick={() => setShowRouteAlerts((v) => !v)}
+      className={cn(
+        "rounded-full border-border/60 bg-background/80 shadow-lg backdrop-blur transition-colors",
+        !showRouteAlerts && "text-muted-foreground/50",
+      )}
+    >
+      {showRouteAlerts ? <Bell className="size-4" /> : <BellOff className="size-4" />}
+    </Button>
+  ) : null;
+
   // ─── Tabs de modo (se renderizan fuera del formulario, bajo el header) ───────
 
   const addressTabs = (
@@ -1455,7 +1477,7 @@ function RoutePlannerContent({
                 waypoints={waypoints}
                 routes={routes}
                 selectedRouteIdx={selectedRouteIdx}
-                incidents={incidents}
+                incidents={showRouteAlerts ? incidents : []}
                 selectedIncidentId={selectedIncident?.id ?? null}
                 onSelectIncident={handleSelectFromMap}
                 onSelectRoute={handleSelectRoute}
@@ -1471,6 +1493,9 @@ function RoutePlannerContent({
               />
               {pickModeIndicator}
               {legendPill}
+              {alertsToggleButton ? (
+                <div className="absolute right-4 top-4 z-20">{alertsToggleButton}</div>
+              ) : null}
               {/* Botón del reporte ANT — flotando centrado arriba del mapa,
                   siempre visible (no depende de ninguna pestaña). */}
               <button
@@ -1570,7 +1595,7 @@ function RoutePlannerContent({
           waypoints={waypoints}
           routes={routes}
           selectedRouteIdx={selectedRouteIdx}
-          incidents={incidents}
+          incidents={showRouteAlerts ? incidents : []}
           selectedIncidentId={selectedIncident?.id ?? null}
           onSelectIncident={handleSelectFromMap}
           onSelectRoute={handleSelectRoute}
@@ -1622,6 +1647,7 @@ function RoutePlannerContent({
       </aside>
 
       <div className="absolute right-4 top-4 z-10 flex flex-col gap-2">
+        {alertsToggleButton}
         <Button
           variant="outline"
           size="icon-lg"
