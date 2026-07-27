@@ -71,6 +71,7 @@ import {
   type RawLatLngBounds,
 } from "@/lib/geo";
 import { getMitEventos, type MitAdverseEvent } from "@/lib/api/mit-eventos";
+import { useRoutePlannerSession } from "@/lib/route-planner/session-context";
 import type { Incident } from "@/types/incident";
 import type { Ecu911Response, ViaGeoMarker } from "@/types/ecu911";
 
@@ -201,27 +202,35 @@ function RoutePlannerContent({
     if (placesLib) setAutocompleteService(new placesLib.AutocompleteService());
   }, [placesLib]);
 
-  const [waypoints, setWaypoints] = useState<(LngLat | null)[]>([null, null]);
-  const [addresses, setAddresses] = useState<(string | null)[]>([null, null]);
-  const [wpIds,     setWpIds]     = useState<string[]>(['wp-0', 'wp-1']);
+  // Espejo de la sesión de ruta en un Context montado en `(app)/layout.tsx`
+  // (que no se desmonta al navegar) — así lo que el usuario armó acá sigue
+  // ahí al volver a `/mapa` desde otra pantalla, aunque este componente en
+  // sí se remonte por completo. Los `useState` de abajo se inicializan una
+  // sola vez desde `session` y un efecto más abajo los vuelve a escribir ahí
+  // en cada cambio; el resto del componente los sigue usando igual que antes.
+  const { session, updateSession } = useRoutePlannerSession();
+
+  const [waypoints, setWaypoints] = useState<(LngLat | null)[]>(() => session.waypoints);
+  const [addresses, setAddresses] = useState<(string | null)[]>(() => session.addresses);
+  const [wpIds,     setWpIds]     = useState<string[]>(() => session.wpIds);
 
   const dndSensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }));
 
   /** Todas las rutas calculadas (índice 0 = primera / seleccionada). */
-  const [routes,           setRoutes]           = useState<LngLat[][]>([]);
-  const [selectedRouteIdx, setSelectedRouteIdx] = useState(0);
-  const [routeInfo,        setRouteInfo]        = useState<RouteInfo | null>(null);
+  const [routes,           setRoutes]           = useState<LngLat[][]>(() => session.routes);
+  const [selectedRouteIdx, setSelectedRouteIdx] = useState(() => session.selectedRouteIdx);
+  const [routeInfo,        setRouteInfo]        = useState<RouteInfo | null>(() => session.routeInfo);
   /** distancia/duración de CADA ruta alternativa (mismo índice que `routes`) —
    * `routeInfo` refleja solo la ruta activa; `handleSelectRoute` lee de aquí
    * para no dejar `routeInfo` (y por lo tanto `routeKmScale`) pegado a la
    * ruta primaria al cambiar de alternativa. */
-  const [routeInfos,       setRouteInfos]       = useState<(RouteInfo | null)[]>([]);
+  const [routeInfos,       setRouteInfos]       = useState<(RouteInfo | null)[]>(() => session.routeInfos);
 
   // La ruta activa como RouteLineString (para filterIncidentsByRoute)
   const routeGeometry: RouteLineString | null = routes[selectedRouteIdx]
     ? { type: "LineString", coordinates: routes[selectedRouteIdx]! }
     : null;
-  const [incidents,     setIncidents]     = useState<Incident[]>([]);
+  const [incidents,     setIncidents]     = useState<Incident[]>(() => session.incidents);
   const [selectedIncident, setSelectedIncident] = useState<Incident | null>(null);
   const [detailOpen,    setDetailOpen]    = useState(false);
   const [loading,       setLoading]       = useState(false);
@@ -239,8 +248,15 @@ function RoutePlannerContent({
     };
   }, [routes, selectedRouteIdx, routeInfo, incidents]);
 
+  // Si este mount arrancó restaurando una sesión ya buscada (`session.searched`),
+  // `incidents` ya trae la lista filtrada por ruta de `handleSearchWith` — sin
+  // este guard, la carga genérica de abajo la pisaría con incidentes sin
+  // filtrar apenas resuelva, rompiendo la persistencia justo en ese campo.
+  const skipInitialIncidentsFetch = useRef(session.searched);
+
   // Carga inicial y recarga tras crear novedad (incidentRefreshKey incrementa)
   useEffect(() => {
+    if (skipInitialIncidentsFetch.current) { skipInitialIncidentsFetch.current = false; return; }
     void (async () => {
       try {
         const { data } = await getIncidents();
@@ -253,7 +269,7 @@ function RoutePlannerContent({
   const [error,         setError]         = useState<string | null>(null);
   const [pickingIndex,  setPickingIndex]  = useState<PickingIndex>(null);
   const [panelOpen,     setPanelOpen]     = useState(true);
-  const [searched,      setSearched]      = useState(false);
+  const [searched,      setSearched]      = useState(() => session.searched);
   const [helpOpen,      setHelpOpen]      = useState(false);
   const [layoutMode,    setLayoutMode]    = useState<LayoutMode>("panel");
   const [plannerCollapsed, setPlannerCollapsed] = useState(false);
@@ -576,11 +592,30 @@ function RoutePlannerContent({
   }, [focusedKmRange, routeSamples, routeKmScale]);
 
   // ─── Modo de dirección (tabs) ────────────────────────────────────────────
-  const [addressMode,       setAddressMode]       = useState<"url" | "buscar" | "coordenadas">("buscar");
-  const [pasteRouteLinkRaw, setPasteRouteLinkRaw] = useState("");
-  const [pasteOriginCoords, setPasteOriginCoords] = useState<{ lngLat: LngLat; address: string } | null>(null);
-  const [pasteDestCoords,   setPasteDestCoords]   = useState<{ lngLat: LngLat; address: string } | null>(null);
-  const [pasteViaCoords,    setPasteViaCoords]    = useState<Array<{ lngLat: LngLat; address: string }>>([]);
+  const [addressMode,       setAddressMode]       = useState<"url" | "buscar" | "coordenadas">(() => session.addressMode);
+  const [pasteRouteLinkRaw, setPasteRouteLinkRaw] = useState(() => session.pasteRouteLinkRaw);
+  const [pasteOriginCoords, setPasteOriginCoords] = useState<{ lngLat: LngLat; address: string } | null>(() => session.pasteOriginCoords);
+  const [pasteDestCoords,   setPasteDestCoords]   = useState<{ lngLat: LngLat; address: string } | null>(() => session.pasteDestCoords);
+  const [pasteViaCoords,    setPasteViaCoords]    = useState<Array<{ lngLat: LngLat; address: string }>>(() => session.pasteViaCoords);
+
+  // Escribe la sesión de vuelta al Context en cada cambio — ver comentario
+  // arriba de `waypoints`. `session`/`updateSession` no entran a las deps:
+  // el Context solo se lee una vez (inicializadores perezosos de arriba),
+  // nunca reactivamente, así que no hay loop entre este efecto y el Context.
+  useEffect(() => {
+    updateSession({
+      waypoints, addresses, wpIds,
+      routes, selectedRouteIdx, routeInfo, routeInfos,
+      incidents, searched,
+      addressMode, pasteRouteLinkRaw, pasteOriginCoords, pasteDestCoords, pasteViaCoords,
+    });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    waypoints, addresses, wpIds,
+    routes, selectedRouteIdx, routeInfo, routeInfos,
+    incidents, searched,
+    addressMode, pasteRouteLinkRaw, pasteOriginCoords, pasteDestCoords, pasteViaCoords,
+  ]);
 
   const origin      = waypoints[0];
   const destination = waypoints[waypoints.length - 1];
