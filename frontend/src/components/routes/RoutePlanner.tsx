@@ -280,6 +280,12 @@ function RoutePlannerContent({
   const [plannerCollapsed, setPlannerCollapsed] = useState(false);
 
   // ─── ECU911 — vías con restricciones ────────────────────────────────────
+  // ECU911 no da coordenadas exactas por vía — solo un nombre/descripción que
+  // hay que geocodificar a ciegas (primer segmento del texto + "Ecuador"), lo
+  // que frecuentemente ubica el pin en el lugar equivocado. Por eso esta capa
+  // arranca apagada y es opt-in vía `showEcu911Vias`, no algo que se dibuja
+  // solo y puede aparecer roto sin que el usuario lo haya pedido.
+  const [showEcu911Vias,   setShowEcu911Vias]   = useState(false);
   const [viaMarkers,       setViaMarkers]       = useState<ViaGeoMarker[]>([]);
   const [viaConflicts,     setViaConflicts]     = useState<ViaGeoMarker[]>([]);
   const [selectedVia,      setSelectedVia]      = useState<ViaGeoMarker | null>(null);
@@ -291,9 +297,9 @@ function RoutePlannerContent({
     [viaConflicts],
   );
 
-  // Geocodifica las vías ECU911 una sola vez cuando el geocoder está disponible
+  // Geocodifica las vías ECU911 una sola vez, la primera vez que se activa el toggle
   useEffect(() => {
-    if (!geocoder || geocodedRef.current) return;
+    if (!showEcu911Vias || !geocoder || geocodedRef.current) return;
     geocodedRef.current = true;
 
     void (async () => {
@@ -327,7 +333,7 @@ function RoutePlannerContent({
         // Si falla silenciosamente no bloquea el resto del planificador
       }
     })();
-  }, [geocoder]);
+  }, [showEcu911Vias, geocoder]);
 
   // Muestras de alta resolución de la ruta activa (km en escala Haversine,
   // sin corregir) — única fuente para las conversiones bounds↔km más abajo, y
@@ -1068,6 +1074,25 @@ function RoutePlannerContent({
     </Button>
   ) : null;
 
+  // A diferencia de `alertsToggleButton`, este va siempre visible (no solo
+  // cuando hay datos) — es la única forma de activar la capa, que arranca
+  // vacía por defecto.
+  const viasToggleButton = (
+    <Button
+      variant="outline"
+      size="icon-lg"
+      aria-pressed={showEcu911Vias}
+      aria-label={showEcu911Vias ? "Ocultar vías con restricción (ECU911) en el mapa" : "Mostrar vías con restricción (ECU911) en el mapa"}
+      onClick={() => setShowEcu911Vias((v) => !v)}
+      className={cn(
+        "rounded-full border-border/60 bg-background/80 shadow-lg backdrop-blur transition-colors",
+        !showEcu911Vias && "text-muted-foreground/50",
+      )}
+    >
+      <AlertTriangle className="size-4" />
+    </Button>
+  );
+
   // ─── Tabs de modo (se renderizan fuera del formulario, bajo el header) ───────
 
   const addressTabs = (
@@ -1482,7 +1507,7 @@ function RoutePlannerContent({
                 onSelectIncident={handleSelectFromMap}
                 onSelectRoute={handleSelectRoute}
                 onMapClick={(lngLat) => { void handleMapClick(lngLat); }}
-                viaMarkers={searched && routes.length > 0 ? viaConflicts : viaMarkers}
+                viaMarkers={showEcu911Vias ? (searched && routes.length > 0 ? viaConflicts : viaMarkers) : []}
                 onSelectVia={(m) => { setSelectedVia(m); setSelectedMit(null); }}
                 selectedViaId={selectedVia?.via.id ?? null}
                 mitSegments={mitSegmentsVisible}
@@ -1493,9 +1518,10 @@ function RoutePlannerContent({
               />
               {pickModeIndicator}
               {legendPill}
-              {alertsToggleButton ? (
-                <div className="absolute right-4 top-4 z-20">{alertsToggleButton}</div>
-              ) : null}
+              <div className="absolute right-4 top-4 z-20 flex flex-col gap-2">
+                {alertsToggleButton}
+                {viasToggleButton}
+              </div>
               {/* Botón del reporte ANT — flotando centrado arriba del mapa,
                   siempre visible (no depende de ninguna pestaña). */}
               <button
@@ -1600,7 +1626,7 @@ function RoutePlannerContent({
           onSelectIncident={handleSelectFromMap}
           onSelectRoute={handleSelectRoute}
           onMapClick={(lngLat) => { void handleMapClick(lngLat); }}
-          viaMarkers={searched && routes.length > 0 ? viaConflicts : viaMarkers}
+          viaMarkers={showEcu911Vias ? (searched && routes.length > 0 ? viaConflicts : viaMarkers) : []}
           onSelectVia={(m) => { setSelectedVia(m); setSelectedMit(null); }}
           selectedViaId={selectedVia?.via.id ?? null}
           mitSegments={mitSegmentsVisible}
@@ -1648,6 +1674,7 @@ function RoutePlannerContent({
 
       <div className="absolute right-4 top-4 z-10 flex flex-col gap-2">
         {alertsToggleButton}
+        {viasToggleButton}
         <Button
           variant="outline"
           size="icon-lg"
