@@ -31,28 +31,28 @@ interface SeverityMeta {
 
 export const severityMeta: Record<IncidentSeverity, SeverityMeta> = {
   low: {
-    label: "Baja",
+    label: "Bajo",
     hex: "#10b981",
     dotClass: "bg-emerald-500",
     textClass: "text-emerald-600 dark:text-emerald-400",
     ring: "ring-emerald-500/60",
   },
   medium: {
-    label: "Media",
+    label: "Medio",
     hex: "#f59e0b",
     dotClass: "bg-amber-500",
     textClass: "text-amber-600 dark:text-amber-400",
     ring: "ring-amber-500/60",
   },
   high: {
-    label: "Alta",
+    label: "Alto",
     hex: "#f97316",
     dotClass: "bg-orange-500",
     textClass: "text-orange-600 dark:text-orange-400",
     ring: "ring-orange-500/60",
   },
   critical: {
-    label: "Crítica",
+    label: "Crítico",
     hex: "#ef4444",
     dotClass: "bg-red-500",
     textClass: "text-red-600 dark:text-red-400",

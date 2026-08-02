@@ -1,8 +1,9 @@
-import { Route } from "lucide-react";
+import { AlertTriangle, Clock, Route } from "lucide-react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 import { conditionMeta, severityMeta, statusMeta } from "@/lib/incidents/format";
+import { getExpiryState } from "@/lib/incidents/expiry";
 import type { Incident } from "@/types/incident";
 
 interface IncidentSidebarProps {
@@ -101,6 +102,7 @@ export function IncidentSidebar({
               const severity = severityMeta[incident.severity];
               const TypeIcon = conditionMeta[incident.condition ?? 'fisica'].icon;
               const isSelected = selectedIncidentId === incident.id;
+              const expiry = getExpiryState(incident.expires_at, incident.status);
 
               return (
                 <button
@@ -128,6 +130,15 @@ export function IncidentSidebar({
                       <span>{incident.type}</span>
                       <span aria-hidden>·</span>
                       <span>{statusMeta[incident.status].label}</span>
+                      {expiry && (
+                        <span title={expiry === "expired" ? "Necesita seguimiento" : "Por caducar"}>
+                          {expiry === "expired" ? (
+                            <AlertTriangle className="size-3 text-red-500" aria-label="Necesita seguimiento" />
+                          ) : (
+                            <Clock className="size-3 text-amber-500" aria-label="Por caducar" />
+                          )}
+                        </span>
+                      )}
                     </span>
                   </span>
 

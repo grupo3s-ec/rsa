@@ -17,7 +17,7 @@ export function haversineKm(
 export interface RouteSample { point: [number, number]; km: number; }
 
 /** km acumulados de cada punto original de la polilínea (mismo orden que `coords`). */
-function cumulativeKm(coords: Array<[number, number]>): number[] {
+export function cumulativeKm(coords: Array<[number, number]>): number[] {
   const cumKm: number[] = [0];
   for (let i = 1; i < coords.length; i++) {
     cumKm.push(
@@ -222,4 +222,54 @@ export function pointNearPolyline(
   thresholdKm: number,
 ): boolean {
   return polyline.some((p) => haversineKm(point, p) <= thresholdKm);
+}
+
+export interface SnappedPoint { point: [number, number]; km: number; distanceKm: number; }
+
+/**
+ * Ancla un punto aproximado (ej. geocodificado por nombre de lugar, no por
+ * coordenada exacta) sobre el vértice más cercano de la ruta real ya
+ * calculada, en vez de dejarlo en su coordenada cruda — evita que
+ * marcadores/tramos con la misma referencia de lugar (ej. "Macas") queden
+ * flotando fuera de la vía o amontonados lejos de ella. `null` si `coords`
+ * está vacío.
+ */
+export function nearestPointOnRoute(
+  point: { lat: number; lng: number },
+  coords: Array<[number, number]>,
+): SnappedPoint | null {
+  if (coords.length === 0) return null;
+  const cumKm = cumulativeKm(coords);
+  let bestIdx = 0, bestDist = Infinity;
+  for (let i = 0; i < coords.length; i++) {
+    const d = haversineKm(point, { lat: coords[i]![1], lng: coords[i]![0] });
+    if (d < bestDist) { bestDist = d; bestIdx = i; }
+  }
+  return {
+    point: coords[bestIdx]!,
+    km: Math.round(cumKm[bestIdx]! * 10) / 10,
+    distanceKm: Math.round(bestDist * 10) / 10,
+  };
+}
+
+/**
+ * Sub-tramo real de `coords` entre dos posiciones en km (inclusive, en
+ * cualquier orden) — para dibujar el trazado exacto de la ruta entre dos
+ * puntos anclados con `nearestPointOnRoute` en vez de una línea recta o una
+ * ruta calculada aparte entre 2 lugares aproximados. Devuelve al menos 2
+ * puntos aunque el rango sea muy angosto, para poder dibujar una línea.
+ */
+export function sliceRouteByKm(
+  coords: Array<[number, number]>,
+  kmA: number,
+  kmB: number,
+): Array<[number, number]> {
+  if (coords.length === 0) return [];
+  const cumKm = cumulativeKm(coords);
+  const from = Math.min(kmA, kmB), to = Math.max(kmA, kmB);
+  const slice = coords.filter((_, i) => cumKm[i]! >= from && cumKm[i]! <= to);
+  if (slice.length >= 2) return slice;
+
+  const idx = nearestCumKmIndex(cumKm, (from + to) / 2);
+  return [coords[Math.max(0, idx - 1)]!, coords[Math.min(coords.length - 1, idx + 1)]!];
 }

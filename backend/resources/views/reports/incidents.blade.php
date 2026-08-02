@@ -69,7 +69,7 @@
         'checkpoint'  => 'Control',
         'assistance'  => 'Asistencia',
     ];
-    $sevLabels = ['critical' => 'Crítica', 'high' => 'Alta', 'medium' => 'Media', 'low' => 'Baja'];
+    $sevLabels = ['critical' => 'Crítico', 'high' => 'Alto', 'medium' => 'Medio', 'low' => 'Bajo'];
     $statusLabels = ['open' => 'Abierto', 'in_progress' => 'En progreso', 'resolved' => 'Resuelto', 'archived' => 'Archivado'];
     $sourceLabels = ['manual' => 'Manual', 'google_drive' => 'Google Drive', 'geotab' => 'Geotab'];
 @endphp

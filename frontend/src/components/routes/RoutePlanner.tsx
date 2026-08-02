@@ -31,7 +31,9 @@ import {
   Crosshair,
   Flag,
   GripVertical,
+  CarFront,
   HelpCircle,
+  Landmark,
   Link2,
   LoaderCircle,
   Maximize2,
@@ -51,6 +53,7 @@ import { IncidentDetailDialog } from "@/components/incidents/IncidentDetailDialo
 import { IncidentSidebar } from "@/components/incidents/IncidentSidebar";
 import { MapHelpDialog } from "@/components/map/MapHelpDialog";
 import { RouteTimeline } from "@/components/map/RouteTimeline";
+import type { RiesgosSubTab, TimelineTab } from "@/components/map/RouteTimeline";
 import { AntReportDialog } from "@/components/analysis/AntReportDialog";
 import { cn } from "@/lib/utils";
 import { GOOGLE_MAPS_API_KEY } from "@/lib/config";
@@ -72,6 +75,7 @@ import {
   type RawLatLngBounds,
 } from "@/lib/geo";
 import { getMitEventos, type MitAdverseEvent } from "@/lib/api/mit-eventos";
+import { getAntSiniestros, type AntSiniestro } from "@/lib/api/ant-siniestros";
 import { useRoutePlannerSession } from "@/lib/route-planner/session-context";
 import type { Incident } from "@/types/incident";
 import type { Ecu911Response, ViaGeoMarker } from "@/types/ecu911";
@@ -80,20 +84,25 @@ import type { Ecu911Response, ViaGeoMarker } from "@/types/ecu911";
 // duplica aquí (en vez de importar desde RouteMap.tsx, que se carga vía
 // `dynamic(..., { ssr: false })`) para no forzar ese módulo a incluirse en el
 // chunk estático de este archivo y romper su carga diferida.
+// Misma paleta violeta que RouteMap.tsx (VIA_ESTADO_META/MIT_TIPO_HEX de ahí)
+// — familia de color por FUENTE, no por severidad: toda la familia MIT queda
+// en violeta para identificarla de un vistazo frente a ECU911 (azul), ANT
+// (teal) y reportes (semáforo rojo/naranja/ámbar/verde).
 const MIT_TIPO_HEX: Record<string, string> = {
-  'Deslizamiento/Derrumbe':             '#f59e0b',
-  'Socavamiento/Socavón':               '#0ea5e9',
-  'Caída de rocas':                     '#f97316',
-  'Caída de árboles':                   '#10b981',
-  'Pérdida de calzada':                 '#ef4444',
-  'Hundimiento':                        '#f43f5e',
-  'Falla geológica':                    '#8b5cf6',
-  'Inundación/Nivel de agua':           '#3b82f6',
-  'Trabajos programados/Mantenimiento': '#64748b',
-  'Cierre por conflicto social':        '#d946ef',
-  'Colapso de puente/alcantarilla':     '#dc2626',
+  'Deslizamiento/Derrumbe':             '#7c3aed',
+  'Socavamiento/Socavón':               '#8b5cf6',
+  'Caída de rocas':                     '#6d28d9',
+  'Caída de árboles':                   '#a78bfa',
+  'Pérdida de calzada':                 '#5b21b6',
+  'Hundimiento':                        '#7e22ce',
+  'Falla geológica':                    '#6d28d9',
+  'Inundación/Nivel de agua':           '#9333ea',
+  'Trabajos programados/Mantenimiento': '#a78bfa',
+  'Cierre por conflicto social':        '#8b5cf6',
+  'Colapso de puente/alcantarilla':     '#5b21b6',
 };
-const MIT_TIPO_HEX_DEFAULT = '#78716c'; // Otro
+const MIT_TIPO_HEX_DEFAULT = '#c4b5fd'; // Otro
+const ANT_COLOR = '#0d9488'; // Misma constante que RouteMap.tsx
 
 const RouteMap = dynamic(() => import("@/components/map/RouteMap"), {
   ssr: false,
@@ -235,6 +244,13 @@ function RoutePlannerContent({
   const [selectedIncident, setSelectedIncident] = useState<Incident | null>(null);
   const [detailOpen,    setDetailOpen]    = useState(false);
   const [loading,       setLoading]       = useState(false);
+  // Descarta resultados de búsquedas obsoletas — sin esto, arrastrar 2 paradas
+  // en el sidebar en sucesión rápida dispara 2 `handleSearchWith` concurrentes,
+  // y si la respuesta de la PRIMERA (ya obsoleta) llega después que la de la
+  // segunda, pisaba el resultado correcto con uno viejo: "cada vez que se
+  // mueve algo, se daña la ruta y calcula mal" — mismo patrón que
+  // `MitEventosPanel` usa para su paginación.
+  const searchRequestIdRef = useRef(0);
 
   /** Espejo local de lo que se envía por onRouteCalculated — evita depender de un
    * round-trip por el padre solo para alimentar el panel de Alertas/Altimetría/Clima. */
@@ -376,6 +392,36 @@ function RoutePlannerContent({
     [mitConflicts],
   );
 
+  // Capa MIT en el mapa — mismo criterio "opt-in" que `showEcu911Vias`: arranca
+  // apagada para no saturar el mapa con tramos por defecto; se enciende al
+  // activarla manualmente o al entrar a la pestaña Riesgos·MIT del panel.
+  const [showMitSegments, setShowMitSegments] = useState(false);
+
+  // ─── Mapa "como capas de Photoshop" ─────────────────────────────────────
+  // Espeja la pestaña/sub-pestaña activa del panel (RouteTimeline) — cuando el
+  // usuario selecciona una, se ENCIENDE la capa del mapa correspondiente (no
+  // apaga las demás: los toggles manuales siguen sirviendo para combinarlas).
+  // `activeRiesgosSubTab` también filtra qué vías ECU911 se dibujan (solo
+  // cierres vs. todos los estados) mientras esa sub-pestaña siga activa.
+  const [activeRiesgosSubTab, setActiveRiesgosSubTab] = useState<RiesgosSubTab>('cierres');
+  const handleActiveLayerChange = useCallback((tab: TimelineTab, riesgosSubTab: RiesgosSubTab) => {
+    setActiveRiesgosSubTab(riesgosSubTab);
+    if (tab === 'alertas') setShowRouteAlerts(true);
+    if (tab === 'riesgos') {
+      if (riesgosSubTab === 'mit') setShowMitSegments(true);
+      else setShowEcu911Vias(true);
+    }
+  }, []);
+
+  // Vías a dibujar en el mapa — si la sub-pestaña activa de Riesgos es
+  // "Cierres", el mapa muestra SOLO vías cerradas (estado 595) en vez de
+  // los 3 estados juntos, igual que el panel lateral en modo "Cierres".
+  const viaMarkersForMap = useMemo(() => {
+    const base = searched && routes.length > 0 ? viaConflicts : viaMarkers;
+    if (activeRiesgosSubTab !== 'cierres') return base;
+    return base.filter((m) => m.via.estado_actual_id === 595);
+  }, [viaConflicts, viaMarkers, searched, routes.length, activeRiesgosSubTab]);
+
   // Toggle mostrar/ocultar tipo de evento MIT — controla qué tramos se dibujan
   // en el mapa (el panel lateral tiene sus propios botones para esto, pero el
   // estado vive aquí porque el mapa recibe `mitSegments` desde este componente).
@@ -401,6 +447,7 @@ function RoutePlannerContent({
   const [viewportBounds, setViewportBounds] = useState<RawLatLngBounds | null>(null);
 
   const mitSegmentsVisible = useMemo(() => {
+    if (!showMitSegments) return [];
     const byTipo = hiddenMitTipos.size === 0
       ? mitConflicts
       : mitConflicts.filter((e) => !hiddenMitTipos.has(e.tipo_evento));
@@ -415,7 +462,7 @@ function RoutePlannerContent({
       };
       return boundsIntersect(segBounds, viewportBounds);
     });
-  }, [mitConflicts, hiddenMitTipos, viewportBounds]);
+  }, [showMitSegments, mitConflicts, hiddenMitTipos, viewportBounds]);
 
   // Carga el histórico MIT una sola vez — ya viene geocodificado (aproximado)
   // desde el backend, a diferencia de ECU911 no requiere geocodificar aquí.
@@ -476,6 +523,84 @@ function RoutePlannerContent({
     setMitConflicts(conflicts);
     if (conflicts.length > 0) setMitConflictsOpen(true);
   }, [routeSamples, mitEvents]);
+
+  // ─── ANT — siniestros de tránsito (BDD mensual, coordenadas exactas) ──────
+  // A diferencia de MIT (unos cientos de filas), la BDD nacional de la ANT
+  // tiene decenas de miles de siniestros — traerla completa al cliente para
+  // filtrar por proximidad no escala. En vez de eso: 1) opt-in (arranca
+  // apagada, igual que ECU911/MIT), 2) al activarla, reverse-geocodificamos
+  // solo origen+destino de la ruta (2 llamadas, no cientos) para saber qué
+  // provincia(s) pedirle al backend, y 3) recién ahí aplicamos el mismo
+  // filtro de proximidad de 25 km que MIT/ECU911 sobre ese subconjunto ya
+  // acotado por provincia.
+  const [showAntSiniestros, setShowAntSiniestros] = useState(false);
+  const [antSiniestros,     setAntSiniestros]     = useState<AntSiniestro[]>([]);
+  const [antConflicts,      setAntConflicts]      = useState<AntSiniestro[]>([]);
+  const [selectedAnt,       setSelectedAnt]       = useState<AntSiniestro | null>(null);
+  const antFetchedProvinciasRef = useRef<string | null>(null);
+
+  const [antProvincias, setAntProvincias] = useState<string[]>([]);
+  useEffect(() => {
+    if (!showAntSiniestros || !geocoder || routeSamples.length === 0) return;
+    const [lngA, latA] = routeSamples[0]!.point;
+    const [lngB, latB] = routeSamples[routeSamples.length - 1]!.point;
+    const extraerProvincias = (res: google.maps.GeocoderResponse) => res.results
+      .flatMap((r) => r.address_components)
+      .filter((c) => c.types.includes('administrative_area_level_1'))
+      // Mismo formato que guarda la BDD de la ANT: mayúsculas, sin tildes.
+      .map((c) => c.long_name.toUpperCase().normalize('NFD').replace(/[\u0300-\u036f]/g, ''));
+
+    void Promise.allSettled([
+      geocoder.geocode({ location: { lat: latA, lng: lngA } }),
+      geocoder.geocode({ location: { lat: latB, lng: lngB } }),
+    ]).then((results) => {
+      const provincias = new Set<string>();
+      for (const r of results) {
+        if (r.status === 'fulfilled') extraerProvincias(r.value).forEach((p) => provincias.add(p));
+      }
+      setAntProvincias([...provincias]);
+    });
+  }, [showAntSiniestros, geocoder, routeSamples]);
+
+  // Carga los siniestros ANT de esas provincias — una sola vez por conjunto
+  // de provincias (evita repetir la carga si el efecto se re-dispara con la
+  // misma ruta ya resuelta).
+  useEffect(() => {
+    if (!showAntSiniestros || antProvincias.length === 0) return;
+    const key = [...antProvincias].sort().join(',');
+    if (antFetchedProvinciasRef.current === key) return;
+    antFetchedProvinciasRef.current = key;
+
+    void (async () => {
+      const MAX_PAGES = 20; // tope de seguridad — una provincia grande puede tener miles de filas
+      try {
+        const primera = await getAntSiniestros({ provincias: antProvincias, page: 1 });
+        setAntSiniestros((prev) => [...prev, ...primera.data]);
+
+        const ultimaPagina = Math.min(primera.last_page, MAX_PAGES);
+        if (ultimaPagina > 1) {
+          const restantes = await Promise.allSettled(
+            Array.from({ length: ultimaPagina - 1 }, (_, i) => getAntSiniestros({ provincias: antProvincias, page: i + 2 })),
+          );
+          for (const r of restantes) {
+            if (r.status === 'fulfilled') setAntSiniestros((prev) => [...prev, ...r.value.data]);
+          }
+        }
+      } catch {
+        // No bloquea el resto del planificador.
+      }
+    })();
+  }, [showAntSiniestros, antProvincias]);
+
+  // Mismo filtro de proximidad de 25 km que ECU911/MIT.
+  useEffect(() => {
+    if (routeSamples.length === 0 || antSiniestros.length === 0) {
+      setAntConflicts([]);
+      return;
+    }
+    const polyline = routeSamples.map((s) => ({ lat: s.point[1], lng: s.point[0] }));
+    setAntConflicts(antSiniestros.filter((s) => pointNearPolyline({ lat: s.lat, lng: s.lng }, polyline, 25)));
+  }, [routeSamples, antSiniestros]);
 
   // ─── Zoom-detalle: el viewport del mapa (o el selector del gráfico) enfoca
   // el detalle mostrado en el resto de la UI — como el zoom de una línea de
@@ -737,6 +862,8 @@ function RoutePlannerContent({
     const defined = wps.filter((w): w is LngLat => w !== null);
     if (defined.length < 2) return;
 
+    const requestId = ++searchRequestIdRef.current;
+
     setLoading(true);
     setError(null);
     setSearched(true);
@@ -757,6 +884,11 @@ function RoutePlannerContent({
             })),
             travelMode: google.maps.TravelMode.DRIVING,
             provideRouteAlternatives: true,
+            // Mismo sesgo regional que ya se usa en la geocodificación de
+            // texto (ej. línea 2173) — sin esto, la API de Directions puede
+            // preferir una variante distinta a la que muestra maps.google.com
+            // en zonas ambiguas/fronterizas.
+            region: "ec",
             drivingOptions: {
               departureTime: new Date(),
               trafficModel: google.maps.TrafficModel.BEST_GUESS,
@@ -773,6 +905,10 @@ function RoutePlannerContent({
       }),
       directionsPromise,
     ]);
+
+    // Ya hay una búsqueda MÁS NUEVA en curso (o terminada) — descartamos este
+    // resultado obsoleto en vez de pisar lo que el usuario ya está viendo.
+    if (requestId !== searchRequestIdRef.current) return;
 
     let resolvedCoords: LngLat[] | null = null;
     let resolvedDist = 0;
@@ -1090,6 +1226,41 @@ function RoutePlannerContent({
       )}
     >
       <AlertTriangle className="size-4" />
+    </Button>
+  );
+
+  // Mismo criterio que `viasToggleButton`: capa opt-in, arranca apagada.
+  const mitToggleButton = (
+    <Button
+      variant="outline"
+      size="icon-lg"
+      aria-pressed={showMitSegments}
+      aria-label={showMitSegments ? "Ocultar histórico MIT en el mapa" : "Mostrar histórico MIT en el mapa"}
+      onClick={() => setShowMitSegments((v) => !v)}
+      className={cn(
+        "rounded-full border-border/60 bg-background/80 shadow-lg backdrop-blur transition-colors",
+        !showMitSegments && "text-muted-foreground/50",
+      )}
+    >
+      <Landmark className="size-4" />
+    </Button>
+  );
+
+  // Mismo criterio opt-in — además, activarlo dispara la reverse-geocodificación
+  // de origen/destino para acotar por provincia (ver efecto arriba).
+  const antToggleButton = (
+    <Button
+      variant="outline"
+      size="icon-lg"
+      aria-pressed={showAntSiniestros}
+      aria-label={showAntSiniestros ? "Ocultar siniestros ANT en el mapa" : "Mostrar siniestros ANT en el mapa"}
+      onClick={() => setShowAntSiniestros((v) => !v)}
+      className={cn(
+        "rounded-full border-border/60 bg-background/80 shadow-lg backdrop-blur transition-colors",
+        !showAntSiniestros && "text-muted-foreground/50",
+      )}
+    >
+      <CarFront className="size-4" />
     </Button>
   );
 
@@ -1507,12 +1678,15 @@ function RoutePlannerContent({
                 onSelectIncident={handleSelectFromMap}
                 onSelectRoute={handleSelectRoute}
                 onMapClick={(lngLat) => { void handleMapClick(lngLat); }}
-                viaMarkers={showEcu911Vias ? (searched && routes.length > 0 ? viaConflicts : viaMarkers) : []}
-                onSelectVia={(m) => { setSelectedVia(m); setSelectedMit(null); }}
+                viaMarkers={showEcu911Vias ? viaMarkersForMap : []}
+                onSelectVia={(m) => { setSelectedVia(m); setSelectedMit(null); setSelectedAnt(null); }}
                 selectedViaId={selectedVia?.via.id ?? null}
                 mitSegments={mitSegmentsVisible}
-                onSelectMitEvent={(e) => { setSelectedMit(e); setSelectedVia(null); }}
+                onSelectMitEvent={(e) => { setSelectedMit(e); setSelectedVia(null); setSelectedAnt(null); }}
                 selectedMitEventId={selectedMit?.id ?? null}
+                antSiniestros={showAntSiniestros ? antConflicts : []}
+                onSelectAntSiniestro={(s) => { setSelectedAnt(s); setSelectedVia(null); setSelectedMit(null); }}
+                selectedAntId={selectedAnt?.id ?? null}
                 onViewportBoundsChanged={handleViewportBoundsChanged}
                 focusBounds={focusBoundsForMap}
               />
@@ -1521,6 +1695,8 @@ function RoutePlannerContent({
               <div className="absolute right-4 top-4 z-20 flex flex-col gap-2">
                 {alertsToggleButton}
                 {viasToggleButton}
+                {mitToggleButton}
+                {antToggleButton}
               </div>
               {/* Botón del reporte ANT — flotando centrado arriba del mapa,
                   siempre visible (no depende de ninguna pestaña). */}
@@ -1590,6 +1766,10 @@ function RoutePlannerContent({
               {selectedMit ? (
                 <MitConflictPopup event={selectedMit} onClose={() => setSelectedMit(null)} />
               ) : null}
+              {/* Popup de siniestro ANT seleccionado */}
+              {selectedAnt ? (
+                <AntSiniestroPopup siniestro={selectedAnt} onClose={() => setSelectedAnt(null)} />
+              ) : null}
           </>
           {mapOverlay}
         </div>
@@ -1605,6 +1785,7 @@ function RoutePlannerContent({
           focusedGeoBounds={focusedGeoBounds}
           hiddenMitTipos={hiddenMitTipos}
           onToggleMitTipo={toggleMitTipo}
+          onActiveLayerChange={handleActiveLayerChange}
         />
 
         {sharedDialogs}
@@ -1626,12 +1807,15 @@ function RoutePlannerContent({
           onSelectIncident={handleSelectFromMap}
           onSelectRoute={handleSelectRoute}
           onMapClick={(lngLat) => { void handleMapClick(lngLat); }}
-          viaMarkers={showEcu911Vias ? (searched && routes.length > 0 ? viaConflicts : viaMarkers) : []}
-          onSelectVia={(m) => { setSelectedVia(m); setSelectedMit(null); }}
+          viaMarkers={showEcu911Vias ? viaMarkersForMap : []}
+          onSelectVia={(m) => { setSelectedVia(m); setSelectedMit(null); setSelectedAnt(null); }}
           selectedViaId={selectedVia?.via.id ?? null}
           mitSegments={mitSegmentsVisible}
-          onSelectMitEvent={(e) => { setSelectedMit(e); setSelectedVia(null); }}
+          onSelectMitEvent={(e) => { setSelectedMit(e); setSelectedVia(null); setSelectedAnt(null); }}
           selectedMitEventId={selectedMit?.id ?? null}
+          antSiniestros={showAntSiniestros ? antConflicts : []}
+          onSelectAntSiniestro={(s) => { setSelectedAnt(s); setSelectedVia(null); setSelectedMit(null); }}
+          selectedAntId={selectedAnt?.id ?? null}
           onViewportBoundsChanged={handleViewportBoundsChanged}
           focusBounds={focusBoundsForMap}
         />
@@ -1675,6 +1859,8 @@ function RoutePlannerContent({
       <div className="absolute right-4 top-4 z-10 flex flex-col gap-2">
         {alertsToggleButton}
         {viasToggleButton}
+        {mitToggleButton}
+        {antToggleButton}
         <Button
           variant="outline"
           size="icon-lg"
@@ -1784,6 +1970,11 @@ function RoutePlannerContent({
         <MitConflictPopup event={selectedMit} onClose={() => setSelectedMit(null)} />
       ) : null}
 
+      {/* Popup de siniestro ANT seleccionado (modo pantalla completa) */}
+      {selectedAnt ? (
+        <AntSiniestroPopup siniestro={selectedAnt} onClose={() => setSelectedAnt(null)} />
+      ) : null}
+
       {mapOverlay}
       {sharedDialogs}
     </div>
@@ -1829,6 +2020,51 @@ function MitConflictPopup({ event, onClose }: { event: MitAdverseEvent; onClose:
           <span className="font-semibold text-foreground">{event.fuente_nombre}</span>
           <br />
           {event.fuente_boletin}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** Popup con el detalle de un siniestro de tránsito ANT seleccionado en el
+ * mapa — a diferencia de MIT, la ubicación es exacta, no un tramo aproximado. */
+function AntSiniestroPopup({ siniestro, onClose }: { siniestro: AntSiniestro; onClose: () => void }) {
+  return (
+    <div className="absolute bottom-16 left-1/2 z-20 w-80 -translate-x-1/2 rounded-xl border border-border/60 bg-background/90 shadow-xl backdrop-blur">
+      <div className="flex items-start justify-between p-3">
+        <div className="min-w-0 flex-1">
+          <p className="text-xs font-semibold leading-snug text-foreground">{siniestro.direccion ?? siniestro.tipo_siniestro ?? 'Siniestro'}</p>
+          <p className="mt-0.5 text-[11px] text-muted-foreground">
+            {[siniestro.parroquia, siniestro.canton, siniestro.provincia].filter(Boolean).join(', ')}
+          </p>
+        </div>
+        <button type="button" onClick={onClose} className="ml-2 shrink-0 rounded-md p-0.5 text-muted-foreground hover:text-foreground">
+          <X className="size-3.5" />
+        </button>
+      </div>
+      <div className="max-h-64 overflow-y-auto border-t border-border/40 px-3 py-2.5">
+        {siniestro.tipo_siniestro ? (
+          <span
+            className="inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold text-white"
+            style={{ backgroundColor: ANT_COLOR }}
+          >
+            {siniestro.tipo_siniestro}
+          </span>
+        ) : null}
+        <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
+          {siniestro.fecha && <span>{siniestro.fecha}{siniestro.hora ? ` · ${siniestro.hora.slice(0, 5)}` : ''}</span>}
+          {siniestro.lesionados > 0 && <span className="text-amber-600 dark:text-amber-400">{siniestro.lesionados} lesionado{siniestro.lesionados !== 1 ? 's' : ''}</span>}
+          {siniestro.fallecidos > 0 && <span className="text-red-600 dark:text-red-400">{siniestro.fallecidos} fallecido{siniestro.fallecidos !== 1 ? 's' : ''}</span>}
+        </div>
+        {siniestro.causa_probable && (
+          <p className="mt-1.5 text-[11px] leading-relaxed text-muted-foreground">
+            <span className="font-medium text-foreground">Causa probable: </span>{siniestro.causa_probable}
+          </p>
+        )}
+        <div className="mt-2 rounded-lg border border-border/40 bg-background/60 p-2 text-[10px] text-muted-foreground">
+          <span className="font-semibold text-foreground">Base de datos ANT</span>
+          <br />
+          Código {siniestro.codigo}{siniestro.ente_control ? ` · ${siniestro.ente_control}` : ''}
         </div>
       </div>
     </div>

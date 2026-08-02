@@ -14,6 +14,7 @@ import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
 import { ExternalLink, Film, ImageOff, MapPin, Plus, Upload, VideoOff, X } from 'lucide-react';
 import { SeverityBadge } from '@/components/incidents/SeverityBadge';
+import { ExpiryBadge } from '@/components/incidents/ExpiryBadge';
 import {
   conditionMeta,
   formatDateEs,
@@ -26,6 +27,7 @@ import { toast } from 'sonner';
 import {
   addIncidentMedia,
   deleteIncidentMedia,
+  extendIncidentExpiry,
   getIncidentHistory,
   getIncidentMedia,
   updateIncidentStatus,
@@ -174,6 +176,7 @@ export function IncidentDetailDialog({
 
   // Acción de estado en curso
   const [changingTo, setChangingTo] = useState<IncidentStatus | null>(null);
+  const [extending, setExtending] = useState(false);
 
   // Añadir media por URL
   const [showAddMedia, setShowAddMedia] = useState(false);
@@ -224,6 +227,21 @@ export function IncidentDetailDialog({
       toast.error('Error al actualizar');
     } finally {
       setChangingTo(null);
+    }
+  }
+
+  async function handleExtend(): Promise<void> {
+    setExtending(true);
+    try {
+      const { data: updated } = await extendIncidentExpiry(inc.id);
+      setLocal(updated);
+      onStatusChanged?.(updated);
+      getIncidentHistory(inc.id).then(setHistory).catch(() => {});
+      toast.success('Vigencia extendida 30 días');
+    } catch {
+      toast.error('Error al extender');
+    } finally {
+      setExtending(false);
     }
   }
 
@@ -285,6 +303,7 @@ export function IncidentDetailDialog({
             </span>
             <div className="min-w-0 flex-1">
               <SheetTitle className="leading-snug">{inc.title}</SheetTitle>
+              <ExpiryBadge expiresAt={inc.expires_at} status={inc.status} className="mt-1.5" />
             </div>
           </div>
         </SheetHeader>
@@ -342,14 +361,14 @@ export function IncidentDetailDialog({
         </div>
 
         {/* Acciones de estado */}
-        {actions.length > 0 && (
+        {(actions.length > 0 || (inc.status !== 'resolved' && inc.status !== 'archived')) && (
           <div className="flex flex-wrap gap-2">
             {actions.map(action => (
               <Button
                 key={action.to}
                 size="sm"
                 variant={action.primary ? 'default' : 'outline'}
-                disabled={changingTo !== null}
+                disabled={changingTo !== null || extending}
                 onClick={() => { void handleStatusChange(action.to); }}
                 className="text-xs"
               >
@@ -362,6 +381,23 @@ export function IncidentDetailDialog({
                 }
               </Button>
             ))}
+            {inc.status !== 'resolved' && inc.status !== 'archived' && (
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={changingTo !== null || extending}
+                onClick={() => { void handleExtend(); }}
+                className="text-xs"
+              >
+                {extending
+                  ? <span className="flex items-center gap-1.5">
+                      <span className="size-3 animate-spin rounded-full border-2 border-current border-t-transparent" />
+                      Extendiendo…
+                    </span>
+                  : 'Sigue allí · Extender 30 días'
+                }
+              </Button>
+            )}
           </div>
         )}
 
@@ -483,6 +519,8 @@ export function IncidentDetailDialog({
                     <p className="text-xs text-foreground/90">
                       {entry.from_status === null
                         ? 'Incidente creado'
+                        : entry.from_status === entry.to_status
+                        ? 'Seguimiento'
                         : <>{statusMeta[entry.from_status].label}{' → '}<strong>{statusMeta[entry.to_status].label}</strong></>
                       }
                     </p>

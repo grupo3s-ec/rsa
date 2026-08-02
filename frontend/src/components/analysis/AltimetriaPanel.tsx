@@ -165,12 +165,6 @@ export function AltimetriaPanel({ routeCoords }: Props) {
         ) : (
           <ResponsiveContainer width="100%" height="100%">
             <AreaChart data={data} margin={{ top: 10, right: 20, bottom: 0, left: 0 }}>
-              <defs>
-                <linearGradient id="elevGradient" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%"  stopColor="var(--color-primary)" stopOpacity={0.35} />
-                  <stop offset="95%" stopColor="var(--color-primary)" stopOpacity={0.03} />
-                </linearGradient>
-              </defs>
               <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" strokeOpacity={0.4} />
               <XAxis
                 dataKey="km"
@@ -191,13 +185,14 @@ export function AltimetriaPanel({ routeCoords }: Props) {
               <Area
                 type="monotone"
                 dataKey="elevacion"
-                stroke="hsl(var(--primary))"
-                strokeWidth={2}
-                fill="url(#elevGradient)"
+                stroke="#c2410c"
+                strokeWidth={2.5}
+                fill="#fb923c"
+                fillOpacity={0.65}
                 dot={false}
                 activeDot={{
                   r: 5,
-                  fill: 'hsl(var(--primary))',
+                  fill: '#c2410c',
                   stroke: 'hsl(var(--background))',
                   strokeWidth: 2,
                 }}

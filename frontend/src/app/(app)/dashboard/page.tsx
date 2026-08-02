@@ -133,7 +133,7 @@ function DashboardPageContent() {
   const inProgressCount = stats.incidents.by_status['in_progress'] ?? 0;
 
   return (
-    <div className="flex-1 overflow-y-auto">
+    <div className="h-full overflow-y-auto">
       <div className="mx-auto max-w-6xl space-y-6 px-6 py-6">
 
         {/* Indicador de actualización silenciosa */}
@@ -309,7 +309,7 @@ function EmptyChart() {
 
 function DashboardSkeleton() {
   return (
-    <div className="flex-1 overflow-y-auto">
+    <div className="h-full overflow-y-auto">
       <div className="mx-auto max-w-6xl space-y-6 px-6 py-6">
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
           {Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} className="h-[76px] rounded-xl" />)}

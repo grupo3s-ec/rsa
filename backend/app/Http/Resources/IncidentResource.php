@@ -29,6 +29,7 @@ class IncidentResource extends JsonResource
             'source'                    => $this->source,
             'video_url'                 => $this->video_url,
             'occurred_at'               => $this->occurred_at?->toISOString(),
+            'expires_at'                => $this->expires_at?->toISOString(),
             'status'                    => $this->status,
             'geotab_exception_event_id' => $this->geotab_exception_event_id,
             'geotab_device_id'          => $this->geotab_device_id,

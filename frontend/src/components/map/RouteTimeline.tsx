@@ -15,6 +15,7 @@ import {
 import {
   AlertTriangle, Bell, ChevronLeft, ChevronRight, LoaderCircle,
   Mountain, CloudRain, Route, History, Flame, ShieldCheck, ShieldAlert, Landmark, ZoomOut,
+  Thermometer,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -22,6 +23,7 @@ import { subsampleRoute, haversineKm, type RawLatLngBounds } from '@/lib/geo';
 import { conditionMeta, formatDistance, formatDuration, severityMeta } from '@/lib/incidents/format';
 import { CONDICION_META, getPerfilClimatico, mmToCondicion, mmToColor, MES_NOMBRE } from '@/lib/inamhi';
 import { DATOS_PRECIPITACION, ESTACIONES_META } from '@/lib/precipitacion-data';
+import { getCurrentWeather, type CurrentWeather } from '@/lib/api/weather';
 import { CalorPanel } from '@/components/analysis/CalorPanel';
 import { ViaEstadoPanel } from '@/components/analysis/ViaEstadoPanel';
 import { EvaluacionRiesgoPanel } from '@/components/analysis/EvaluacionRiesgoPanel';
@@ -35,8 +37,8 @@ import type { Incident } from '@/types/incident';
 // provincia) y se agrupan bajo "Riesgos en ruta". El reporte ANT se accede
 // desde un botón flotante siempre visible sobre el mapa (ver RoutePlanner),
 // no desde una pestaña — "reportes" ahora solo contiene Evaluación de Riesgo.
-type TimelineTab = 'alertas' | 'perfil' | 'riesgos' | 'reportes';
-type RiesgosSubTab = 'cierres' | 'vias' | 'mit';
+export type TimelineTab = 'alertas' | 'perfil' | 'riesgos' | 'reportes';
+export type RiesgosSubTab = 'cierres' | 'vias' | 'mit';
 interface ElevPoint { km: number; elevacion: number; }
 interface GoogleElevationResponse {
   results: Array<{ elevation: number }>;
@@ -173,11 +175,18 @@ interface Props {
    * tab MIT como los tramos dibujados en el mapa (estado vive en RoutePlanner). */
   hiddenMitTipos?: Set<string>;
   onToggleMitTipo?: (tipo: string) => void;
+  /** Avisa a RoutePlanner qué pestaña/sub-pestaña está activa — así el mapa
+   * "sigue" al panel como capas de Photoshop: seleccionar Alertas activa la
+   * capa de alertas en el mapa, seleccionar Riesgos·MIT activa la capa MIT,
+   * etc. Solo ENCIENDE la capa correspondiente (no apaga las demás) para no
+   * pelearse con los toggles manuales del mapa. */
+  onActiveLayerChange?: (tab: TimelineTab, riesgosSubTab: RiesgosSubTab) => void;
 }
 
 export function RouteTimeline({
   routeData, onSelectIncident, selectedIncidentId, conflictProvinces, mitConflictProvinces,
   focusedKmRange, onFocusedKmRangeChange, focusedGeoBounds, hiddenMitTipos, onToggleMitTipo,
+  onActiveLayerChange,
 }: Props) {
   const [open,         setOpen]         = useState(true);
   const [tab,          setTab]          = useState<TimelineTab>('alertas');
@@ -191,9 +200,31 @@ export function RouteTimeline({
     }
   }, [tab, routeData]);
   const [riesgosSubTab,  setRiesgosSubTab]  = useState<RiesgosSubTab>('cierres');
+
+  // Notifica al padre cada vez que cambia la pestaña o sub-pestaña activa —
+  // así el mapa puede encender la capa correspondiente sin que este panel
+  // necesite saber nada de `RouteMap`/`RoutePlanner`.
+  useEffect(() => {
+    onActiveLayerChange?.(tab, riesgosSubTab);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab, riesgosSubTab]);
   const [showAltimetria, setShowAltimetria] = useState(true);
   const [showClima,      setShowClima]      = useState(true);
   const [showHistorial,setShowHistorial]= useState(false);
+
+  // Clima ACTUAL (Google Weather API) en el punto medio de la ruta — se
+  // suma a la climatología histórica de INAMHI de abajo, no la reemplaza.
+  // `null` = aún no hay dato en vivo (cargando, o el API no respondió).
+  const [currentWeather, setCurrentWeather] = useState<CurrentWeather | null>(null);
+  useEffect(() => {
+    setCurrentWeather(null);
+    if (!routeData || routeData.coords.length === 0) return;
+    const [lng, lat] = routeData.coords[Math.floor(routeData.coords.length / 2)]!;
+    let active = true;
+    void getCurrentWeather(lat, lng).then((w) => { if (active) setCurrentWeather(w); });
+    return () => { active = false; };
+  }, [routeData]);
+
   const [elevPoints,   setElevPoints]   = useState<ElevPoint[]>([]);
   const [incidentKms,  setIncidentKms]  = useState<number[]>([]);
   const [loading,      setLoading]      = useState(false);
@@ -338,14 +369,14 @@ export function RouteTimeline({
       {/* ── Encabezado ── */}
       <div className="flex shrink-0 flex-col gap-2 border-b border-border/40 px-3 py-2.5">
         <div className="flex items-center justify-between gap-2">
-          {/* Tabs */}
-          <div className="flex flex-wrap items-center gap-0.5 rounded-lg border border-border/50 bg-muted/40 p-0.5">
+          {/* Tabs — nowrap + scroll horizontal para garantizar una sola línea */}
+          <div className="flex flex-nowrap items-center gap-0.5 overflow-x-auto rounded-lg border border-border/50 bg-muted/40 p-0.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
             {/* Sin siniestros reportados en la ruta calculada, este tab no
                 tiene nada que mostrar — mejor no ofrecerlo que dejar al
                 usuario mirando un estado vacío. */}
             {(!routeData || routeData.incidents.length > 0) && (
               <button type="button" onClick={() => setTab('alertas')}
-                className={cn('relative flex items-center gap-1 rounded-md px-2 py-0.5 text-[11px] font-medium transition-all hover:scale-[1.03] active:scale-[0.97]',
+                className={cn('relative flex shrink-0 items-center gap-1 rounded-md px-2 py-0.5 text-[11px] font-medium transition-all hover:scale-[1.03] active:scale-[0.97]',
                   tab === 'alertas' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground')}>
                 <Bell className="size-3" /> Alertas
                 {(routeData?.incidents.length ?? 0) > 0 && (
@@ -357,17 +388,17 @@ export function RouteTimeline({
               </button>
             )}
             <button type="button" onClick={() => setTab('perfil')}
-              className={cn('flex items-center gap-1 rounded-md px-2 py-0.5 text-[11px] font-medium transition-all hover:scale-[1.03] active:scale-[0.97]',
+              className={cn('flex shrink-0 items-center gap-1 rounded-md px-2 py-0.5 text-[11px] font-medium transition-all hover:scale-[1.03] active:scale-[0.97]',
                 tab === 'perfil' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground')}>
               <Mountain className="size-3" /> Altimetría · Clima
             </button>
             <button type="button" onClick={() => setTab('riesgos')} title="Cierres · Vías ECU911 · Histórico MIT"
-              className={cn('flex items-center gap-1 rounded-md px-2 py-0.5 text-[11px] font-medium transition-all hover:scale-[1.03] active:scale-[0.97]',
+              className={cn('flex shrink-0 items-center gap-1 rounded-md px-2 py-0.5 text-[11px] font-medium transition-all hover:scale-[1.03] active:scale-[0.97]',
                 tab === 'riesgos' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground')}>
               <ShieldAlert className="size-3" /> Riesgos en ruta
             </button>
             <button type="button" onClick={() => setTab('reportes')} title="Evaluación de Riesgo"
-              className={cn('flex items-center gap-1 rounded-md px-2 py-0.5 text-[11px] font-medium transition-all hover:scale-[1.03] active:scale-[0.97]',
+              className={cn('flex shrink-0 items-center gap-1 rounded-md px-2 py-0.5 text-[11px] font-medium transition-all hover:scale-[1.03] active:scale-[0.97]',
                 tab === 'reportes' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground')}>
               <ShieldCheck className="size-3" /> Evaluación
             </button>
@@ -442,6 +473,26 @@ export function RouteTimeline({
                 </button>
               )}
             </div>
+
+            {/* Clima ACTUAL (Google Weather API) — complementa la climatología
+                histórica INAMHI de abajo, no la reemplaza (son datos distintos:
+                "ahora mismo" vs. "promedio típico de este mes"). Sin chip si el
+                API no respondió — no hay dato en vivo que mostrar. */}
+            {showClima && currentWeather && (
+              <div className="flex items-center gap-1.5 rounded-md border border-sky-500/30 bg-sky-500/5 px-2 py-1 text-[11px] text-foreground/90 w-fit">
+                <Thermometer className="size-3 text-sky-600 dark:text-sky-400" />
+                <span className="font-medium">{Math.round(currentWeather.temperatureC)}°C</span>
+                {currentWeather.conditionText && (
+                  <>
+                    <span className="text-border/60">·</span>
+                    <span className="text-muted-foreground">{currentWeather.conditionText}</span>
+                  </>
+                )}
+                <span className="text-border/60">·</span>
+                <span className="text-muted-foreground">{currentWeather.precipProbabilityPercent}% lluvia</span>
+                <span className="ml-1 text-[10px] text-muted-foreground/60">ahora · Google</span>
+              </div>
+            )}
 
             {!showHistorial && showClima && precipKmData.length > 0 && (
               <span className="text-[11px] text-muted-foreground">
@@ -643,27 +694,6 @@ export function RouteTimeline({
               <div className="min-h-0 flex-1">
               <ResponsiveContainer width="100%" height="100%">
                 <ComposedChart data={perfilChartDataFull} margin={{ top: 4, right: 16, bottom: 0, left: 0 }}>
-                  <defs>
-                    {/*
-                      Paleta estilo mapa topográfico físico:
-                      cima (top SVG = elevación alta) → falda → valle (bottom SVG = base)
-                      rojo-naranja: >3500 m (páramo/nieve)
-                      ámbar:        2000-3500 m (sierra alta)
-                      verde olivo:  1000-2000 m (sierra media/valles)
-                      verde:        500-1000 m  (estribaciones)
-                      cian→azul:    <500 m      (costa/amazonia baja)
-                    */}
-                    <linearGradient id="tlElevTopoFill" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="0%"   stopColor="#dc2626" stopOpacity={0.92} />
-                      <stop offset="12%"  stopColor="#ea580c" stopOpacity={0.88} />
-                      <stop offset="28%"  stopColor="#d97706" stopOpacity={0.82} />
-                      <stop offset="44%"  stopColor="#84cc16" stopOpacity={0.72} />
-                      <stop offset="60%"  stopColor="#16a34a" stopOpacity={0.62} />
-                      <stop offset="76%"  stopColor="#0891b2" stopOpacity={0.48} />
-                      <stop offset="90%"  stopColor="#1d4ed8" stopOpacity={0.25} />
-                      <stop offset="100%" stopColor="#1d4ed8" stopOpacity={0.04} />
-                    </linearGradient>
-                  </defs>
                   <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" strokeOpacity={0.35} />
                   <XAxis dataKey="km" type="number" domain={['dataMin', 'dataMax']}
                     tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }}
@@ -683,10 +713,10 @@ export function RouteTimeline({
                   ))}
                   {showAltimetria && (
                     <Area yAxisId="elev" dataKey="elevacion" type="monotone"
-                      stroke="rgba(255,255,255,0.82)" strokeWidth={1.8}
-                      fill="url(#tlElevTopoFill)" dot={false} connectNulls
+                      stroke="#c2410c" strokeWidth={2.5}
+                      fill="#fb923c" fillOpacity={0.65} dot={false} connectNulls
                       isAnimationActive={false}
-                      activeDot={{ r: 4, fill: '#ffffff', stroke: '#ea580c', strokeWidth: 2 }} />
+                      activeDot={{ r: 4, fill: '#c2410c', stroke: '#ffffff', strokeWidth: 2 }} />
                   )}
                   {showClima && (
                     <Bar yAxisId="precip" dataKey="mm" isAnimationActive={false}
@@ -740,7 +770,7 @@ export function RouteTimeline({
                 filtros), agrupadas aquí en vez de ser 3 pestañas de primer
                 nivel; mismos íconos que tenían como pestaña propia. */}
             <div className="flex shrink-0 items-center gap-0.5 border-b border-border/40 p-1.5">
-              <button type="button" onClick={() => setRiesgosSubTab('cierres')} title="Cierres Viales"
+              <button type="button" onClick={() => setRiesgosSubTab('cierres')} title="Cierres Viales ECU911"
                 className={cn('flex flex-1 items-center justify-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium transition-all hover:scale-[1.02] active:scale-[0.98]',
                   riesgosSubTab === 'cierres' ? 'bg-muted text-foreground' : 'text-muted-foreground hover:text-foreground')}>
                 <Flame className="size-3" /> Cierres

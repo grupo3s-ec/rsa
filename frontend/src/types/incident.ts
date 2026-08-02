@@ -53,6 +53,8 @@ export interface Incident {
   source: IncidentSource;
   video_url: string | null;
   occurred_at: string | null;
+  /** Vigencia del incidente — pasada esta fecha, necesita seguimiento (ver `lib/incidents/expiry.ts`). */
+  expires_at: string | null;
   status: IncidentStatus;
   geotab_exception_event_id: string | null;
   geotab_device_id: string | null;

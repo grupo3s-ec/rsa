@@ -7,7 +7,7 @@
  */
 
 import { useEffect, useMemo, useState } from "react";
-import { ChevronRight, CircleAlert, Inbox } from "lucide-react";
+import { AlertTriangle, ChevronRight, CircleAlert, Clock, Inbox } from "lucide-react";
 import { Alert, AlertTitle } from "@/components/ui/alert";
 import { Skeleton } from "@/components/ui/skeleton";
 import { IncidentDetailDialog } from "@/components/incidents/IncidentDetailDialog";
@@ -18,6 +18,7 @@ import {
   severityMeta,
   statusMeta,
 } from "@/lib/incidents/format";
+import { getExpiryState } from "@/lib/incidents/expiry";
 import { getIncidents } from "@/services/incidents.service";
 import type {
   Incident,
@@ -262,6 +263,7 @@ interface IncidentRowProps {
 function IncidentRow({ incident, onSelect }: IncidentRowProps) {
   const severity = severityMeta[incident.severity];
   const TypeIcon = conditionMeta[incident.condition ?? 'fisica'].icon;
+  const expiry = getExpiryState(incident.expires_at, incident.status);
 
   return (
     <li>
@@ -281,6 +283,15 @@ function IncidentRow({ incident, onSelect }: IncidentRowProps) {
         <span className="min-w-0 flex-1 truncate text-sm font-medium">
           {incident.title}
         </span>
+        {expiry && (
+          <span className="shrink-0" title={expiry === "expired" ? "Necesita seguimiento" : "Por caducar"}>
+            {expiry === "expired" ? (
+              <AlertTriangle className="size-3.5 text-red-500" aria-label="Necesita seguimiento" />
+            ) : (
+              <Clock className="size-3.5 text-amber-500" aria-label="Por caducar" />
+            )}
+          </span>
+        )}
         <span
           className={cn(
             "shrink-0 rounded-full px-2 py-0.5 text-[11px] font-medium",

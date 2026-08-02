@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\Api\Admin\AntImportController;
 use App\Http\Controllers\Api\Admin\AuditController;
 use App\Http\Controllers\Api\Admin\DashboardController;
 use App\Http\Controllers\Api\Admin\GeotabController;
@@ -8,6 +9,7 @@ use App\Http\Controllers\Api\Admin\PredefinedRouteController as AdminRouteContro
 use App\Http\Controllers\Api\Admin\ReportController;
 use App\Http\Controllers\Api\Admin\UserController as AdminUserController;
 use App\Http\Controllers\Api\Admin\VehicleController as AdminVehicleController;
+use App\Http\Controllers\Api\AntAccidentController;
 use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\HazardTypeController;
 use App\Http\Controllers\Api\IncidentController;
@@ -61,6 +63,10 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/mit/eventos-adversos',           [MitAdverseEventController::class, 'index']);
     Route::get('/mit/eventos-adversos/opciones',  [MitAdverseEventController::class, 'opciones']);
 
+    // Siniestros de tránsito ANT (base de datos mensual, coordenadas exactas)
+    Route::get('/ant/siniestros',           [AntAccidentController::class, 'index']);
+    Route::get('/ant/siniestros/opciones',  [AntAccidentController::class, 'opciones']);
+
     // ── Dashboard y Geotab (admin + operator) ────────────────────────────────
     Route::middleware('operator')->prefix('admin')->group(function () {
         Route::get('/dashboard', [DashboardController::class, 'index']);
@@ -85,6 +91,10 @@ Route::middleware('auth:sanctum')->group(function () {
         // así que mit:import/mit:geocode/mit:route se disparan por HTTP, solo admin).
         Route::post('/mit/import', [MitImportController::class, 'run']);
         Route::post('/mit/route',  [MitImportController::class, 'route']);
+
+        // Carga del histórico de siniestros ANT — mismo motivo que MIT arriba.
+        // Se vuelve a correr cada mes al subir un archivo nuevo (reemplaza la tabla).
+        Route::post('/ant/import', [AntImportController::class, 'run']);
 
         // Usuarios
         Route::get('/users',         [AdminUserController::class, 'index']);

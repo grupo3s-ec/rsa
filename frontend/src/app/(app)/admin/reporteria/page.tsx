@@ -35,10 +35,10 @@ const SEV_COLORS: Record<string, string> = {
   low:      '#22c55e',
 };
 const SEV_LABELS: Record<string, string> = {
-  critical: 'Crítica',
-  high:     'Alta',
-  medium:   'Media',
-  low:      'Baja',
+  critical: 'Crítico',
+  high:     'Alto',
+  medium:   'Medio',
+  low:      'Bajo',
 };
 
 const today = new Date().toISOString().split('T')[0]!;

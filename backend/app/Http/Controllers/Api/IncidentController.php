@@ -15,6 +15,9 @@ use Illuminate\Support\Facades\DB;
 
 class IncidentController extends Controller
 {
+    /** Vigencia por defecto de un incidente si no se especifica una fecha de vencimiento. */
+    private const DEFAULT_EXPIRY_DAYS = 30;
+
     public function index(): AnonymousResourceCollection
     {
         $incidents = Incident::query()
@@ -27,7 +30,7 @@ class IncidentController extends Controller
     public function store(StoreIncidentRequest $request): IncidentResource
     {
         $incident = DB::transaction(function () use ($request): Incident {
-            $incident = Incident::query()->create($this->withRisk($this->withHazardType($request->validated())));
+            $incident = Incident::query()->create($this->withDefaultExpiry($this->withRisk($this->withHazardType($request->validated()))));
 
             IncidentHistory::query()->create([
                 'incident_id' => $incident->id,
@@ -52,21 +55,30 @@ class IncidentController extends Controller
     public function update(StoreIncidentRequest $request, Incident $incident): IncidentResource
     {
         $incident = DB::transaction(function () use ($request, $incident): Incident {
-            $previousStatus = $incident->status;
+            $previousStatus    = $incident->status;
+            $previousExpiresAt = $incident->expires_at;
 
             $incident->update($this->withRisk($this->withHazardType($request->validated()), $incident));
+            $incident = $incident->fresh();
 
-            $newStatus = $incident->fresh()->status;
+            $statusChanged = $previousStatus !== $incident->status;
+            $expiryChanged = $request->has('expires_at')
+                && $previousExpiresAt?->toIso8601String() !== $incident->expires_at?->toIso8601String();
 
-            if ($previousStatus !== $newStatus) {
+            if ($statusChanged || $expiryChanged) {
                 IncidentHistory::query()->create([
                     'incident_id' => $incident->id,
                     'user_id'     => $request->user()?->id,
                     'from_status' => $previousStatus,
-                    'to_status'   => $newStatus,
+                    'to_status'   => $incident->status,
                     'note'        => $request->input('note'),
                 ]);
-                Audit::log('incident.status_change', 'incident', $incident->id, "{$incident->title}: {$previousStatus} → {$newStatus}");
+            }
+
+            if ($statusChanged) {
+                Audit::log('incident.status_change', 'incident', $incident->id, "{$incident->title}: {$previousStatus} → {$incident->status}");
+            } elseif ($expiryChanged) {
+                Audit::log('incident.expiry_extended', 'incident', $incident->id, "{$incident->title}: vigencia extendida hasta {$incident->expires_at?->toDateString()}");
             }
 
             return $incident->refresh();
@@ -124,6 +136,23 @@ class IncidentController extends Controller
         4 => [1 => 'medio',    2 => 'alto',     3 => 'alto',     4 => 'muy_alto', 5 => 'extremo' ],
         5 => [1 => 'medio',    2 => 'alto',     3 => 'muy_alto', 4 => 'extremo',  5 => 'extremo' ],
     ];
+
+    /**
+     * Si no se especifica expires_at al crear el incidente, le asigna una
+     * vigencia por defecto — así todo incidente entra al ciclo de
+     * seguimiento/vencimiento aunque el usuario no haya tocado esa fecha.
+     *
+     * @param array<string, mixed> $data
+     * @return array<string, mixed>
+     */
+    private function withDefaultExpiry(array $data): array
+    {
+        if (!isset($data['expires_at'])) {
+            $data['expires_at'] = now()->addDays(self::DEFAULT_EXPIRY_DAYS);
+        }
+
+        return $data;
+    }
 
     /**
      * Agrega risk_score y risk_level a los datos validados si hay probabilidad e impacto.

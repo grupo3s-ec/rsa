@@ -29,6 +29,7 @@ class StoreIncidentRequest extends FormRequest
             'source'         => [$required, 'string', Rule::in(['manual', 'google_drive', 'geotab'])],
             'video_url'      => ['nullable', 'url', 'max:2048'],
             'occurred_at'    => ['nullable', 'date'],
+            'expires_at'     => ['sometimes', 'nullable', 'date'],
             'status'         => ['sometimes', 'string', Rule::in(['open', 'in_progress', 'resolved', 'archived'])],
             'note'           => ['sometimes', 'nullable', 'string', 'max:500'],
             'probability'    => ['sometimes', 'nullable', 'integer', 'between:1,5'],

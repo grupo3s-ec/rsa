@@ -1,48 +1,66 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import {
   AdvancedMarker,
   Map,
   useMap,
 } from "@vis.gl/react-google-maps";
 import { useTheme } from "next-themes";
-import { Flag, CircleX, TriangleAlert, ShieldAlert } from "lucide-react";
+import { Flag, CircleX, TriangleAlert, ShieldAlert, CarFront } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { conditionMeta, severityMeta } from "@/lib/incidents/format";
+import { getExpiryState } from "@/lib/incidents/expiry";
+import { nearestPointOnRoute, sliceRouteByKm } from "@/lib/geo";
 import type { RawLatLngBounds } from "@/lib/geo";
 import type { LngLat, RouteLineString } from "@/lib/mapbox/directions";
 import type { Incident } from "@/types/incident";
 import type { ViaGeoMarker } from "@/types/ecu911";
 import type { MitAdverseEvent } from "@/lib/api/mit-eventos";
+import type { AntSiniestro } from "@/lib/api/ant-siniestros";
+
+// Color propio de la capa ANT — teal, para distinguirla de un vistazo de
+// ECU911 (azul), MIT (violeta) y reportes creados (semáforo rojo/naranja/
+// ámbar/verde).
+const ANT_COLOR = '#0d9488';
 
 const QUITO_CENTER = { lat: -0.1807, lng: -78.4678 };
 // DEMO_MAP_ID habilita AdvancedMarker; en producción crear uno en Google Cloud Console.
 const MAP_ID = "DEMO_MAP_ID";
+// Referencia estable — un `[]` literal nuevo en cada render rompería la
+// memoización de `snappedViaMarkers` y las dependencias del efecto de
+// `MitEventSegment` cuando no hay ruta seleccionada.
+const EMPTY_COORDS: LngLat[] = [];
 
+// Paleta por FUENTE, no por severidad — así se distingue de un vistazo si un
+// símbolo viene de ECU911, de MIT o de un reporte propio (severityMeta se
+// reserva para los reportes creados en la plataforma). Todas las variantes
+// de ECU911 quedan en la familia azul; las de MIT, en la familia violeta.
 const VIA_ESTADO_META: Record<number, { color: string; icon: React.ElementType }> = {
-  592: { color: '#f97316', icon: ShieldAlert  }, // Restricción — naranja
-  594: { color: '#f59e0b', icon: TriangleAlert }, // Parcial — ámbar
-  595: { color: '#dc2626', icon: CircleX       }, // Cerrada — rojo
+  592: { color: '#60a5fa', icon: ShieldAlert  }, // Restricción — azul claro
+  594: { color: '#2563eb', icon: TriangleAlert }, // Parcial — azul medio
+  595: { color: '#1e3a8a', icon: CircleX       }, // Cerrada — azul oscuro
 };
 
 /** Color por tipo_evento del histórico MIT/MTOP — mismas categorías que
  * `MitEventosPanel`, aquí en hex plano porque `google.maps.Polyline` no
- * acepta clases de Tailwind. */
+ * acepta clases de Tailwind. Toda la familia queda en tonos violeta para
+ * identificar la fuente MIT de un vistazo; el tipo específico se distingue
+ * por el ícono en los paneles de lista. */
 export const MIT_TIPO_HEX: Record<string, string> = {
-  'Deslizamiento/Derrumbe':             '#f59e0b',
-  'Socavamiento/Socavón':               '#0ea5e9',
-  'Caída de rocas':                     '#f97316',
-  'Caída de árboles':                   '#10b981',
-  'Pérdida de calzada':                 '#ef4444',
-  'Hundimiento':                        '#f43f5e',
-  'Falla geológica':                    '#8b5cf6',
-  'Inundación/Nivel de agua':           '#3b82f6',
-  'Trabajos programados/Mantenimiento': '#64748b',
-  'Cierre por conflicto social':        '#d946ef',
-  'Colapso de puente/alcantarilla':     '#dc2626',
+  'Deslizamiento/Derrumbe':             '#7c3aed',
+  'Socavamiento/Socavón':               '#8b5cf6',
+  'Caída de rocas':                     '#6d28d9',
+  'Caída de árboles':                   '#a78bfa',
+  'Pérdida de calzada':                 '#5b21b6',
+  'Hundimiento':                        '#7e22ce',
+  'Falla geológica':                    '#6d28d9',
+  'Inundación/Nivel de agua':           '#9333ea',
+  'Trabajos programados/Mantenimiento': '#a78bfa',
+  'Cierre por conflicto social':        '#8b5cf6',
+  'Colapso de puente/alcantarilla':     '#5b21b6',
 };
-const MIT_TIPO_HEX_DEFAULT = '#78716c'; // Otro
+const MIT_TIPO_HEX_DEFAULT = '#c4b5fd'; // Otro
 
 interface RouteMapProps {
   waypoints: (LngLat | null)[];
@@ -67,6 +85,12 @@ interface RouteMapProps {
   onSelectMitEvent?: (event: MitAdverseEvent) => void;
   /** ID del evento MIT actualmente seleccionado (para resaltar). */
   selectedMitEventId?: number | null;
+  /** Siniestros de tránsito ANT cercanos a la ruta calculada (coordenadas exactas). */
+  antSiniestros?: AntSiniestro[];
+  /** Callback al hacer clic en un siniestro ANT. */
+  onSelectAntSiniestro?: (siniestro: AntSiniestro) => void;
+  /** ID del siniestro ANT actualmente seleccionado (para resaltar). */
+  selectedAntId?: number | null;
   /** Se dispara cuando el usuario termina de mover el mapa (zoom/pan), con el
    * viewport visible actual — para enfocar el detalle mostrado en el resto de
    * la UI (gráfico, alertas) a esa zona, como el zoom de una línea de tiempo. */
@@ -293,10 +317,15 @@ function MitEventSegment({
   event,
   isSelected,
   onSelect,
+  routeCoords,
 }: {
   event: MitAdverseEvent;
   isSelected: boolean;
   onSelect?: () => void;
+  /** Coordenadas de la ruta activa calculada — si están disponibles, el tramo
+   * se ancla sobre ellas (ver comentario dentro del efecto) en vez de usar la
+   * geocodificación aproximada del evento tal cual. */
+  routeCoords: LngLat[];
 }) {
   const map = useMap();
 
@@ -317,20 +346,31 @@ function MitEventSegment({
       return;
     }
 
-    // Trazado real por carretera (calculado una vez en el backend vía
-    // `mit:route`) si ya está disponible; si no (tramo aún no procesado, o sin
-    // ruta conocida entre esos dos puntos), cae de vuelta a la línea recta
-    // entre los extremos geocodificados. `ruta_polyline` es un JSON con la
-    // polyline codificada de CADA tramo (`step`) de la ruta por separado (no
-    // la `overview_polyline` única, que Google simplifica para mapas de
-    // escala pequeña) — se decodifica y concatena cada una para un trazado
-    // fiel a la vía real incluso en curvas cerradas.
-    const straightLine = [
-      { lat: event.inicio_lat, lng: event.inicio_lng },
-      { lat: event.fin_lat, lng: event.fin_lng },
-    ];
-    let path: google.maps.LatLng[] | { lat: number; lng: number }[] = straightLine;
-    if (event.ruta_polyline) {
+    // `inicio`/`fin` del evento son aproximados — el boletín MIT solo da un
+    // nombre de lugar, no una coordenada exacta, así que varios eventos
+    // distintos cerca del mismo pueblo geocodifican al MISMO punto (ej. 18
+    // eventos distintos "cerca de Macas"). Dibujar la ruta calculada aparte
+    // entre esos 2 puntos aproximados (o la línea recta) produce un efecto de
+    // "punto de fuga": muchas líneas saliendo del mismo lugar hacia destinos
+    // distintos. En vez de eso, si ya hay una ruta activa calculada, ANCLAMOS
+    // inicio/fin sobre el punto más cercano de esa ruta real y dibujamos el
+    // tramo REAL de la vía entre esos 2 anclajes — siempre coincide con la
+    // curva real de la carretera, y no depende de que el geocoding haya sido preciso.
+    let path: google.maps.LatLng[] | { lat: number; lng: number }[] | null = null;
+    if (routeCoords.length > 0) {
+      const snapInicio = nearestPointOnRoute({ lat: event.inicio_lat, lng: event.inicio_lng }, routeCoords);
+      const snapFin    = nearestPointOnRoute({ lat: event.fin_lat,    lng: event.fin_lng    }, routeCoords);
+      if (snapInicio && snapFin) {
+        path = sliceRouteByKm(routeCoords, snapInicio.km, snapFin.km).map(([lng, lat]) => ({ lat, lng }));
+      }
+    }
+    // Sin ruta activa (o sin poder anclar): trazado real por carretera
+    // calculado una vez en el backend vía `mit:route` si está disponible, o
+    // la línea recta entre los extremos geocodificados como último recurso.
+    // `ruta_polyline` es un JSON con la polyline codificada de CADA tramo
+    // (`step`) por separado (no la `overview_polyline`, que Google simplifica
+    // para mapas de escala pequeña) — se decodifica y concatena cada una.
+    if (!path && event.ruta_polyline) {
       try {
         const steps = JSON.parse(event.ruta_polyline) as string[];
         path = steps.flatMap((step) => window.google.maps.geometry.encoding.decodePath(step));
@@ -339,6 +379,12 @@ function MitEventSegment({
         // JSON de steps) — cae de vuelta a la línea recta en vez de romper
         // el render de este tramo.
       }
+    }
+    if (!path) {
+      path = [
+        { lat: event.inicio_lat, lng: event.inicio_lng },
+        { lat: event.fin_lat, lng: event.fin_lng },
+      ];
     }
     const color = MIT_TIPO_HEX[event.tipo_evento] ?? MIT_TIPO_HEX_DEFAULT;
 
@@ -368,7 +414,7 @@ function MitEventSegment({
       window.google.maps.event.removeListener(listener);
       line.setMap(null);
     };
-  }, [map, event, isSelected]);
+  }, [map, event, isSelected, routeCoords]);
 
   return null;
 }
@@ -390,10 +436,24 @@ export default function RouteMap({
   mitSegments = [],
   onSelectMitEvent,
   selectedMitEventId,
+  antSiniestros = [],
+  onSelectAntSiniestro,
+  selectedAntId,
   onViewportBoundsChanged,
   focusBounds,
 }: RouteMapProps) {
-  const selected = routes[selectedRouteIdx] ?? [];
+  const selected = routes[selectedRouteIdx] ?? EMPTY_COORDS;
+  // Posición anclada de cada vía sobre la ruta activa — memoizado para no
+  // reescanear los miles de puntos de `selected` en cada render de RouteMap
+  // (ej. al cambiar `selectedViaId` para resaltar una vía), solo cuando
+  // realmente cambian los marcadores o la ruta.
+  const snappedViaMarkers = useMemo(
+    () => viaMarkers.map((m) => ({
+      marker: m,
+      position: selected.length > 0 ? nearestPointOnRoute(m.location, selected) : null,
+    })),
+    [viaMarkers, selected],
+  );
   const { resolvedTheme } = useTheme();
   const colorScheme = resolvedTheme === "dark" ? "DARK" : "LIGHT";
   // Compartida entre `BoundsFitter`, `IncidentPanner` y `ViewportSync` — CUALQUIERA
@@ -473,18 +533,44 @@ export default function RouteMap({
           event={event}
           isSelected={selectedMitEventId === event.id}
           onSelect={() => onSelectMitEvent?.(event)}
+          routeCoords={selected}
         />
       ))}
 
-      {/* Vías ECU911 con restricciones */}
-      {viaMarkers.map((m) => {
+      {/* Siniestros de tránsito ANT — a diferencia de ECU911/MIT, la BDD trae
+          coordenadas exactas por siniestro, no hay que anclarlas a la ruta. */}
+      {antSiniestros.map((s) => {
+        const isSelected = selectedAntId === s.id;
+        return (
+          <AdvancedMarker
+            key={s.id}
+            position={{ lat: s.lat, lng: s.lng }}
+            onClick={() => onSelectAntSiniestro?.(s)}
+            title={`${s.tipo_siniestro ?? 'Siniestro'} — ${s.direccion ?? s.canton ?? ''}`}
+          >
+            <div className={cn('flex size-6 items-center justify-center rounded-full border-2 border-white text-white shadow-lg transition-transform hover:scale-110', isSelected && 'scale-125')}
+              style={{ backgroundColor: ANT_COLOR }}>
+              <CarFront className="size-3.5" />
+            </div>
+          </AdvancedMarker>
+        );
+      })}
+
+      {/* Vías ECU911 con restricciones — la descripción del ECU911 solo trae
+          un nombre de lugar, no coordenadas exactas, así que la geocodificación
+          (hecha río arriba en RoutePlanner) puede caer un poco lejos de la vía
+          real. Si hay una ruta activa calculada, anclamos el pin al punto más
+          cercano de esa ruta en vez de dejarlo en su coordenada cruda — mismo
+          criterio que los tramos MIT, ver `MitEventSegment`. */}
+      {snappedViaMarkers.map(({ marker: m, position: snapped }) => {
         const meta = VIA_ESTADO_META[m.via.estado_actual_id] ?? { color: '#6b7280', icon: TriangleAlert };
         const Icon = meta.icon;
         const isSelected = selectedViaId === m.via.id;
+        const position = snapped ? { lat: snapped.point[1], lng: snapped.point[0] } : m.location;
         return (
           <AdvancedMarker
             key={m.via.id}
-            position={m.location}
+            position={position}
             onClick={() => onSelectVia?.(m)}
             title={`${m.via.descripcion} — ${m.via.EstadoActual.nombre}`}
           >
@@ -508,6 +594,7 @@ export default function RouteMap({
         const severity = severityMeta[incident.severity];
         const isSelected = selectedIncidentId === incident.id;
         const isCritical = incident.severity === "critical";
+        const needsFollowUp = getExpiryState(incident.expires_at, incident.status) === 'expired';
 
         return (
           <AdvancedMarker
@@ -532,6 +619,13 @@ export default function RouteMap({
                 />
               ) : null}
               <TypeIcon className="relative size-4" />
+              {needsFollowUp && (
+                <span
+                  aria-hidden
+                  title="Necesita seguimiento"
+                  className="absolute -right-0.5 -top-0.5 flex size-3 items-center justify-center rounded-full border border-white bg-red-500"
+                />
+              )}
             </button>
           </AdvancedMarker>
         );

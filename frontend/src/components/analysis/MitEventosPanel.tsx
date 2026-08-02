@@ -166,7 +166,14 @@ export function MitEventosPanel({ conflictProvinces, focusedBounds, hiddenTipos 
   }, [search]);
 
   useEffect(() => {
-    getMitEventosOpciones().then(setOpciones).catch(() => setOpciones(null));
+    getMitEventosOpciones()
+      .then(data => {
+        setOpciones(data);
+        // Por defecto mostramos el año más reciente en vez de mezclar todos
+        // los años del histórico — más intuitivo para un primer vistazo.
+        setBoletinAnio(prev => prev || (data.boletin_anios[0] ? String(data.boletin_anios[0]) : ''));
+      })
+      .catch(() => setOpciones(null));
   }, []);
 
   // Descarta respuestas obsoletas si llegan fuera de orden.

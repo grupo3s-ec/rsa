@@ -37,6 +37,18 @@ export function updateIncidentStatus(
   );
 }
 
+export function extendIncidentExpiry(
+  id: number,
+  days = 30,
+): Promise<ApiResourceResponse<Incident>> {
+  const expiresAt = new Date();
+  expiresAt.setDate(expiresAt.getDate() + days);
+  return apiClient.patch<ApiResourceResponse<Incident>, { expires_at: string; note: string }>(
+    `/incidents/${id}`,
+    { expires_at: expiresAt.toISOString(), note: `Seguimiento: se extiende vigencia ${days} días` },
+  );
+}
+
 export function getIncidentHistory(id: number): Promise<IncidentHistoryEntry[]> {
   return apiClient.get<IncidentHistoryEntry[]>(`/incidents/${id}/history`);
 }
