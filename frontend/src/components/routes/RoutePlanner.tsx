@@ -401,10 +401,17 @@ function RoutePlannerContent({
   // Espeja la pestaña/sub-pestaña activa del panel (RouteTimeline) — cuando el
   // usuario selecciona una, se ENCIENDE la capa del mapa correspondiente (no
   // apaga las demás: los toggles manuales siguen sirviendo para combinarlas).
-  // `activeRiesgosSubTab` también filtra qué vías ECU911 se dibujan (solo
-  // cierres vs. todos los estados) mientras esa sub-pestaña siga activa.
+  // El filtro "solo Cierres" (ver `viaMarkersForMap` abajo) exige ADEMÁS que
+  // la pestaña de nivel superior sea 'riesgos' — si solo mirásemos
+  // `activeRiesgosSubTab`, su valor por defecto ('cierres') seguía activo
+  // aunque el usuario nunca hubiera abierto Riesgos, y el botón flotante
+  // manual de "vías" (independiente del panel) quedaba silenciosamente
+  // acotado a solo cierres — con pocas o ninguna cerrada en la ruta, parecía
+  // que el toggle "no mostraba nada".
+  const [activeTimelineTab, setActiveTimelineTab] = useState<TimelineTab>('alertas');
   const [activeRiesgosSubTab, setActiveRiesgosSubTab] = useState<RiesgosSubTab>('cierres');
   const handleActiveLayerChange = useCallback((tab: TimelineTab, riesgosSubTab: RiesgosSubTab) => {
+    setActiveTimelineTab(tab);
     setActiveRiesgosSubTab(riesgosSubTab);
     if (tab === 'alertas') setShowRouteAlerts(true);
     if (tab === 'riesgos') {
@@ -413,14 +420,16 @@ function RoutePlannerContent({
     }
   }, []);
 
-  // Vías a dibujar en el mapa — si la sub-pestaña activa de Riesgos es
-  // "Cierres", el mapa muestra SOLO vías cerradas (estado 595) en vez de
-  // los 3 estados juntos, igual que el panel lateral en modo "Cierres".
+  // Vías a dibujar en el mapa — si el panel está activamente en Riesgos →
+  // Cierres, el mapa muestra SOLO vías cerradas (estado 595); en cualquier
+  // otro caso (incluido el toggle manual sin el panel en esa vista exacta),
+  // muestra todos los estados.
+  const soloCierres = activeTimelineTab === 'riesgos' && activeRiesgosSubTab === 'cierres';
   const viaMarkersForMap = useMemo(() => {
     const base = searched && routes.length > 0 ? viaConflicts : viaMarkers;
-    if (activeRiesgosSubTab !== 'cierres') return base;
+    if (!soloCierres) return base;
     return base.filter((m) => m.via.estado_actual_id === 595);
-  }, [viaConflicts, viaMarkers, searched, routes.length, activeRiesgosSubTab]);
+  }, [viaConflicts, viaMarkers, searched, routes.length, soloCierres]);
 
   // Toggle mostrar/ocultar tipo de evento MIT — controla qué tramos se dibujan
   // en el mapa (el panel lateral tiene sus propios botones para esto, pero el
