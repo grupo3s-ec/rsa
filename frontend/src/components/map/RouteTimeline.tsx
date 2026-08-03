@@ -15,7 +15,7 @@ import {
 import {
   AlertTriangle, Bell, ChevronLeft, ChevronRight, LoaderCircle,
   Mountain, CloudRain, Route, History, Flame, ShieldCheck, ShieldAlert, Landmark, ZoomOut,
-  Thermometer,
+  Thermometer, CarFront,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -26,7 +26,8 @@ import { DATOS_PRECIPITACION, ESTACIONES_META } from '@/lib/precipitacion-data';
 import { getCurrentWeather, type CurrentWeather } from '@/lib/api/weather';
 import { CalorPanel } from '@/components/analysis/CalorPanel';
 import { ViaEstadoPanel } from '@/components/analysis/ViaEstadoPanel';
-import { EvaluacionRiesgoPanel } from '@/components/analysis/EvaluacionRiesgoPanel';
+import { RiskEvaluationPanel } from '@/components/analysis/RiskEvaluationPanel';
+import { AntSiniestrosPanel } from '@/components/analysis/AntSiniestrosPanel';
 import { MitEventosPanel } from '@/components/analysis/MitEventosPanel';
 import type { RouteCalculatedData } from '@/components/routes/RoutePlanner';
 import type { Incident } from '@/types/incident';
@@ -38,7 +39,7 @@ import type { Incident } from '@/types/incident';
 // desde un botón flotante siempre visible sobre el mapa (ver RoutePlanner),
 // no desde una pestaña — "reportes" ahora solo contiene Evaluación de Riesgo.
 export type TimelineTab = 'alertas' | 'perfil' | 'riesgos' | 'reportes';
-export type RiesgosSubTab = 'cierres' | 'vias' | 'mit';
+export type RiesgosSubTab = 'cierres' | 'vias' | 'mit' | 'ant';
 interface ElevPoint { km: number; elevacion: number; }
 interface GoogleElevationResponse {
   results: Array<{ elevation: number }>;
@@ -785,24 +786,31 @@ export function RouteTimeline({
                   riesgosSubTab === 'mit' ? 'bg-muted text-foreground' : 'text-muted-foreground hover:text-foreground')}>
                 <Landmark className="size-3" /> MIT
               </button>
+              <button type="button" onClick={() => setRiesgosSubTab('ant')} title="Siniestros de Tránsito ANT"
+                className={cn('flex flex-1 items-center justify-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium transition-all hover:scale-[1.02] active:scale-[0.98]',
+                  riesgosSubTab === 'ant' ? 'bg-muted text-foreground' : 'text-muted-foreground hover:text-foreground')}>
+                <CarFront className="size-3" /> ANT
+              </button>
             </div>
             <div className="min-h-0 flex-1">
               {riesgosSubTab === 'cierres' ? (
                 <CalorPanel filterProvinces={routeData ? (conflictProvinces ?? null) : null} />
               ) : riesgosSubTab === 'vias' ? (
                 <ViaEstadoPanel conflictProvinces={routeData ? (conflictProvinces ?? null) : null} />
-              ) : (
+              ) : riesgosSubTab === 'mit' ? (
                 <MitEventosPanel
                   conflictProvinces={routeData ? (mitConflictProvinces ?? null) : null}
                   focusedBounds={routeData ? (focusedGeoBounds ?? null) : null}
                   hiddenTipos={hiddenMitTipos}
                   onToggleTipo={onToggleMitTipo}
                 />
+              ) : (
+                <AntSiniestrosPanel conflictProvinces={routeData ? (conflictProvinces ?? null) : null} />
               )}
             </div>
           </div>
         ) : (
-          <EvaluacionRiesgoPanel />
+          <RiskEvaluationPanel />
         )}
       </div>
     </div>
