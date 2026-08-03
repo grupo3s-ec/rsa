@@ -51,10 +51,16 @@ class RiskEvaluationOdsParser
         $spreadsheet = $reader->load($path);
 
         try {
+            // La hoja principal también tiene una columna "Link Videos" (para
+            // abrir el video de ese km), así que "contiene la palabra link"
+            // por sí solo no basta para identificar la hoja Tabla_Riesgos —
+            // sin el `!headerHas($h, 'kil')`, `findSheet` (que devuelve la
+            // PRIMERA coincidencia) se quedaba con la hoja principal para
+            // las 4 detecciones, dejando el lookup de imágenes vacío.
             $principal = $this->findSheet($spreadsheet, fn (array $h) => $this->headerHas($h, 'kil') && $this->headerHas($h, 'latitud'));
-            $tablaRiesgos = $this->findSheet($spreadsheet, fn (array $h) => $this->headerHas($h, 'tipo de condici') && $this->headerHas($h, 'impacto') && $this->headerHas($h, 'link'));
-            $linksVideos = $this->findSheet($spreadsheet, fn (array $h) => $this->headerHas($h, 'nombre del archivo') && $this->headerHas($h, 'enlace de drive') && !$this->headerHas($h, 'ndici'));
-            $linksSenaletica = $this->findSheet($spreadsheet, fn (array $h) => $this->headerHas($h, 'nombre del archivo') && $this->headerHas($h, 'enlace de drive') && $this->headerHas($h, 'ndici'));
+            $tablaRiesgos = $this->findSheet($spreadsheet, fn (array $h) => !$this->headerHas($h, 'kil') && $this->headerHas($h, 'tipo de condici') && $this->headerHas($h, 'impacto') && $this->headerHas($h, 'link'));
+            $linksVideos = $this->findSheet($spreadsheet, fn (array $h) => !$this->headerHas($h, 'kil') && $this->headerHas($h, 'nombre del archivo') && $this->headerHas($h, 'enlace de drive') && !$this->headerHas($h, 'ndici'));
+            $linksSenaletica = $this->findSheet($spreadsheet, fn (array $h) => !$this->headerHas($h, 'kil') && $this->headerHas($h, 'nombre del archivo') && $this->headerHas($h, 'enlace de drive') && $this->headerHas($h, 'ndici'));
 
             if (!$principal) {
                 throw new RuntimeException('No se encontró la hoja principal (columnas Kilómetro/Latitud) en el archivo.');

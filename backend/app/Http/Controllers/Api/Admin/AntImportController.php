@@ -26,7 +26,9 @@ class AntImportController extends Controller
     public function upload(Request $request, AntSiniestrosImporter $importer): JsonResponse
     {
         $request->validate([
-            'file' => ['required', 'file', 'mimes:xlsx', 'max:512000'], // 500 MB
+            // Igual al tope real de upload_max_filesize del Dockerfile (250M)
+            // — subir más que eso ya lo corta PHP antes de llegar aquí.
+            'file' => ['required', 'file', 'mimes:xlsx', 'max:256000'],
         ]);
 
         $path = $request->file('file')->getRealPath();

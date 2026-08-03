@@ -38,8 +38,12 @@ class AntAccident extends Model
     {
         return [
             'fecha'         => 'date',
-            'lat'           => 'decimal:7',
-            'lng'           => 'decimal:7',
+            // 'float', no 'decimal:7' — el cast decimal serializa a JSON
+            // como string (a propósito, para no perder precisión), y el
+            // frontend espera un number tal cual (mismo criterio que
+            // MitAdverseEvent, que ya usa 'float' por esto mismo).
+            'lat'           => 'float',
+            'lng'           => 'float',
             'feriado'       => 'boolean',
             'lesionados'    => 'integer',
             'fallecidos'    => 'integer',

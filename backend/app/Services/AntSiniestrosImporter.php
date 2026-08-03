@@ -5,8 +5,8 @@ namespace App\Services;
 use App\Models\AntAccident;
 use Illuminate\Support\Carbon;
 use PhpOffice\PhpSpreadsheet\Cell\Coordinate;
-use PhpOffice\PhpSpreadsheet\Cell\IReadFilter;
 use PhpOffice\PhpSpreadsheet\IOFactory;
+use PhpOffice\PhpSpreadsheet\Reader\IReadFilter;
 use PhpOffice\PhpSpreadsheet\Reader\Xlsx;
 use PhpOffice\PhpSpreadsheet\Spreadsheet;
 use PhpOffice\PhpSpreadsheet\Worksheet\Worksheet;
@@ -50,10 +50,19 @@ class AntSiniestrosImporter
 
     private function columnFilter(): IReadFilter
     {
-        return new class implements IReadFilter {
+        // Comparar letras de columna con `<=` es comparación de strings, no
+        // de índice ("C" <= "BT" es FALSE porque "C" > "B" alfabéticamente)
+        // — con eso, todas las columnas de una sola letra entre C y Z quedan
+        // excluidas y sus celdas (incluida LATITUD_Y/LONGITUD_X) devuelven
+        // null. Hay que comparar por índice numérico de columna.
+        $lastIndex = Coordinate::columnIndexFromString(self::LAST_COLUMN);
+
+        return new class($lastIndex) implements IReadFilter {
+            public function __construct(private readonly int $lastIndex) {}
+
             public function readCell($column, $row, $worksheetName = ''): bool
             {
-                return $row === 1 || $column <= AntSiniestrosImporter::LAST_COLUMN;
+                return $row === 1 || Coordinate::columnIndexFromString($column) <= $this->lastIndex;
             }
         };
     }
@@ -120,9 +129,7 @@ class AntSiniestrosImporter
 
             $nd = static fn (mixed $v) => ($v === null || $v === 'ND' || $v === '') ? null : (string) $v;
 
-            $existia = AntAccident::query()->where('codigo', $row['codigo'])->exists();
-
-            AntAccident::query()->updateOrCreate(
+            $accident = AntAccident::query()->updateOrCreate(
                 ['codigo' => (string) $row['codigo']],
                 [
                     'anio'               => (int) ($row['anio'] ?? 0),
@@ -152,7 +159,7 @@ class AntSiniestrosImporter
                 ],
             );
 
-            $existia ? $actualizados++ : $creados++;
+            $accident->wasRecentlyCreated ? $creados++ : $actualizados++;
         }
 
         return ['creados' => $creados, 'actualizados' => $actualizados, 'omitidos' => $omitidos, 'total' => $total];
