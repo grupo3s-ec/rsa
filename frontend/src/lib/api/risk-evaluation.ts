@@ -42,6 +42,15 @@ export interface RiskEvaluationUploadResult {
 
 /** Sube el .ods de Evaluación de Riesgo — parsea las 4 hojas y hace upsert
  * por km directo en el backend. */
+/** URL del reporte PDF de riesgos de ruta (mapa con símbolos + tabla por
+ * tramos de 50km) — la descarga real va con token en el header (ver
+ * `downloadWithAuth` en RiskEvaluationPanel), un <a href> plano no manda auth. */
+export function getRouteRiskReportPdfUrl(evaluationId?: number): string {
+  const base = (process.env.NEXT_PUBLIC_API_BASE_URL ?? '').replace(/\/$/, '');
+  const qs = evaluationId ? `?evaluation_id=${evaluationId}` : '';
+  return `${base}/admin/reports/route-risk/export-pdf${qs}`;
+}
+
 export function uploadRiskEvaluation(file: File, nombre: string): Promise<RiskEvaluationUploadResult> {
   const form = new FormData();
   form.append('file', file);

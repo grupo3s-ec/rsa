@@ -1,13 +1,30 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { AlertTriangle, Camera, ChevronDown, ChevronUp, MapPinned } from 'lucide-react';
+import { AlertTriangle, Camera, ChevronDown, ChevronUp, Download, LoaderCircle, MapPinned } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Skeleton } from '@/components/ui/skeleton';
-import { getRiskEvaluation, type RiskEvaluationKmPoint } from '@/lib/api/risk-evaluation';
+import { getRiskEvaluation, getRouteRiskReportPdfUrl, type RiskEvaluationKmPoint } from '@/lib/api/risk-evaluation';
 import { impactoHex, maxImpactoHex } from '@/lib/risk-evaluation';
 import { driveThumbnailUrl } from '@/lib/drive';
 import { toEmbedUrl } from '@/lib/incidents/format';
+import { getToken } from '@/lib/auth/token';
+
+/** Descarga con el token de auth en el header — un <a href> plano no lo
+ * manda, y el endpoint requiere sesión de admin (mismo patrón que
+ * admin/reporteria). El PDF tarda unos segundos (llama a Places API y a
+ * Static Maps del lado del backend), de ahí el estado de carga. */
+async function downloadWithAuth(url: string, filename: string): Promise<void> {
+  const token = getToken();
+  const res = await fetch(url, { headers: token ? { Authorization: `Bearer ${token}` } : {} });
+  if (!res.ok) throw new Error(`No se pudo generar el PDF (${res.status}).`);
+  const blob = await res.blob();
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
 
 const TRAMO_SIZE_KM = 50;
 
@@ -108,12 +125,26 @@ export function RiskEvaluationPanel() {
   const [kms, setKms] = useState<RiskEvaluationKmPoint[] | null>(null);
   const [error, setError] = useState(false);
   const [tramo, setTramo] = useState<number | null>(null);
+  const [evaluationId, setEvaluationId] = useState<number | undefined>(undefined);
+  const [downloadingPdf, setDownloadingPdf] = useState(false);
 
   useEffect(() => {
     getRiskEvaluation()
-      .then((res) => setKms(res.kms))
+      .then((res) => { setKms(res.kms); setEvaluationId(res.evaluation?.id); })
       .catch(() => setError(true));
   }, []);
+
+  async function handleDownloadPdf(): Promise<void> {
+    if (downloadingPdf) return;
+    setDownloadingPdf(true);
+    try {
+      await downloadWithAuth(getRouteRiskReportPdfUrl(evaluationId), 'reporte-riesgos-ruta.pdf');
+    } catch {
+      // El botón vuelve a su estado normal — el usuario puede reintentar.
+    } finally {
+      setDownloadingPdf(false);
+    }
+  }
 
   const tramos = useMemo(() => {
     if (!kms || kms.length === 0) return [];
@@ -130,10 +161,24 @@ export function RiskEvaluationPanel() {
   return (
     <div className="flex h-full flex-col bg-background">
       <div className="shrink-0 p-4 pb-3 border-b border-border/40">
-        <h2 className="text-sm font-semibold text-foreground flex items-center gap-2">
-          <MapPinned className="size-4 text-emerald-600 dark:text-emerald-400" />
-          Evaluación de Riesgo por Km
-        </h2>
+        <div className="flex items-start justify-between gap-2">
+          <h2 className="text-sm font-semibold text-foreground flex items-center gap-2">
+            <MapPinned className="size-4 text-emerald-600 dark:text-emerald-400" />
+            Evaluación de Riesgo por Km
+          </h2>
+          {kms && kms.length > 0 && (
+            <button
+              type="button"
+              onClick={() => { void handleDownloadPdf(); }}
+              disabled={downloadingPdf}
+              title="Descargar reporte PDF con mapa de riesgos principales y gasolineras/UPC cercanas"
+              className="flex shrink-0 items-center gap-1 rounded-md border border-border/50 px-2 py-1 text-[10px] font-medium text-muted-foreground transition-colors hover:text-foreground hover:border-border disabled:opacity-50"
+            >
+              {downloadingPdf ? <LoaderCircle className="size-3 animate-spin" /> : <Download className="size-3" />}
+              PDF
+            </button>
+          )}
+        </div>
         {kms && kms.length > 0 && (
           <p className="mt-0.5 text-[11px] text-muted-foreground">
             {kms.length} km evaluados · {tramo === null ? 'todos los tramos' : `tramo Km ${tramo}-${tramo + TRAMO_SIZE_KM - 1}`}

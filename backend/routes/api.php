@@ -8,6 +8,7 @@ use App\Http\Controllers\Api\Admin\MitImportController;
 use App\Http\Controllers\Api\Admin\PredefinedRouteController as AdminRouteController;
 use App\Http\Controllers\Api\Admin\ReportController;
 use App\Http\Controllers\Api\Admin\RiskEvaluationImportController;
+use App\Http\Controllers\Api\Admin\RouteRiskReportController;
 use App\Http\Controllers\Api\Admin\UserController as AdminUserController;
 use App\Http\Controllers\Api\Admin\VehicleController as AdminVehicleController;
 use App\Http\Controllers\Api\AntAccidentController;
@@ -88,6 +89,7 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/reports/incidents',            [ReportController::class, 'incidents']);
         Route::get('/reports/incidents/export',     [ReportController::class, 'export']);
         Route::get('/reports/incidents/export-pdf', [ReportController::class, 'exportPdf']);
+        Route::get('/reports/route-risk/export-pdf', [RouteRiskReportController::class, 'exportPdf']);
 
         // Auditoría
         Route::get('/audit', [AuditController::class, 'index']);
