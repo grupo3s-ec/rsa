@@ -7,17 +7,19 @@ import {
   useMap,
 } from "@vis.gl/react-google-maps";
 import { useTheme } from "next-themes";
-import { Flag, CircleX, TriangleAlert, ShieldAlert, CarFront } from "lucide-react";
+import { Flag, CircleX, TriangleAlert, ShieldAlert, CarFront, Camera } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { conditionMeta, severityMeta } from "@/lib/incidents/format";
 import { getExpiryState } from "@/lib/incidents/expiry";
 import { nearestPointOnRoute, sliceRouteByKm } from "@/lib/geo";
+import { maxImpactoHex } from "@/lib/risk-evaluation";
 import type { RawLatLngBounds } from "@/lib/geo";
 import type { LngLat, RouteLineString } from "@/lib/mapbox/directions";
 import type { Incident } from "@/types/incident";
 import type { ViaGeoMarker } from "@/types/ecu911";
 import type { MitAdverseEvent } from "@/lib/api/mit-eventos";
 import type { AntSiniestro } from "@/lib/api/ant-siniestros";
+import type { RiskEvaluationKmPoint } from "@/lib/api/risk-evaluation";
 
 // Color propio de la capa ANT — teal, para distinguirla de un vistazo de
 // ECU911 (azul), MIT (violeta) y reportes creados (semáforo rojo/naranja/
@@ -91,6 +93,12 @@ interface RouteMapProps {
   onSelectAntSiniestro?: (siniestro: AntSiniestro) => void;
   /** ID del siniestro ANT actualmente seleccionado (para resaltar). */
   selectedAntId?: number | null;
+  /** Puntos de la Evaluación de Riesgo por km cercanos a la ruta calculada. */
+  riskEvaluationKms?: RiskEvaluationKmPoint[];
+  /** Callback al hacer clic en un punto de Evaluación de Riesgo. */
+  onSelectRiskKm?: (km: RiskEvaluationKmPoint) => void;
+  /** ID del km de Evaluación de Riesgo actualmente seleccionado (para resaltar). */
+  selectedRiskKmId?: number | null;
   /** Se dispara cuando el usuario termina de mover el mapa (zoom/pan), con el
    * viewport visible actual — para enfocar el detalle mostrado en el resto de
    * la UI (gráfico, alertas) a esa zona, como el zoom de una línea de tiempo. */
@@ -439,6 +447,9 @@ export default function RouteMap({
   antSiniestros = [],
   onSelectAntSiniestro,
   selectedAntId,
+  riskEvaluationKms = [],
+  onSelectRiskKm,
+  selectedRiskKmId,
   onViewportBoundsChanged,
   focusBounds,
 }: RouteMapProps) {
@@ -551,6 +562,27 @@ export default function RouteMap({
             <div className={cn('flex size-6 items-center justify-center rounded-full border-2 border-white text-white shadow-lg transition-transform hover:scale-110', isSelected && 'scale-125')}
               style={{ backgroundColor: ANT_COLOR }}>
               <CarFront className="size-3.5" />
+            </div>
+          </AdvancedMarker>
+        );
+      })}
+
+      {/* Evaluación de Riesgo por km — coordenadas exactas del levantamiento
+          en campo; el color es el impacto más alto entre las condiciones de
+          ese km (mismo semáforo que las severidades de incidentes). */}
+      {riskEvaluationKms.map((km) => {
+        const isSelected = selectedRiskKmId === km.id;
+        const color = maxImpactoHex(km.conditions);
+        return (
+          <AdvancedMarker
+            key={km.id}
+            position={{ lat: km.lat, lng: km.lng }}
+            onClick={() => onSelectRiskKm?.(km)}
+            title={`${km.km_label} — ${km.conditions.length} condición${km.conditions.length !== 1 ? 'es' : ''}`}
+          >
+            <div className={cn('flex size-6 items-center justify-center rounded-full border-2 border-white text-white shadow-lg transition-transform hover:scale-110', isSelected && 'scale-125')}
+              style={{ backgroundColor: color }}>
+              <Camera className="size-3.5" />
             </div>
           </AdvancedMarker>
         );

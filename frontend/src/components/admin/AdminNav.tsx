@@ -2,13 +2,14 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { BarChart2, ClipboardList, Database, Route, Settings, Truck, Users } from 'lucide-react';
+import { BarChart2, ClipboardList, Database, Route, Settings, Truck, Upload, Users } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/lib/auth/context';
 
 const ANALYSIS_LINKS = [
   { href: '/admin/reporteria', label: 'Reportería', icon: BarChart2, adminOnly: true },
   { href: '/admin/auditoria',  label: 'Auditoría',  icon: ClipboardList, adminOnly: true },
+  { href: '/admin/datos',      label: 'Carga de datos', icon: Upload, adminOnly: true },
 ] as const;
 
 const CONFIG_LINKS = [

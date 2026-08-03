@@ -32,6 +32,7 @@ import {
   Flag,
   GripVertical,
   CarFront,
+  Camera,
   HelpCircle,
   Landmark,
   Link2,
@@ -57,7 +58,7 @@ import type { RiesgosSubTab, TimelineTab } from "@/components/map/RouteTimeline"
 import { AntReportDialog } from "@/components/analysis/AntReportDialog";
 import { cn } from "@/lib/utils";
 import { GOOGLE_MAPS_API_KEY } from "@/lib/config";
-import { formatDistance, formatDuration } from "@/lib/incidents/format";
+import { formatDistance, formatDuration, toEmbedUrl } from "@/lib/incidents/format";
 import {
   type LngLat,
   type RouteLineString,
@@ -76,6 +77,9 @@ import {
 } from "@/lib/geo";
 import { getMitEventos, type MitAdverseEvent } from "@/lib/api/mit-eventos";
 import { getAntSiniestros, type AntSiniestro } from "@/lib/api/ant-siniestros";
+import { getRiskEvaluation, type RiskEvaluationKmPoint } from "@/lib/api/risk-evaluation";
+import { impactoHex } from "@/lib/risk-evaluation";
+import { driveThumbnailUrl } from "@/lib/drive";
 import { useRoutePlannerSession } from "@/lib/route-planner/session-context";
 import type { Incident } from "@/types/incident";
 import type { Ecu911Response, ViaGeoMarker } from "@/types/ecu911";
@@ -397,6 +401,32 @@ function RoutePlannerContent({
   // activarla manualmente o al entrar a la pestaña Riesgos·MIT del panel.
   const [showMitSegments, setShowMitSegments] = useState(false);
 
+  // ─── Evaluación de Riesgo — levantamiento por km (video + condiciones) ────
+  // Dataset chico (~180 km de una sola evaluación hoy), así que a diferencia
+  // de ANT se trae completo de una sola vez al activar la capa, sin acotar
+  // por provincia primero.
+  const [showRiskEvaluation, setShowRiskEvaluation] = useState(false);
+  const [riskEvaluationKms,       setRiskEvaluationKms]       = useState<RiskEvaluationKmPoint[]>([]);
+  const [riskEvaluationConflicts, setRiskEvaluationConflicts] = useState<RiskEvaluationKmPoint[]>([]);
+  const [selectedRiskKm,          setSelectedRiskKm]          = useState<RiskEvaluationKmPoint | null>(null);
+  const riskEvaluationFetchedRef = useRef(false);
+
+  useEffect(() => {
+    if (!showRiskEvaluation || riskEvaluationFetchedRef.current) return;
+    riskEvaluationFetchedRef.current = true;
+    void getRiskEvaluation().then((res) => setRiskEvaluationKms(res.kms)).catch(() => {});
+  }, [showRiskEvaluation]);
+
+  // Mismo filtro de proximidad de 25 km que ECU911/MIT/ANT.
+  useEffect(() => {
+    if (routeSamples.length === 0 || riskEvaluationKms.length === 0) {
+      setRiskEvaluationConflicts([]);
+      return;
+    }
+    const polyline = routeSamples.map((s) => ({ lat: s.point[1], lng: s.point[0] }));
+    setRiskEvaluationConflicts(riskEvaluationKms.filter((k) => pointNearPolyline({ lat: k.lat, lng: k.lng }, polyline, 25)));
+  }, [routeSamples, riskEvaluationKms]);
+
   // ─── Mapa "como capas de Photoshop" ─────────────────────────────────────
   // Espeja la pestaña/sub-pestaña activa del panel (RouteTimeline) — cuando el
   // usuario selecciona una, se ENCIENDE la capa del mapa correspondiente (no
@@ -418,6 +448,7 @@ function RoutePlannerContent({
       if (riesgosSubTab === 'mit') setShowMitSegments(true);
       else setShowEcu911Vias(true);
     }
+    if (tab === 'reportes') setShowRiskEvaluation(true);
   }, []);
 
   // Vías a dibujar en el mapa — si el panel está activamente en Riesgos →
@@ -1273,6 +1304,23 @@ function RoutePlannerContent({
     </Button>
   );
 
+  // Mismo criterio opt-in — se enciende sola al entrar a la pestaña Reportes.
+  const riskEvaluationToggleButton = (
+    <Button
+      variant="outline"
+      size="icon-lg"
+      aria-pressed={showRiskEvaluation}
+      aria-label={showRiskEvaluation ? "Ocultar evaluación de riesgo en el mapa" : "Mostrar evaluación de riesgo en el mapa"}
+      onClick={() => setShowRiskEvaluation((v) => !v)}
+      className={cn(
+        "rounded-full border-border/60 bg-background/80 shadow-lg backdrop-blur transition-colors",
+        !showRiskEvaluation && "text-muted-foreground/50",
+      )}
+    >
+      <Camera className="size-4" />
+    </Button>
+  );
+
   // ─── Tabs de modo (se renderizan fuera del formulario, bajo el header) ───────
 
   const addressTabs = (
@@ -1688,14 +1736,17 @@ function RoutePlannerContent({
                 onSelectRoute={handleSelectRoute}
                 onMapClick={(lngLat) => { void handleMapClick(lngLat); }}
                 viaMarkers={showEcu911Vias ? viaMarkersForMap : []}
-                onSelectVia={(m) => { setSelectedVia(m); setSelectedMit(null); setSelectedAnt(null); }}
+                onSelectVia={(m) => { setSelectedVia(m); setSelectedMit(null); setSelectedAnt(null); setSelectedRiskKm(null); }}
                 selectedViaId={selectedVia?.via.id ?? null}
                 mitSegments={mitSegmentsVisible}
-                onSelectMitEvent={(e) => { setSelectedMit(e); setSelectedVia(null); setSelectedAnt(null); }}
+                onSelectMitEvent={(e) => { setSelectedMit(e); setSelectedVia(null); setSelectedAnt(null); setSelectedRiskKm(null); }}
                 selectedMitEventId={selectedMit?.id ?? null}
                 antSiniestros={showAntSiniestros ? antConflicts : []}
-                onSelectAntSiniestro={(s) => { setSelectedAnt(s); setSelectedVia(null); setSelectedMit(null); }}
+                onSelectAntSiniestro={(s) => { setSelectedAnt(s); setSelectedVia(null); setSelectedMit(null); setSelectedRiskKm(null); }}
                 selectedAntId={selectedAnt?.id ?? null}
+                riskEvaluationKms={showRiskEvaluation ? riskEvaluationConflicts : []}
+                onSelectRiskKm={(k) => { setSelectedRiskKm(k); setSelectedVia(null); setSelectedMit(null); setSelectedAnt(null); }}
+                selectedRiskKmId={selectedRiskKm?.id ?? null}
                 onViewportBoundsChanged={handleViewportBoundsChanged}
                 focusBounds={focusBoundsForMap}
               />
@@ -1706,6 +1757,7 @@ function RoutePlannerContent({
                 {viasToggleButton}
                 {mitToggleButton}
                 {antToggleButton}
+                {riskEvaluationToggleButton}
               </div>
               {/* Botón del reporte ANT — flotando centrado arriba del mapa,
                   siempre visible (no depende de ninguna pestaña). */}
@@ -1779,6 +1831,10 @@ function RoutePlannerContent({
               {selectedAnt ? (
                 <AntSiniestroPopup siniestro={selectedAnt} onClose={() => setSelectedAnt(null)} />
               ) : null}
+              {/* Popup de km de Evaluación de Riesgo seleccionado */}
+              {selectedRiskKm ? (
+                <RiskEvaluationPopup km={selectedRiskKm} onClose={() => setSelectedRiskKm(null)} />
+              ) : null}
           </>
           {mapOverlay}
         </div>
@@ -1817,14 +1873,17 @@ function RoutePlannerContent({
           onSelectRoute={handleSelectRoute}
           onMapClick={(lngLat) => { void handleMapClick(lngLat); }}
           viaMarkers={showEcu911Vias ? viaMarkersForMap : []}
-          onSelectVia={(m) => { setSelectedVia(m); setSelectedMit(null); setSelectedAnt(null); }}
+          onSelectVia={(m) => { setSelectedVia(m); setSelectedMit(null); setSelectedAnt(null); setSelectedRiskKm(null); }}
           selectedViaId={selectedVia?.via.id ?? null}
           mitSegments={mitSegmentsVisible}
-          onSelectMitEvent={(e) => { setSelectedMit(e); setSelectedVia(null); setSelectedAnt(null); }}
+          onSelectMitEvent={(e) => { setSelectedMit(e); setSelectedVia(null); setSelectedAnt(null); setSelectedRiskKm(null); }}
           selectedMitEventId={selectedMit?.id ?? null}
           antSiniestros={showAntSiniestros ? antConflicts : []}
-          onSelectAntSiniestro={(s) => { setSelectedAnt(s); setSelectedVia(null); setSelectedMit(null); }}
+          onSelectAntSiniestro={(s) => { setSelectedAnt(s); setSelectedVia(null); setSelectedMit(null); setSelectedRiskKm(null); }}
           selectedAntId={selectedAnt?.id ?? null}
+          riskEvaluationKms={showRiskEvaluation ? riskEvaluationConflicts : []}
+          onSelectRiskKm={(k) => { setSelectedRiskKm(k); setSelectedVia(null); setSelectedMit(null); setSelectedAnt(null); }}
+          selectedRiskKmId={selectedRiskKm?.id ?? null}
           onViewportBoundsChanged={handleViewportBoundsChanged}
           focusBounds={focusBoundsForMap}
         />
@@ -1870,6 +1929,7 @@ function RoutePlannerContent({
         {viasToggleButton}
         {mitToggleButton}
         {antToggleButton}
+        {riskEvaluationToggleButton}
         <Button
           variant="outline"
           size="icon-lg"
@@ -1984,6 +2044,11 @@ function RoutePlannerContent({
         <AntSiniestroPopup siniestro={selectedAnt} onClose={() => setSelectedAnt(null)} />
       ) : null}
 
+      {/* Popup de km de Evaluación de Riesgo seleccionado (modo pantalla completa) */}
+      {selectedRiskKm ? (
+        <RiskEvaluationPopup km={selectedRiskKm} onClose={() => setSelectedRiskKm(null)} />
+      ) : null}
+
       {mapOverlay}
       {sharedDialogs}
     </div>
@@ -2075,6 +2140,77 @@ function AntSiniestroPopup({ siniestro, onClose }: { siniestro: AntSiniestro; on
           <br />
           Código {siniestro.codigo}{siniestro.ente_control ? ` · ${siniestro.ente_control}` : ''}
         </div>
+      </div>
+    </div>
+  );
+}
+
+/** Popup de un km de Evaluación de Riesgo — video del levantamiento +
+ * badges de cada condición encontrada (con su imagen de señalética). */
+function RiskEvaluationPopup({ km, onClose }: { km: RiskEvaluationKmPoint; onClose: () => void }) {
+  const embed = toEmbedUrl(km.video_url);
+
+  return (
+    <div className="absolute bottom-16 left-1/2 z-20 w-96 -translate-x-1/2 rounded-xl border border-border/60 bg-background/95 shadow-xl backdrop-blur">
+      <div className="flex items-start justify-between p-3">
+        <div className="min-w-0 flex-1">
+          <p className="text-xs font-semibold leading-snug text-foreground">{km.km_label}</p>
+          <p className="mt-0.5 text-[11px] text-muted-foreground">
+            {km.tipo_camino ? `${km.tipo_camino} · ` : ''}{km.conditions.length} condición{km.conditions.length !== 1 ? 'es' : ''}
+          </p>
+        </div>
+        <button type="button" onClick={onClose} className="ml-2 shrink-0 rounded-md p-0.5 text-muted-foreground hover:text-foreground">
+          <X className="size-3.5" />
+        </button>
+      </div>
+
+      <div className="max-h-96 overflow-y-auto border-t border-border/40 px-3 py-2.5 space-y-2.5">
+        {embed.kind === 'drive' && embed.url ? (
+          <iframe
+            src={embed.url}
+            title={`Video ${km.km_label}`}
+            allow="autoplay; encrypted-media"
+            allowFullScreen
+            className="aspect-video w-full rounded-lg border border-border/60 bg-muted"
+          />
+        ) : null}
+
+        {km.conditions.map((c, i) => {
+          const thumb = driveThumbnailUrl(c.imagen_url, 120);
+          return (
+            <div key={i} className="flex items-start gap-2 rounded-lg border border-border/40 bg-background/60 p-2">
+              {thumb ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={thumb} alt={c.tipo} className="size-10 shrink-0 rounded-md border border-border/40 object-contain bg-white" />
+              ) : (
+                <div className="flex size-10 shrink-0 items-center justify-center rounded-md border border-border/40 bg-muted text-muted-foreground">
+                  <Camera className="size-4" />
+                </div>
+              )}
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-1.5">
+                  <span className="truncate text-[11px] font-medium text-foreground">{c.tipo}</span>
+                  {c.impacto && (
+                    <span
+                      className="shrink-0 rounded-full px-1.5 py-0.5 text-[9px] font-semibold text-white"
+                      style={{ backgroundColor: impactoHex(c.impacto) }}
+                    >
+                      {c.impacto}
+                    </span>
+                  )}
+                </div>
+                <p className="text-[10px] text-muted-foreground">{c.condicion}</p>
+                {c.riesgos && <p className="mt-0.5 text-[10px] leading-relaxed text-muted-foreground">{c.riesgos}</p>}
+              </div>
+            </div>
+          );
+        })}
+
+        {km.comentario && (
+          <p className="text-[11px] leading-relaxed text-muted-foreground">
+            <span className="font-medium text-foreground">Comentario: </span>{km.comentario}
+          </p>
+        )}
       </div>
     </div>
   );

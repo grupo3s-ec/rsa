@@ -3,22 +3,40 @@
 namespace App\Console\Commands;
 
 use App\Models\AntAccident;
+use App\Services\AntSiniestrosImporter;
 use Illuminate\Console\Command;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 
 class ImportAntAccidents extends Command
 {
-    protected $signature = 'ant:import {--path=database/data/ant_siniestros_2026.json}';
+    protected $signature = 'ant:import {--path=database/data/ant_siniestros_2026.json} {--xlsx=}';
 
-    protected $description = 'Importa la base de datos de siniestros de tránsito de la ANT (reemplaza los datos existentes) — se actualiza subiendo un nuevo archivo cada mes';
+    protected $description = 'Importa la base de datos de siniestros de tránsito de la ANT — se actualiza subiendo un nuevo archivo cada mes (--xlsx lee un .xlsx directo con upsert; sin esa opción usa el JSON histórico ya extraído, reemplazando la tabla)';
 
     /** Excel guarda fechas como días desde este día 0 (sistema 1900, con el
      * bug de compatibilidad de Lotus 1-2-3 que Excel hereda). */
     private const EXCEL_EPOCH = '1899-12-30';
 
-    public function handle(): int
+    public function handle(AntSiniestrosImporter $importer): int
     {
+        $xlsxPath = $this->option('xlsx');
+        if ($xlsxPath) {
+            if (!is_file($xlsxPath)) {
+                $this->error("No existe el archivo: {$xlsxPath}");
+
+                return self::FAILURE;
+            }
+
+            $resultado = $importer->importFromXlsx($xlsxPath);
+            $this->info("Creados {$resultado['creados']}, actualizados {$resultado['actualizados']} de {$resultado['total']} filas.");
+            if ($resultado['omitidos'] > 0) {
+                $this->warn("Omitidos {$resultado['omitidos']} sin coordenadas.");
+            }
+
+            return self::SUCCESS;
+        }
+
         $path = base_path($this->option('path'));
 
         if (!is_file($path)) {

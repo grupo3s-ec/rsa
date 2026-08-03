@@ -7,6 +7,7 @@ use App\Http\Controllers\Api\Admin\GeotabController;
 use App\Http\Controllers\Api\Admin\MitImportController;
 use App\Http\Controllers\Api\Admin\PredefinedRouteController as AdminRouteController;
 use App\Http\Controllers\Api\Admin\ReportController;
+use App\Http\Controllers\Api\Admin\RiskEvaluationImportController;
 use App\Http\Controllers\Api\Admin\UserController as AdminUserController;
 use App\Http\Controllers\Api\Admin\VehicleController as AdminVehicleController;
 use App\Http\Controllers\Api\AntAccidentController;
@@ -15,6 +16,7 @@ use App\Http\Controllers\Api\HazardTypeController;
 use App\Http\Controllers\Api\IncidentController;
 use App\Http\Controllers\Api\IncidentMediaController;
 use App\Http\Controllers\Api\MitAdverseEventController;
+use App\Http\Controllers\Api\RiskEvaluationController;
 use App\Http\Controllers\Api\RouteIncidentController;
 use App\Http\Controllers\Api\ViaHistoryController;
 use Illuminate\Support\Facades\Route;
@@ -67,6 +69,9 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/ant/siniestros',           [AntAccidentController::class, 'index']);
     Route::get('/ant/siniestros/opciones',  [AntAccidentController::class, 'opciones']);
 
+    // Evaluación de riesgo por km (levantamiento en campo)
+    Route::get('/risk-evaluations', [RiskEvaluationController::class, 'index']);
+
     // ── Dashboard y Geotab (admin + operator) ────────────────────────────────
     Route::middleware('operator')->prefix('admin')->group(function () {
         Route::get('/dashboard', [DashboardController::class, 'index']);
@@ -92,9 +97,15 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('/mit/import', [MitImportController::class, 'run']);
         Route::post('/mit/route',  [MitImportController::class, 'route']);
 
-        // Carga del histórico de siniestros ANT — mismo motivo que MIT arriba.
-        // Se vuelve a correr cada mes al subir un archivo nuevo (reemplaza la tabla).
+        // Carga del histórico de siniestros ANT — mismo motivo que MIT arriba
+        // (uso único, carga del JSON ya extraído). Para archivos nuevos cada
+        // mes, usar /ant/upload (drag-and-drop, parsea el .xlsx directo).
         Route::post('/ant/import', [AntImportController::class, 'run']);
+        Route::post('/ant/upload', [AntImportController::class, 'upload']);
+
+        // Evaluación de riesgo por km — sube el .ods de campo directo, sin
+        // pasar por un paso manual de extracción.
+        Route::post('/risk-evaluations/upload', [RiskEvaluationImportController::class, 'upload']);
 
         // Usuarios
         Route::get('/users',         [AdminUserController::class, 'index']);

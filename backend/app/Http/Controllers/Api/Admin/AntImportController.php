@@ -3,19 +3,35 @@
 namespace App\Http\Controllers\Api\Admin;
 
 use App\Http\Controllers\Controller;
+use App\Services\AntSiniestrosImporter;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Artisan;
 
 class AntImportController extends Controller
 {
-    /** Corre `ant:import` en producción — Render free tier no da acceso a
-     * shell, así que este es el modo de disparar la carga del histórico de
-     * siniestros ANT. Solo admin. Se re-ejecuta cada vez que se sube un
-     * archivo nuevo (mensual): reemplaza la tabla completa, no acumula. */
+    /** Corre `ant:import` (histórico JSON ya extraído) en producción — Render
+     * free tier no da acceso a shell. Solo admin. Uso único (carga inicial). */
     public function run(): JsonResponse
     {
         Artisan::call('ant:import');
 
         return response()->json(['import' => trim(Artisan::output())]);
+    }
+
+    /** Sube un archivo .xlsx de la ANT (BDD mensual) y lo importa directo —
+     * reemplaza la necesidad de extraerlo a mano cada mes. Upsert por
+     * `codigo`: no borra lo ya cargado, así que da igual si el archivo nuevo
+     * es acumulado (año a la fecha) o solo el mes. */
+    public function upload(Request $request, AntSiniestrosImporter $importer): JsonResponse
+    {
+        $request->validate([
+            'file' => ['required', 'file', 'mimes:xlsx', 'max:512000'], // 500 MB
+        ]);
+
+        $path = $request->file('file')->getRealPath();
+        $resultado = $importer->importFromXlsx($path);
+
+        return response()->json($resultado);
     }
 }

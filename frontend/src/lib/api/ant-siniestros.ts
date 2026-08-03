@@ -67,3 +67,19 @@ export function getAntSiniestros(filters: AntSiniestrosFilters = {}): Promise<An
 export function getAntSiniestrosOpciones(): Promise<AntSiniestrosOpciones> {
   return apiClient.get<AntSiniestrosOpciones>('/ant/siniestros/opciones');
 }
+
+export interface AntUploadResult {
+  creados: number;
+  actualizados: number;
+  omitidos: number;
+  total: number;
+}
+
+/** Sube el .xlsx mensual de la ANT — parsea y hace upsert por código
+ * directo en el backend, sin pasos manuales. Puede pesar 100+ MB y tardar
+ * varios minutos en Render free tier, de ahí el timeout largo. */
+export function uploadAntSiniestros(file: File): Promise<AntUploadResult> {
+  const form = new FormData();
+  form.append('file', file);
+  return apiClient.form<AntUploadResult>('/admin/ant/upload', form, 10 * 60_000);
+}
