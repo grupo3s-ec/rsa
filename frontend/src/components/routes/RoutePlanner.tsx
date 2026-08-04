@@ -2310,7 +2310,10 @@ function RiskKmDetail({ km }: { km: RiskEvaluationKmPoint }) {
               title={`Video ${km.km_label}`}
               allow="autoplay; encrypted-media"
               allowFullScreen
-              className="aspect-video w-full rounded-lg border border-border/60 bg-muted"
+              // Alto fijo, no aspect-video: el reproductor de Drive dibuja su
+              // propia barra de controles ADEMÁS del video — con exactamente
+              // 16:9 esa barra queda cortada fuera del iframe.
+              className="h-72 w-full rounded-lg border border-border/60 bg-muted"
             />
             <a
               href={km.video_url ?? undefined}

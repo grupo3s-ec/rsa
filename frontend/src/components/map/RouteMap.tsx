@@ -197,6 +197,37 @@ function IncidentPanner({
   return null;
 }
 
+/** Centra el mapa en el km de Evaluación de Riesgo seleccionado — sin esto,
+ * con el mapa alejado y varios marcadores del mismo color agrupados, no hay
+ * forma de saber cuál es el que está enfocado en el sidebar. */
+function RiskKmPanner({
+  kms,
+  selectedId,
+  skipNextIdleRef,
+}: {
+  kms: RiskEvaluationKmPoint[];
+  selectedId: number | null;
+  skipNextIdleRef: React.MutableRefObject<boolean>;
+}) {
+  const map = useMap();
+
+  useEffect(() => {
+    if (!map || selectedId === null) return;
+    const sel = kms.find((k) => k.id === selectedId);
+    if (sel) {
+      skipNextIdleRef.current = true;
+      map.panTo({ lat: sel.lat, lng: sel.lng });
+      // Si estaba muy alejado, un zoom bajo no alcanza a distinguir el
+      // marcador del resto — subimos el piso sin achicar si ya estaba más
+      // cerca (ej. el usuario ya había hecho zoom manual a esa zona).
+      const currentZoom = map.getZoom() ?? 0;
+      if (currentZoom < 15) map.setZoom(15);
+    }
+  }, [map, kms, selectedId, skipNextIdleRef]);
+
+  return null;
+}
+
 /** Reporta el viewport visible del mapa hacia arriba (para enfocar el detalle
  * del resto de la UI), y reacciona a `focusBounds` cuando el foco vino de
  * otro control (el selector del gráfico) haciendo `fitBounds` — con una
@@ -509,6 +540,7 @@ export default function RouteMap({
     >
       <BoundsFitter waypoints={waypoints} selectedRoute={selected} skipNextIdleRef={skipNextIdleRef} />
       <IncidentPanner incidents={incidents} selectedIncidentId={selectedIncidentId} skipNextIdleRef={skipNextIdleRef} />
+      <RiskKmPanner kms={riskEvaluationKms} selectedId={selectedRiskKmId ?? null} skipNextIdleRef={skipNextIdleRef} />
       <ViewportSync onViewportBoundsChanged={onViewportBoundsChanged} focusBounds={focusBounds} skipNextIdleRef={skipNextIdleRef} />
 
       {/* Rutas alternativas primero (debajo) */}
@@ -599,9 +631,18 @@ export default function RouteMap({
             onClick={() => onSelectRiskKm?.(km)}
             title={`${km.km_label} — ${km.conditions.length} condición${km.conditions.length !== 1 ? 'es' : ''}`}
           >
-            <div className={cn('flex size-6 items-center justify-center rounded-full border-2 border-white text-white shadow-lg transition-transform hover:scale-110', isSelected && 'scale-125')}
-              style={{ backgroundColor: color }}>
-              <Camera className="size-3.5" />
+            <div className="relative flex items-center justify-center">
+              {/* Anillo pulsante — para distinguir cuál está seleccionado a
+                  simple vista con el mapa alejado y varios marcadores del
+                  mismo color agrupados (ver RiskKmPanner, que además centra
+                  la cámara ahí). */}
+              {isSelected && (
+                <span className="absolute inline-flex size-6 animate-ping rounded-full opacity-75" style={{ backgroundColor: color }} />
+              )}
+              <div className={cn('relative flex size-6 items-center justify-center rounded-full border-2 border-white text-white shadow-lg transition-transform hover:scale-110', isSelected && 'scale-150 ring-4 ring-white')}
+                style={{ backgroundColor: color }}>
+                <Camera className="size-3.5" />
+              </div>
             </div>
           </AdvancedMarker>
         );
