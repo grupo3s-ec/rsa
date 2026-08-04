@@ -418,6 +418,12 @@ function RoutePlannerContent({
   const [selectedRiskKm,          setSelectedRiskKm]          = useState<RiskEvaluationKmPoint | null>(null);
   const riskEvaluationFetchedRef = useRef(false);
 
+  // Un km seleccionado reemplaza el planificador en el sidebar (ver <aside>
+  // más abajo) — si estaba colapsado, no tendría dónde mostrarse.
+  useEffect(() => {
+    if (selectedRiskKm) setPlannerCollapsed(false);
+  }, [selectedRiskKm]);
+
   useEffect(() => {
     if (!showRiskEvaluation || riskEvaluationFetchedRef.current) return;
     riskEvaluationFetchedRef.current = true;
@@ -930,9 +936,15 @@ function RoutePlannerContent({
 
       if (externalPickActive) {
         onExternalPick?.(lngLat);
+        return;
       }
+
+      // Clic "afuera" del panel de foco de Evaluación de Riesgo (que
+      // reemplaza al planificador) — mismo criterio que la X, para volver
+      // al planificador sin tener que apuntarle al botón.
+      if (selectedRiskKm) setSelectedRiskKm(null);
     },
-    [pickingIndex, geocoder, externalPickActive, onExternalPick],
+    [pickingIndex, geocoder, externalPickActive, onExternalPick, selectedRiskKm],
   );
 
   const cancelPickMode = useCallback(() => {
@@ -1783,6 +1795,24 @@ function RoutePlannerContent({
             <ChevronRight className="size-4" />
             <span className="[writing-mode:vertical-rl] text-[11px] font-medium tracking-wide">Planificador</span>
           </button>
+        ) : selectedRiskKm ? (
+          <aside className="flex w-1/3 min-w-[320px] max-w-[480px] shrink-0 flex-col border-r bg-background">
+            <div className="flex items-center justify-between border-b border-border/40 px-4 py-3">
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-sm font-semibold text-foreground">{selectedRiskKm.km_label}</p>
+                <p className="text-[11px] text-muted-foreground">
+                  {selectedRiskKm.tipo_camino ? `${selectedRiskKm.tipo_camino} · ` : ''}
+                  {selectedRiskKm.conditions.length} condición{selectedRiskKm.conditions.length !== 1 ? 'es' : ''}
+                </p>
+              </div>
+              <Button variant="ghost" size="icon" aria-label="Volver al planificador" onClick={() => setSelectedRiskKm(null)}>
+                <X className="size-4" />
+              </Button>
+            </div>
+            <div className="overflow-y-auto">
+              <RiskKmDetail km={selectedRiskKm} />
+            </div>
+          </aside>
         ) : (
           <aside className="flex w-1/3 min-w-[300px] max-w-[480px] shrink-0 flex-col border-r bg-background">
             <div className="flex items-center justify-between px-4 py-3">
@@ -1919,10 +1949,9 @@ function RoutePlannerContent({
               {selectedAnt ? (
                 <AntSiniestroPopup siniestro={selectedAnt} onClose={() => setSelectedAnt(null)} />
               ) : null}
-              {/* Popup de km de Evaluación de Riesgo seleccionado */}
-              {selectedRiskKm ? (
-                <RiskEvaluationPopup km={selectedRiskKm} onClose={() => setSelectedRiskKm(null)} />
-              ) : null}
+              {/* Evaluación de Riesgo seleccionada: reemplaza el planificador en el
+                  sidebar (ver <aside> más abajo) en vez de un popup flotante —
+                  el video necesita más espacio del que da un popup chico. */}
               {/* Popup de punto de interés (Google Places) seleccionado */}
               {selectedPoi ? (
                 <PoiPopup poi={selectedPoi} onClose={() => setSelectedPoi(null)} />
@@ -2002,22 +2031,42 @@ function RoutePlannerContent({
         </div>
       ) : null}
 
-      <aside className="absolute left-4 top-4 z-10 w-[min(calc(20rem-5px),calc(100vw-2rem))] rounded-2xl border border-border/60 bg-background/80 shadow-lg backdrop-blur">
-        <div className="flex items-center justify-between px-4 py-2.5">
-          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Planificador</p>
-          <Button
-            variant="ghost"
-            size="icon"
-            aria-label="Cambiar a modo panel"
-            onClick={() => setLayoutMode("panel")}
-            className="size-7 rounded-lg text-muted-foreground hover:text-foreground"
-          >
-            <PanelLeft className="size-4" />
-          </Button>
-        </div>
-        {addressTabs}
-        <div className="p-4">{renderPlannerForm()}</div>
-      </aside>
+      {selectedRiskKm ? (
+        <aside className="absolute left-4 top-4 z-10 flex max-h-[calc(100vh-2rem)] w-[min(24rem,calc(100vw-2rem))] flex-col overflow-hidden rounded-2xl border border-border/60 bg-background/95 shadow-lg backdrop-blur">
+          <div className="flex items-center justify-between border-b border-border/40 px-4 py-2.5">
+            <div className="min-w-0 flex-1">
+              <p className="truncate text-sm font-semibold text-foreground">{selectedRiskKm.km_label}</p>
+              <p className="text-[11px] text-muted-foreground">
+                {selectedRiskKm.tipo_camino ? `${selectedRiskKm.tipo_camino} · ` : ''}
+                {selectedRiskKm.conditions.length} condición{selectedRiskKm.conditions.length !== 1 ? 'es' : ''}
+              </p>
+            </div>
+            <Button variant="ghost" size="icon" aria-label="Volver al planificador" onClick={() => setSelectedRiskKm(null)}>
+              <X className="size-4" />
+            </Button>
+          </div>
+          <div className="overflow-y-auto">
+            <RiskKmDetail km={selectedRiskKm} />
+          </div>
+        </aside>
+      ) : (
+        <aside className="absolute left-4 top-4 z-10 w-[min(calc(20rem-5px),calc(100vw-2rem))] rounded-2xl border border-border/60 bg-background/80 shadow-lg backdrop-blur">
+          <div className="flex items-center justify-between px-4 py-2.5">
+            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Planificador</p>
+            <Button
+              variant="ghost"
+              size="icon"
+              aria-label="Cambiar a modo panel"
+              onClick={() => setLayoutMode("panel")}
+              className="size-7 rounded-lg text-muted-foreground hover:text-foreground"
+            >
+              <PanelLeft className="size-4" />
+            </Button>
+          </div>
+          {addressTabs}
+          <div className="p-4">{renderPlannerForm()}</div>
+        </aside>
+      )}
 
       <div className="absolute right-4 top-4 z-10 flex flex-col gap-2">
         {alertsToggleButton}
@@ -2140,10 +2189,8 @@ function RoutePlannerContent({
         <AntSiniestroPopup siniestro={selectedAnt} onClose={() => setSelectedAnt(null)} />
       ) : null}
 
-      {/* Popup de km de Evaluación de Riesgo seleccionado (modo pantalla completa) */}
-      {selectedRiskKm ? (
-        <RiskEvaluationPopup km={selectedRiskKm} onClose={() => setSelectedRiskKm(null)} />
-      ) : null}
+      {/* Evaluación de Riesgo seleccionada: reemplaza el planificador flotante
+          (ver <aside> más abajo) en vez de un popup aparte. */}
 
       {/* Popup de punto de interés (Google Places) seleccionado (modo pantalla completa) */}
       {selectedPoi ? (
@@ -2248,24 +2295,14 @@ function AntSiniestroPopup({ siniestro, onClose }: { siniestro: AntSiniestro; on
 
 /** Popup de un km de Evaluación de Riesgo — video del levantamiento +
  * badges de cada condición encontrada (con su imagen de señalética). */
-function RiskEvaluationPopup({ km, onClose }: { km: RiskEvaluationKmPoint; onClose: () => void }) {
+/** Video + condiciones de un km de Evaluación de Riesgo — sin cabecera ni
+ * posicionamiento propio, para reusar tanto en el panel focus (reemplaza al
+ * planificador en el sidebar) como en cualquier otro contexto futuro. */
+function RiskKmDetail({ km }: { km: RiskEvaluationKmPoint }) {
   const embed = toEmbedUrl(km.video_url);
 
   return (
-    <div className="absolute bottom-16 left-1/2 z-20 w-96 -translate-x-1/2 rounded-xl border border-border/60 bg-background/95 shadow-xl backdrop-blur">
-      <div className="flex items-start justify-between p-3">
-        <div className="min-w-0 flex-1">
-          <p className="text-xs font-semibold leading-snug text-foreground">{km.km_label}</p>
-          <p className="mt-0.5 text-[11px] text-muted-foreground">
-            {km.tipo_camino ? `${km.tipo_camino} · ` : ''}{km.conditions.length} condición{km.conditions.length !== 1 ? 'es' : ''}
-          </p>
-        </div>
-        <button type="button" onClick={onClose} className="ml-2 shrink-0 rounded-md p-0.5 text-muted-foreground hover:text-foreground">
-          <X className="size-3.5" />
-        </button>
-      </div>
-
-      <div className="max-h-96 overflow-y-auto border-t border-border/40 px-3 py-2.5 space-y-2.5">
+    <div className="space-y-2.5 p-3">
         {embed.kind === 'drive' && embed.url ? (
           <>
             <iframe
@@ -2332,7 +2369,6 @@ function RiskEvaluationPopup({ km, onClose }: { km: RiskEvaluationKmPoint; onClo
             <span className="font-medium text-foreground">Comentario: </span>{km.comentario}
           </p>
         )}
-      </div>
     </div>
   );
 }
