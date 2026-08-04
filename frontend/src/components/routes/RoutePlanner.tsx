@@ -980,15 +980,24 @@ function RoutePlannerContent({
           })
         : Promise.reject(new Error("Google Maps aún no está listo."));
 
-    const [incidentsResult, directionsResult] = await Promise.allSettled([
-      getRouteIncidents({
-        origin_lat:      first[1],
-        origin_lng:      first[0],
-        destination_lat: last[1],
-        destination_lng: last[0],
-      }),
-      directionsPromise,
-    ]);
+    // Las alertas de la ruta (backend) se piden en paralelo pero YA NO
+    // bloquean que la ruta aparezca — Directions (Google) suele resolver en
+    // 1-2s; esperar también al backend (que puede tardar mucho más con un
+    // cold-start de Render) hacía sentir "Calculando ruta…" tan lento como
+    // lo más lento de los dos, cuando trazar la ruta en sí es rápido.
+    const incidentsPromise = getRouteIncidents({
+      origin_lat:      first[1],
+      origin_lng:      first[0],
+      destination_lat: last[1],
+      destination_lng: last[0],
+    });
+
+    let directionsResult: PromiseSettledResult<google.maps.DirectionsResult>;
+    try {
+      directionsResult = { status: "fulfilled", value: await directionsPromise };
+    } catch (err) {
+      directionsResult = { status: "rejected", reason: err };
+    }
 
     // Ya hay una búsqueda MÁS NUEVA en curso (o terminada) — descartamos este
     // resultado obsoleto en vez de pisar lo que el usuario ya está viendo.
@@ -1041,26 +1050,10 @@ function RoutePlannerContent({
       setRouteInfos([null]);
     }
 
-    let callbackIncidents: Incident[] = [];
-    if (incidentsResult.status === "fulfilled") {
-      const raw      = incidentsResult.value.data;
-      const filtered = resolvedCoords ? filterIncidentsByRoute(raw, resolvedCoords) : raw;
-      callbackIncidents = filtered;
-      setIncidents(filtered);
-    } else {
-      const reason: unknown = incidentsResult.reason;
-      setError(
-        reason instanceof Error
-          ? reason.message
-          : "No se pudieron cargar las alertas de la ruta.",
-      );
-      setIncidents([]);
-    }
-
     if (resolvedCoords) {
       onRouteCalculated?.({
         coords: resolvedCoords,
-        incidents: callbackIncidents,
+        incidents: [],
         distanceMeters: resolvedDist,
         durationSeconds: resolvedDur,
       });
@@ -1068,6 +1061,29 @@ function RoutePlannerContent({
       onRouteCalculated?.(null);
     }
     setLoading(false);
+
+    // Alertas de la ruta — llegan cuando estén, sin haber bloqueado el mapa.
+    // `timelineRouteData` (useMemo) reacciona solo a `incidents` cuando se
+    // actualice, así que el panel de Alertas se rellena solo al llegar.
+    incidentsPromise
+      .then((res) => {
+        if (requestId !== searchRequestIdRef.current) return;
+        const filtered = resolvedCoords ? filterIncidentsByRoute(res.data, resolvedCoords) : res.data;
+        setIncidents(filtered);
+        if (resolvedCoords) {
+          onRouteCalculated?.({
+            coords: resolvedCoords,
+            incidents: filtered,
+            distanceMeters: resolvedDist,
+            durationSeconds: resolvedDur,
+          });
+        }
+      })
+      .catch((err: unknown) => {
+        if (requestId !== searchRequestIdRef.current) return;
+        setError(err instanceof Error ? err.message : "No se pudieron cargar las alertas de la ruta.");
+        setIncidents([]);
+      });
   }
 
   async function handleSearch(): Promise<void> {
