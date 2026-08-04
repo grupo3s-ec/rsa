@@ -7,6 +7,10 @@ FROM php:8.4-fpm-alpine
 # que dom/xml. simplexml/xmlreader/xmlwriter dependen de libxml igual que
 # dom/xml y por el mismo motivo tampoco vienen — se instalan explícitas para
 # no repetir este ciclo de build fallido extensión por extensión.
+# max_execution_time=600 (antes 300): el upload de la BDD ANT (.xlsx, ~10K
+# filas leídas en chunks — ver AntSiniestrosImporter) mide varios minutos
+# reales por el 0.1 CPU del free tier de Render; empareja con el timeout del
+# lado del cliente (10 min, ver uploadAntSiniestros en el frontend).
 RUN apk add --no-cache \
         curl-dev \
         postgresql-dev \
@@ -30,7 +34,7 @@ RUN apk add --no-cache \
         simplexml \
         xmlreader \
         xmlwriter \
-    && printf "upload_max_filesize=250M\npost_max_size=260M\nmemory_limit=256M\nmax_execution_time=300\n" > /usr/local/etc/php/conf.d/rsa.ini \
+    && printf "upload_max_filesize=250M\npost_max_size=260M\nmemory_limit=256M\nmax_execution_time=600\n" > /usr/local/etc/php/conf.d/rsa.ini \
     && curl -sS https://getcomposer.org/installer \
        | php -- --install-dir=/usr/local/bin --filename=composer
 
