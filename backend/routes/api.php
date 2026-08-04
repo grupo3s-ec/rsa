@@ -34,37 +34,6 @@ Route::post('/auth/login', [AuthController::class, 'login']);
 // 15-30 min — no requiere sesión de usuario. Ver services.via_poll.token.
 Route::post('/vias/poll', [ViaHistoryController::class, 'poll']);
 
-// ── TEMPORAL — diagnóstico del error real de /risk-evaluations en prod ──────
-// Sin datos sensibles (solo conteos + mensaje de excepción), se quita en
-// cuanto se identifique la causa.
-Route::get('/_diag/risk-evaluations', function () {
-    try {
-        $evalCount = \App\Models\RiskEvaluation::count();
-        $kmCount = \App\Models\RiskEvaluationKm::count();
-        $first = \App\Models\RiskEvaluation::query()->orderBy('id')->first();
-        $sample = null;
-        if ($first) {
-            $km = $first->kms()->orderBy('km_number')->first();
-            $sample = $km ? (new \App\Http\Resources\RiskEvaluationKmResource($km))->response()->getData(true) : null;
-        }
-
-        return response()->json([
-            'ok' => true,
-            'evaluations' => $evalCount,
-            'kms' => $kmCount,
-            'first_evaluation' => $first ? ['id' => $first->id, 'nombre' => $first->nombre] : null,
-            'sample_km' => $sample,
-        ]);
-    } catch (\Throwable $e) {
-        return response()->json([
-            'ok' => false,
-            'exception' => get_class($e),
-            'message' => $e->getMessage(),
-            'file' => $e->getFile() . ':' . $e->getLine(),
-        ], 500);
-    }
-});
-
 // ── Rutas protegidas ──────────────────────────────────────────────────────────
 Route::middleware('auth:sanctum')->group(function () {
 
