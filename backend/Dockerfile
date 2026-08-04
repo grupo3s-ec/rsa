@@ -1,9 +1,12 @@
 FROM php:8.4-fpm-alpine
 
 # curl-dev = ext-curl (requerido por Laravel 13, no viene en la imagen base).
-# libpng-dev/libjpeg-turbo-dev/freetype-dev = ext-gd, que phpoffice/phpspreadsheet
-# 5.9 exige en composer.lock (aunque acá solo se lee .xlsx/.ods, no se dibuja
-# nada) — sin esto el build de producción falla en el paso de composer install.
+# libpng-dev/libjpeg-turbo-dev/freetype-dev = ext-gd; libzip-dev = ext-zip —
+# ambas las exige phpoffice/phpspreadsheet 5.9 en composer.lock (aunque acá
+# solo se lee .xlsx/.ods) y ninguna de las dos viene en la imagen base, igual
+# que dom/xml. simplexml/xmlreader/xmlwriter dependen de libxml igual que
+# dom/xml y por el mismo motivo tampoco vienen — se instalan explícitas para
+# no repetir este ciclo de build fallido extensión por extensión.
 RUN apk add --no-cache \
         curl-dev \
         postgresql-dev \
@@ -12,6 +15,7 @@ RUN apk add --no-cache \
         libpng-dev \
         libjpeg-turbo-dev \
         freetype-dev \
+        libzip-dev \
     && docker-php-ext-configure gd --with-freetype --with-jpeg \
     && docker-php-ext-install \
         curl \
@@ -22,6 +26,10 @@ RUN apk add --no-cache \
         xml \
         pcntl \
         gd \
+        zip \
+        simplexml \
+        xmlreader \
+        xmlwriter \
     && printf "upload_max_filesize=250M\npost_max_size=260M\nmemory_limit=256M\nmax_execution_time=300\n" > /usr/local/etc/php/conf.d/rsa.ini \
     && curl -sS https://getcomposer.org/installer \
        | php -- --install-dir=/usr/local/bin --filename=composer
