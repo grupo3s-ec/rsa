@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { AlertTriangle, Camera, ChevronDown, ChevronUp, Download, LoaderCircle, MapPinned } from 'lucide-react';
+import { AlertTriangle, Camera, ChevronDown, ChevronUp, Download, ExternalLink, LoaderCircle, MapPinned } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Skeleton } from '@/components/ui/skeleton';
 import { getRiskEvaluation, getRouteRiskReportPdfUrl, type RiskEvaluationKmPoint } from '@/lib/api/risk-evaluation';
@@ -72,13 +72,33 @@ function KmCard({ km }: { km: RiskEvaluationKmPoint }) {
         {expanded && (
           <div className="mt-2 space-y-2.5">
             {embed.kind === 'drive' && embed.url && (
-              <iframe
-                src={embed.url}
-                title={`Video ${km.km_label}`}
-                allow="autoplay; encrypted-media"
-                allowFullScreen
-                className="aspect-video w-full rounded-lg border border-border/60 bg-muted"
-              />
+              <>
+                <iframe
+                  src={embed.url}
+                  title={`Video ${km.km_label}`}
+                  allow="autoplay; encrypted-media"
+                  allowFullScreen
+                  className="aspect-video w-full rounded-lg border border-border/60 bg-muted"
+                />
+                <a
+                  href={km.video_url ?? undefined}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center gap-1 text-[10px] text-muted-foreground hover:text-foreground transition-colors"
+                >
+                  <ExternalLink className="size-2.5" /> Abrir en Google Drive
+                </a>
+              </>
+            )}
+            {embed.kind === 'external' && embed.url && (
+              <a
+                href={embed.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center justify-center gap-1.5 rounded-lg border border-border/60 bg-muted/40 py-2.5 text-xs font-medium text-foreground hover:bg-muted transition-colors"
+              >
+                <Camera className="size-3.5" /> Ver video <ExternalLink className="size-3" />
+              </a>
             )}
 
             {km.conditions.map((c, i) => {
@@ -128,11 +148,14 @@ export function RiskEvaluationPanel() {
   const [evaluationId, setEvaluationId] = useState<number | undefined>(undefined);
   const [downloadingPdf, setDownloadingPdf] = useState(false);
 
+  const [retryCount, setRetryCount] = useState(0);
+
   useEffect(() => {
+    setError(false);
     getRiskEvaluation()
       .then((res) => { setKms(res.kms); setEvaluationId(res.evaluation?.id); })
       .catch(() => setError(true));
-  }, []);
+  }, [retryCount]);
 
   async function handleDownloadPdf(): Promise<void> {
     if (downloadingPdf) return;
@@ -214,7 +237,14 @@ export function RiskEvaluationPanel() {
         {error ? (
           <div className="flex flex-col items-center justify-center h-32 gap-2 text-muted-foreground">
             <AlertTriangle className="size-5 text-amber-500" />
-            <span className="text-xs text-center">No se pudo cargar la evaluación de riesgo.</span>
+            <span className="text-xs text-center">No se pudo cargar la evaluación de riesgo.<br />El servidor puede tardar hasta un minuto en despertar.</span>
+            <button
+              type="button"
+              onClick={() => setRetryCount((v) => v + 1)}
+              className="mt-1 rounded-md border border-border/50 px-2.5 py-1 text-[11px] font-medium text-muted-foreground transition-colors hover:text-foreground hover:border-border"
+            >
+              Reintentar
+            </button>
           </div>
         ) : kms === null ? (
           <div className="space-y-2">

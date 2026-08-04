@@ -7,7 +7,7 @@ import {
   useMap,
 } from "@vis.gl/react-google-maps";
 import { useTheme } from "next-themes";
-import { Flag, CircleX, TriangleAlert, ShieldAlert, CarFront, Camera } from "lucide-react";
+import { Flag, CircleX, TriangleAlert, ShieldAlert, CarFront, Camera, Fuel, Shield, BedDouble } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { conditionMeta, severityMeta } from "@/lib/incidents/format";
 import { getExpiryState } from "@/lib/incidents/expiry";
@@ -20,11 +20,21 @@ import type { ViaGeoMarker } from "@/types/ecu911";
 import type { MitAdverseEvent } from "@/lib/api/mit-eventos";
 import type { AntSiniestro } from "@/lib/api/ant-siniestros";
 import type { RiskEvaluationKmPoint } from "@/lib/api/risk-evaluation";
+import type { PoiPoint } from "@/lib/api/pois";
 
 // Color propio de la capa ANT — teal, para distinguirla de un vistazo de
 // ECU911 (azul), MIT (violeta) y reportes creados (semáforo rojo/naranja/
 // ámbar/verde).
 const ANT_COLOR = '#0d9488';
+
+// Puntos de interés de Google Places — colores propios, distintos de las
+// demás capas (ECU911 azul, MIT violeta, ANT teal, riesgo semáforo).
+const POI_META: Record<string, { color: string; icon: typeof Fuel }> = {
+  'Gasolinera':      { color: '#f59e0b', icon: Fuel },
+  'UPC / Policía':   { color: '#475569', icon: Shield },
+  'Hostal / Hotel':  { color: '#db2777', icon: BedDouble },
+};
+const POI_META_DEFAULT = { color: '#64748b', icon: Fuel };
 
 const QUITO_CENTER = { lat: -0.1807, lng: -78.4678 };
 // DEMO_MAP_ID habilita AdvancedMarker; en producción crear uno en Google Cloud Console.
@@ -99,6 +109,12 @@ interface RouteMapProps {
   onSelectRiskKm?: (km: RiskEvaluationKmPoint) => void;
   /** ID del km de Evaluación de Riesgo actualmente seleccionado (para resaltar). */
   selectedRiskKmId?: number | null;
+  /** Puntos de interés de Google Places (gasolineras/UPC/hostales) cerca de la ruta activa. */
+  pois?: PoiPoint[];
+  /** Callback al hacer clic en un punto de interés. */
+  onSelectPoi?: (poi: PoiPoint) => void;
+  /** Clave (`lat,lng`) del punto de interés actualmente seleccionado (para resaltar). */
+  selectedPoiKey?: string | null;
   /** Se dispara cuando el usuario termina de mover el mapa (zoom/pan), con el
    * viewport visible actual — para enfocar el detalle mostrado en el resto de
    * la UI (gráfico, alertas) a esa zona, como el zoom de una línea de tiempo. */
@@ -450,6 +466,9 @@ export default function RouteMap({
   riskEvaluationKms = [],
   onSelectRiskKm,
   selectedRiskKmId,
+  pois = [],
+  onSelectPoi,
+  selectedPoiKey,
   onViewportBoundsChanged,
   focusBounds,
 }: RouteMapProps) {
@@ -583,6 +602,28 @@ export default function RouteMap({
             <div className={cn('flex size-6 items-center justify-center rounded-full border-2 border-white text-white shadow-lg transition-transform hover:scale-110', isSelected && 'scale-125')}
               style={{ backgroundColor: color }}>
               <Camera className="size-3.5" />
+            </div>
+          </AdvancedMarker>
+        );
+      })}
+
+      {/* Puntos de interés (Google Places) — gasolineras/UPC/hostales cerca
+          de la ruta activa, mismo servicio que usa el reporte PDF. */}
+      {pois.map((poi) => {
+        const key = `${poi.lat},${poi.lng}`;
+        const isSelected = selectedPoiKey === key;
+        const meta = POI_META[poi.tipo] ?? POI_META_DEFAULT;
+        const Icon = meta.icon;
+        return (
+          <AdvancedMarker
+            key={key}
+            position={{ lat: poi.lat, lng: poi.lng }}
+            onClick={() => onSelectPoi?.(poi)}
+            title={`${poi.tipo} — ${poi.name}`}
+          >
+            <div className={cn('flex size-5 items-center justify-center rounded-full border-2 border-white text-white shadow-lg transition-transform hover:scale-110', isSelected && 'scale-125')}
+              style={{ backgroundColor: meta.color }}>
+              <Icon className="size-3" />
             </div>
           </AdvancedMarker>
         );

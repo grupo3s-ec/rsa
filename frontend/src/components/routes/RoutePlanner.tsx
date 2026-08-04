@@ -33,10 +33,15 @@ import {
   GripVertical,
   CarFront,
   Camera,
+  ExternalLink,
+  Fuel,
+  Shield,
+  BedDouble,
   HelpCircle,
   Landmark,
   Link2,
   LoaderCircle,
+  MapPin,
   Maximize2,
   Navigation,
   PanelLeft,
@@ -70,6 +75,7 @@ import {
   pointNearPolyline,
   boundsIntersect,
   subsampleRoute,
+  sampleEveryKm,
   kmPositionAlongRoute,
   kmRangeVisibleInBounds,
   boundsForKmRange,
@@ -78,6 +84,7 @@ import {
 import { getMitEventos, type MitAdverseEvent } from "@/lib/api/mit-eventos";
 import { getAntSiniestros, type AntSiniestro } from "@/lib/api/ant-siniestros";
 import { getRiskEvaluation, type RiskEvaluationKmPoint } from "@/lib/api/risk-evaluation";
+import { getPoisNearRoute, type PoiPoint } from "@/lib/api/pois";
 import { impactoHex } from "@/lib/risk-evaluation";
 import { driveThumbnailUrl } from "@/lib/drive";
 import { useRoutePlannerSession } from "@/lib/route-planner/session-context";
@@ -426,6 +433,43 @@ function RoutePlannerContent({
     const polyline = routeSamples.map((s) => ({ lat: s.point[1], lng: s.point[0] }));
     setRiskEvaluationConflicts(riskEvaluationKms.filter((k) => pointNearPolyline({ lat: k.lat, lng: k.lng }, polyline, 25)));
   }, [routeSamples, riskEvaluationKms]);
+
+  // ─── Puntos de interés (Google Places) — gasolineras/UPC/hostales ─────────
+  // A diferencia de ANT/MIT/Evaluación (bases propias que se traen completas
+  // y luego se filtran por cercanía), acá se pide directo a Places API
+  // alrededor de puntos muestreados de la ruta activa — no tiene sentido
+  // "traer todo" porque no hay "todo" que traer de antemano. Se vuelve a
+  // pedir cada vez que cambia la ruta calculada, mientras la capa esté encendida.
+  const [showPois,    setShowPois]    = useState(false);
+  const [pois,        setPois]        = useState<PoiPoint[]>([]);
+  const [poisLoading, setPoisLoading] = useState(false);
+  const [selectedPoi, setSelectedPoi] = useState<PoiPoint | null>(null);
+  // Evita repetir el pedido a Places API al apagar/prender la capa sin que
+  // la ruta haya cambiado — `routeSamples` es la misma referencia (useMemo)
+  // mientras `routes`/`selectedRouteIdx` no cambien.
+  const poisFetchedForRef = useRef<typeof routeSamples | null>(null);
+
+  // Como mucho ~35 puntos por más larga que sea la ruta (el backend rechaza
+  // el pedido entero si se pasa de su límite) — 15km es solo el piso para
+  // rutas cortas.
+  const MAX_POI_POINTS = 35;
+
+  useEffect(() => {
+    if (!showPois || routeSamples.length === 0) return;
+    if (poisFetchedForRef.current === routeSamples) return;
+    poisFetchedForRef.current = routeSamples;
+
+    const totalKm = routeSamples[routeSamples.length - 1]?.km ?? 0;
+    const stepKm = Math.max(15, totalKm / MAX_POI_POINTS);
+    const points = sampleEveryKm(routeSamples, stepKm);
+    let cancelled = false;
+    setPoisLoading(true);
+    getPoisNearRoute(points)
+      .then((res) => { if (!cancelled) setPois(res); })
+      .catch(() => { if (!cancelled) setPois([]); })
+      .finally(() => { if (!cancelled) setPoisLoading(false); });
+    return () => { cancelled = true; };
+  }, [showPois, routeSamples]);
 
   // ─── Mapa "como capas de Photoshop" ─────────────────────────────────────
   // Espeja la pestaña/sub-pestaña activa del panel (RouteTimeline) — cuando el
@@ -1240,6 +1284,7 @@ function RoutePlannerContent({
       size="icon-lg"
       aria-pressed={showRouteAlerts}
       aria-label={showRouteAlerts ? "Ocultar alertas de la ruta en el mapa" : "Mostrar alertas de la ruta en el mapa"}
+      title="Alertas de la ruta"
       onClick={() => setShowRouteAlerts((v) => !v)}
       className={cn(
         "rounded-full border-border/60 bg-background/80 shadow-lg backdrop-blur transition-colors",
@@ -1259,6 +1304,7 @@ function RoutePlannerContent({
       size="icon-lg"
       aria-pressed={showEcu911Vias}
       aria-label={showEcu911Vias ? "Ocultar vías con restricción (ECU911) en el mapa" : "Mostrar vías con restricción (ECU911) en el mapa"}
+      title="Vías con restricción (ECU911)"
       onClick={() => setShowEcu911Vias((v) => !v)}
       className={cn(
         "rounded-full border-border/60 bg-background/80 shadow-lg backdrop-blur transition-colors",
@@ -1276,6 +1322,7 @@ function RoutePlannerContent({
       size="icon-lg"
       aria-pressed={showMitSegments}
       aria-label={showMitSegments ? "Ocultar histórico MIT en el mapa" : "Mostrar histórico MIT en el mapa"}
+      title="Histórico de eventos MIT/MTOP"
       onClick={() => setShowMitSegments((v) => !v)}
       className={cn(
         "rounded-full border-border/60 bg-background/80 shadow-lg backdrop-blur transition-colors",
@@ -1294,6 +1341,7 @@ function RoutePlannerContent({
       size="icon-lg"
       aria-pressed={showAntSiniestros}
       aria-label={showAntSiniestros ? "Ocultar siniestros ANT en el mapa" : "Mostrar siniestros ANT en el mapa"}
+      title="Siniestros de tránsito (ANT)"
       onClick={() => setShowAntSiniestros((v) => !v)}
       className={cn(
         "rounded-full border-border/60 bg-background/80 shadow-lg backdrop-blur transition-colors",
@@ -1311,6 +1359,7 @@ function RoutePlannerContent({
       size="icon-lg"
       aria-pressed={showRiskEvaluation}
       aria-label={showRiskEvaluation ? "Ocultar evaluación de riesgo en el mapa" : "Mostrar evaluación de riesgo en el mapa"}
+      title="Evaluación de riesgo por km (video y condiciones)"
       onClick={() => setShowRiskEvaluation((v) => !v)}
       className={cn(
         "rounded-full border-border/60 bg-background/80 shadow-lg backdrop-blur transition-colors",
@@ -1318,6 +1367,25 @@ function RoutePlannerContent({
       )}
     >
       <Camera className="size-4" />
+    </Button>
+  );
+
+  // Mismo criterio opt-in — a diferencia de las demás, al activarla pide
+  // datos de nuevo cada vez que cambia la ruta (ver efecto arriba).
+  const poisToggleButton = (
+    <Button
+      variant="outline"
+      size="icon-lg"
+      aria-pressed={showPois}
+      aria-label={showPois ? "Ocultar gasolineras, UPC y hostales en el mapa" : "Mostrar gasolineras, UPC y hostales en el mapa"}
+      title="Gasolineras, UPC y hostales cercanos (Google Maps)"
+      onClick={() => setShowPois((v) => !v)}
+      className={cn(
+        "rounded-full border-border/60 bg-background/80 shadow-lg backdrop-blur transition-colors",
+        !showPois && "text-muted-foreground/50",
+      )}
+    >
+      {poisLoading ? <LoaderCircle className="size-4 animate-spin" /> : <MapPin className="size-4" />}
     </Button>
   );
 
@@ -1736,17 +1804,20 @@ function RoutePlannerContent({
                 onSelectRoute={handleSelectRoute}
                 onMapClick={(lngLat) => { void handleMapClick(lngLat); }}
                 viaMarkers={showEcu911Vias ? viaMarkersForMap : []}
-                onSelectVia={(m) => { setSelectedVia(m); setSelectedMit(null); setSelectedAnt(null); setSelectedRiskKm(null); }}
+                onSelectVia={(m) => { setSelectedVia(m); setSelectedMit(null); setSelectedAnt(null); setSelectedRiskKm(null); setSelectedPoi(null); }}
                 selectedViaId={selectedVia?.via.id ?? null}
                 mitSegments={mitSegmentsVisible}
-                onSelectMitEvent={(e) => { setSelectedMit(e); setSelectedVia(null); setSelectedAnt(null); setSelectedRiskKm(null); }}
+                onSelectMitEvent={(e) => { setSelectedMit(e); setSelectedVia(null); setSelectedAnt(null); setSelectedRiskKm(null); setSelectedPoi(null); }}
                 selectedMitEventId={selectedMit?.id ?? null}
                 antSiniestros={showAntSiniestros ? antConflicts : []}
-                onSelectAntSiniestro={(s) => { setSelectedAnt(s); setSelectedVia(null); setSelectedMit(null); setSelectedRiskKm(null); }}
+                onSelectAntSiniestro={(s) => { setSelectedAnt(s); setSelectedVia(null); setSelectedMit(null); setSelectedRiskKm(null); setSelectedPoi(null); }}
                 selectedAntId={selectedAnt?.id ?? null}
                 riskEvaluationKms={showRiskEvaluation ? riskEvaluationConflicts : []}
-                onSelectRiskKm={(k) => { setSelectedRiskKm(k); setSelectedVia(null); setSelectedMit(null); setSelectedAnt(null); }}
+                onSelectRiskKm={(k) => { setSelectedRiskKm(k); setSelectedVia(null); setSelectedMit(null); setSelectedAnt(null); setSelectedPoi(null); }}
                 selectedRiskKmId={selectedRiskKm?.id ?? null}
+                pois={showPois ? pois : []}
+                onSelectPoi={(p) => { setSelectedPoi(p); setSelectedVia(null); setSelectedMit(null); setSelectedAnt(null); setSelectedRiskKm(null); }}
+                selectedPoiKey={selectedPoi ? `${selectedPoi.lat},${selectedPoi.lng}` : null}
                 onViewportBoundsChanged={handleViewportBoundsChanged}
                 focusBounds={focusBoundsForMap}
               />
@@ -1758,6 +1829,7 @@ function RoutePlannerContent({
                 {mitToggleButton}
                 {antToggleButton}
                 {riskEvaluationToggleButton}
+                {poisToggleButton}
               </div>
               {/* Botón del reporte ANT — flotando centrado arriba del mapa,
                   siempre visible (no depende de ninguna pestaña). */}
@@ -1835,6 +1907,10 @@ function RoutePlannerContent({
               {selectedRiskKm ? (
                 <RiskEvaluationPopup km={selectedRiskKm} onClose={() => setSelectedRiskKm(null)} />
               ) : null}
+              {/* Popup de punto de interés (Google Places) seleccionado */}
+              {selectedPoi ? (
+                <PoiPopup poi={selectedPoi} onClose={() => setSelectedPoi(null)} />
+              ) : null}
           </>
           {mapOverlay}
         </div>
@@ -1873,17 +1949,20 @@ function RoutePlannerContent({
           onSelectRoute={handleSelectRoute}
           onMapClick={(lngLat) => { void handleMapClick(lngLat); }}
           viaMarkers={showEcu911Vias ? viaMarkersForMap : []}
-          onSelectVia={(m) => { setSelectedVia(m); setSelectedMit(null); setSelectedAnt(null); setSelectedRiskKm(null); }}
+          onSelectVia={(m) => { setSelectedVia(m); setSelectedMit(null); setSelectedAnt(null); setSelectedRiskKm(null); setSelectedPoi(null); }}
           selectedViaId={selectedVia?.via.id ?? null}
           mitSegments={mitSegmentsVisible}
-          onSelectMitEvent={(e) => { setSelectedMit(e); setSelectedVia(null); setSelectedAnt(null); setSelectedRiskKm(null); }}
+          onSelectMitEvent={(e) => { setSelectedMit(e); setSelectedVia(null); setSelectedAnt(null); setSelectedRiskKm(null); setSelectedPoi(null); }}
           selectedMitEventId={selectedMit?.id ?? null}
           antSiniestros={showAntSiniestros ? antConflicts : []}
-          onSelectAntSiniestro={(s) => { setSelectedAnt(s); setSelectedVia(null); setSelectedMit(null); setSelectedRiskKm(null); }}
+          onSelectAntSiniestro={(s) => { setSelectedAnt(s); setSelectedVia(null); setSelectedMit(null); setSelectedRiskKm(null); setSelectedPoi(null); }}
           selectedAntId={selectedAnt?.id ?? null}
           riskEvaluationKms={showRiskEvaluation ? riskEvaluationConflicts : []}
-          onSelectRiskKm={(k) => { setSelectedRiskKm(k); setSelectedVia(null); setSelectedMit(null); setSelectedAnt(null); }}
+          onSelectRiskKm={(k) => { setSelectedRiskKm(k); setSelectedVia(null); setSelectedMit(null); setSelectedAnt(null); setSelectedPoi(null); }}
           selectedRiskKmId={selectedRiskKm?.id ?? null}
+          pois={showPois ? pois : []}
+          onSelectPoi={(p) => { setSelectedPoi(p); setSelectedVia(null); setSelectedMit(null); setSelectedAnt(null); setSelectedRiskKm(null); }}
+          selectedPoiKey={selectedPoi ? `${selectedPoi.lat},${selectedPoi.lng}` : null}
           onViewportBoundsChanged={handleViewportBoundsChanged}
           focusBounds={focusBoundsForMap}
         />
@@ -1930,6 +2009,7 @@ function RoutePlannerContent({
         {mitToggleButton}
         {antToggleButton}
         {riskEvaluationToggleButton}
+        {poisToggleButton}
         <Button
           variant="outline"
           size="icon-lg"
@@ -2049,6 +2129,11 @@ function RoutePlannerContent({
         <RiskEvaluationPopup km={selectedRiskKm} onClose={() => setSelectedRiskKm(null)} />
       ) : null}
 
+      {/* Popup de punto de interés (Google Places) seleccionado (modo pantalla completa) */}
+      {selectedPoi ? (
+        <PoiPopup poi={selectedPoi} onClose={() => setSelectedPoi(null)} />
+      ) : null}
+
       {mapOverlay}
       {sharedDialogs}
     </div>
@@ -2166,13 +2251,33 @@ function RiskEvaluationPopup({ km, onClose }: { km: RiskEvaluationKmPoint; onClo
 
       <div className="max-h-96 overflow-y-auto border-t border-border/40 px-3 py-2.5 space-y-2.5">
         {embed.kind === 'drive' && embed.url ? (
-          <iframe
-            src={embed.url}
-            title={`Video ${km.km_label}`}
-            allow="autoplay; encrypted-media"
-            allowFullScreen
-            className="aspect-video w-full rounded-lg border border-border/60 bg-muted"
-          />
+          <>
+            <iframe
+              src={embed.url}
+              title={`Video ${km.km_label}`}
+              allow="autoplay; encrypted-media"
+              allowFullScreen
+              className="aspect-video w-full rounded-lg border border-border/60 bg-muted"
+            />
+            <a
+              href={km.video_url ?? undefined}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center gap-1 text-[10px] text-muted-foreground hover:text-foreground transition-colors"
+            >
+              <ExternalLink className="size-2.5" /> Abrir en Google Drive
+            </a>
+          </>
+        ) : null}
+        {embed.kind === 'external' && embed.url ? (
+          <a
+            href={embed.url}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center justify-center gap-1.5 rounded-lg border border-border/60 bg-muted/40 py-2.5 text-xs font-medium text-foreground hover:bg-muted transition-colors"
+          >
+            <Camera className="size-3.5" /> Ver video <ExternalLink className="size-3" />
+          </a>
         ) : null}
 
         {km.conditions.map((c, i) => {
@@ -2211,6 +2316,49 @@ function RiskEvaluationPopup({ km, onClose }: { km: RiskEvaluationKmPoint; onClo
             <span className="font-medium text-foreground">Comentario: </span>{km.comentario}
           </p>
         )}
+      </div>
+    </div>
+  );
+}
+
+// Mismos colores/íconos que `POI_META` en RouteMap.tsx — duplicado a propósito,
+// mismo criterio que MIT_TIPO_HEX (RouteMap se carga con `dynamic(ssr:false)`,
+// importar entre ambos rompería el code-splitting).
+const POI_POPUP_META: Record<string, { color: string; icon: typeof Fuel }> = {
+  'Gasolinera':      { color: '#f59e0b', icon: Fuel },
+  'UPC / Policía':   { color: '#475569', icon: Shield },
+  'Hostal / Hotel':  { color: '#db2777', icon: BedDouble },
+};
+const POI_POPUP_META_DEFAULT = { color: '#64748b', icon: Fuel };
+
+/** Popup de un punto de interés (Google Places) — nombre, dirección y link
+ * directo a Google Maps para trazar hacia ahí. */
+function PoiPopup({ poi, onClose }: { poi: PoiPoint; onClose: () => void }) {
+  const meta = POI_POPUP_META[poi.tipo] ?? POI_POPUP_META_DEFAULT;
+  const Icon = meta.icon;
+
+  return (
+    <div className="absolute bottom-16 left-1/2 z-20 w-80 -translate-x-1/2 rounded-xl border border-border/60 bg-background/95 shadow-xl backdrop-blur">
+      <div className="flex items-start gap-2.5 p-3">
+        <div className="flex size-8 shrink-0 items-center justify-center rounded-full text-white" style={{ backgroundColor: meta.color }}>
+          <Icon className="size-4" />
+        </div>
+        <div className="min-w-0 flex-1">
+          <p className="text-xs font-semibold leading-snug text-foreground">{poi.name}</p>
+          <p className="mt-0.5 text-[11px] text-muted-foreground">{poi.tipo}</p>
+          {poi.address && <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">{poi.address}</p>}
+          <a
+            href={`https://www.google.com/maps/search/?api=1&query=${poi.lat},${poi.lng}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="mt-1.5 flex items-center gap-1 text-[11px] text-emerald-600 dark:text-emerald-400 hover:underline"
+          >
+            <ExternalLink className="size-2.5" /> Ver en Google Maps
+          </a>
+        </div>
+        <button type="button" onClick={onClose} className="ml-1 shrink-0 rounded-md p-0.5 text-muted-foreground hover:text-foreground">
+          <X className="size-3.5" />
+        </button>
       </div>
     </div>
   );

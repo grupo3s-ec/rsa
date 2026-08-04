@@ -17,6 +17,7 @@ use App\Http\Controllers\Api\HazardTypeController;
 use App\Http\Controllers\Api\IncidentController;
 use App\Http\Controllers\Api\IncidentMediaController;
 use App\Http\Controllers\Api\MitAdverseEventController;
+use App\Http\Controllers\Api\PoiController;
 use App\Http\Controllers\Api\RiskEvaluationController;
 use App\Http\Controllers\Api\RouteIncidentController;
 use App\Http\Controllers\Api\ViaHistoryController;
@@ -72,6 +73,11 @@ Route::middleware('auth:sanctum')->group(function () {
 
     // Evaluación de riesgo por km (levantamiento en campo)
     Route::get('/risk-evaluations', [RiskEvaluationController::class, 'index']);
+
+    // Puntos de interés de Google Places (gasolineras/UPC/hostales) cerca
+    // de la ruta activa — se manda un POST porque `points` puede tener
+    // hasta 40 pares lat/lng, más largo de lo prudente en un querystring.
+    Route::post('/pois/nearby-route', [PoiController::class, 'nearbyRoute']);
 
     // ── Dashboard y Geotab (admin + operator) ────────────────────────────────
     Route::middleware('operator')->prefix('admin')->group(function () {

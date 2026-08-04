@@ -94,9 +94,13 @@ export function toEmbedUrl(videoUrl: string | null): EmbedUrl {
     return { kind: "none", url: null };
   }
 
-  const driveMatch = videoUrl.match(
-    /drive\.google\.com\/file\/d\/([\w-]+)/,
-  );
+  // Formatos de link de Drive que produce el propio Google al compartir
+  // ("Copiar enlace"): /file/d/{ID}/view, /open?id={ID}, /uc?...&id={ID}.
+  // El grupo previo a "id=" es opcional: en /open?id=X no hay otro parámetro
+  // antes (nada que matchee `[?&]` aparte del "?" ya consumido arriba).
+  const driveMatch =
+    videoUrl.match(/drive\.google\.com\/file\/d\/([\w-]+)/) ??
+    videoUrl.match(/drive\.google\.com\/(?:open|uc)\?(?:.*[?&])?id=([\w-]+)/);
 
   if (driveMatch) {
     return {

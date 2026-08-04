@@ -70,6 +70,37 @@ export function subsampleRoute(
 }
 
 /**
+ * Un punto cada `stepKm` a partir de `samples` (ya muestreados con
+ * `subsampleRoute`), más el último punto de la ruta si no cayó justo en un
+ * múltiplo de `stepKm` — pensado para acotar cuántas llamadas a una API
+ * externa se hacen por ruta (ver capa de POIs de Google Places).
+ */
+export function sampleEveryKm(
+  samples: RouteSample[],
+  stepKm: number,
+): Array<{ lat: number; lng: number }> {
+  if (samples.length === 0) return [];
+
+  const points: Array<{ lat: number; lng: number }> = [];
+  let nextKm = 0;
+  for (const s of samples) {
+    if (s.km >= nextKm) {
+      points.push({ lat: s.point[1], lng: s.point[0] });
+      nextKm += stepKm;
+    }
+  }
+
+  const last = samples[samples.length - 1]!;
+  const lastPoint = { lat: last.point[1], lng: last.point[0] };
+  const lastPushed = points[points.length - 1];
+  if (!lastPushed || lastPushed.lat !== lastPoint.lat || lastPushed.lng !== lastPoint.lng) {
+    points.push(lastPoint);
+  }
+
+  return points;
+}
+
+/**
  * Como `subsampleRoute`, pero muestrea N puntos equidistantes solo dentro de
  * `[fromKm, toKm]` (recortado a los límites reales de la ruta) — permite
  * "hacer zoom" a un tramo mostrando más densidad de puntos en ese rango, sin
