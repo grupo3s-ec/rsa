@@ -32,6 +32,27 @@ function getEstacionMasCercana(lat: number, lng: number): EstacionMeta {
   return best;
 }
 
+/** Las 6 estaciones de `ESTACIONES_META` están todas en el corredor
+ * Cuenca–Morona Santiago/Zamora Chinchipe — `getEstacionMasCercana` no tiene
+ * umbral de distancia, así que para una ruta lejana (Quito, Guayaquil, etc.)
+ * igual "inventa" una estación a cientos de km, mostrando un dato de clima
+ * histórico que no corresponde a esa zona. Este umbral es lo que decide si
+ * el perfil INAMHI aplica a la ruta actual — fuera de rango, la UI debe
+ * mostrar solo el clima en vivo de Google, no un histórico irrelevante. */
+const MAX_DISTANCIA_ESTACION_KM = 100;
+
+/** true si algún punto de la ruta cae dentro del alcance de alguna de las 6
+ * estaciones INAMHI — no exige que la ruta entera esté cerca, alcanza con
+ * que pase por la zona cubierta. */
+export function rutaTieneCoberturaInamhi(coords: LngLat[]): boolean {
+  const muestra = coords.filter((_, i) => i % Math.max(1, Math.floor(coords.length / 20)) === 0);
+  return muestra.some(([lng, lat]) =>
+    (ESTACIONES_META as readonly EstacionMeta[]).some(
+      (e) => haversineKm({ lat: e.lat, lng: e.lng }, { lat, lng }) <= MAX_DISTANCIA_ESTACION_KM,
+    ),
+  );
+}
+
 function promedio(vals: (string | number | null)[]): number {
   const nums = vals.filter((v): v is number => typeof v === 'number');
   return nums.length > 0 ? nums.reduce((a, b) => a + b, 0) / nums.length : 0;

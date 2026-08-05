@@ -21,7 +21,7 @@ import { cn } from '@/lib/utils';
 import { Skeleton } from '@/components/ui/skeleton';
 import { subsampleRoute, haversineKm, type RawLatLngBounds } from '@/lib/geo';
 import { conditionMeta, formatDistance, formatDuration, severityMeta } from '@/lib/incidents/format';
-import { CONDICION_META, getPerfilClimatico, mmToCondicion, mmToColor, MES_NOMBRE } from '@/lib/inamhi';
+import { CONDICION_META, getPerfilClimatico, mmToCondicion, mmToColor, MES_NOMBRE, rutaTieneCoberturaInamhi } from '@/lib/inamhi';
 import { DATOS_PRECIPITACION, ESTACIONES_META } from '@/lib/precipitacion-data';
 import { getCurrentWeather, type CurrentWeather } from '@/lib/api/weather';
 import { CalorPanel } from '@/components/analysis/CalorPanel';
@@ -261,12 +261,22 @@ export function RouteTimeline({
     }).sort((a, b) => a.km - b.km);
   }, [routeData]);
 
+  // Las 6 estaciones INAMHI están todas en el corredor Cuenca–Morona Santiago
+  // — para una ruta fuera de esa zona, mostrar clima histórico sería mostrar
+  // el dato de una estación a cientos de km, no de la ruta real. Fuera de
+  // cobertura, la UI se apoya solo en el clima en vivo de Google (no gated
+  // por esto — ver `getCurrentWeather`).
+  const tieneCoberturaInamhi = useMemo(
+    () => !!routeData && rutaTieneCoberturaInamhi(routeData.coords),
+    [routeData],
+  );
+
   // Perfil de precipitación por km (datos INAMHI, mes actual) — mismo n que la
   // elevación, ambos cubren la ruta completa siempre (ver ELEVATION_SAMPLE_COUNT).
   const precipKmData = useMemo(() => {
-    if (!routeData) return [];
+    if (!routeData || !tieneCoberturaInamhi) return [];
     return getPerfilClimatico(routeData.coords, routeData.distanceMeters, mesActual, ELEVATION_SAMPLE_COUNT);
-  }, [routeData, mesActual]);
+  }, [routeData, mesActual, tieneCoberturaInamhi]);
 
   // Altimetría y clima comparten el mismo muestreo por índice (ambos subsample-an
   // los mismos coords con el mismo n) — se combinan en un solo array para el
@@ -300,19 +310,22 @@ export function RouteTimeline({
   // franja siempre tiene puntos (nunca queda vacía por un tramo angosto) y
   // realmente gana detalle al hacer zoom, en vez de solo mostrar menos datos.
   const precipKmDataVisible = useMemo(() => {
-    if (!routeData) return [];
+    if (!routeData || !tieneCoberturaInamhi) return [];
     if (!focusedKmRange) return precipKmData;
     return getPerfilClimatico(routeData.coords, routeData.distanceMeters, mesActual, ELEVATION_SAMPLE_COUNT, focusedKmRange);
-  }, [routeData, mesActual, focusedKmRange, precipKmData]);
+  }, [routeData, mesActual, focusedKmRange, precipKmData, tieneCoberturaInamhi]);
 
-  // Estaciones más cercanas para historial
+  // Estaciones más cercanas para historial — vacío fuera de cobertura, en vez
+  // de las 2 "más cercanas" por defecto (que para una ruta lejana ya no
+  // significan nada real).
   const estacionesCercanas = useMemo(() => {
     if (!routeData) return ESTACIONES_META.slice(0, 2);
+    if (!tieneCoberturaInamhi) return [];
     const sample = routeData.coords.filter((_, i) => i % Math.max(1, Math.floor(routeData.coords.length / 20)) === 0);
     return [...ESTACIONES_META]
       .map(e => ({ e, d: Math.min(...sample.map(c => haversineKm({ lat: e.lat, lng: e.lng }, { lat: c[1], lng: c[0] }))) }))
       .sort((a, b) => a.d - b.d).slice(0, 2).map(x => x.e);
-  }, [routeData]);
+  }, [routeData, tieneCoberturaInamhi]);
 
   const historialData = useMemo(
     () => getHistorialMensual(estacionesCercanas.map(e => e.codigo), anoMin, anoMax),
@@ -642,6 +655,10 @@ export function RouteTimeline({
             <div className="flex h-full items-center justify-center gap-3 text-muted-foreground/60">
               <Route className="size-5 shrink-0" />
               <p className="text-sm">Calcula una ruta para ver el perfil</p>
+            </div>
+          ) : showHistorial && showClima && !tieneCoberturaInamhi ? (
+            <div className="flex h-full items-center justify-center gap-3 px-4 text-center text-muted-foreground/60">
+              <p className="text-sm">Sin histórico INAMHI para esta ruta — fuera del corredor Cuenca–Morona Santiago. El clima en vivo (arriba) sigue disponible.</p>
             </div>
           ) : showHistorial && showClima ? (
             /* Vista historial de precipitación: barras mensuales */
