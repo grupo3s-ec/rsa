@@ -11,6 +11,12 @@ FROM php:8.4-fpm-alpine
 # filas leídas en chunks — ver AntSiniestrosImporter) mide varios minutos
 # reales por el 0.1 CPU del free tier de Render; empareja con el timeout del
 # lado del cliente (10 min, ver uploadAntSiniestros en el frontend).
+# nginx: `php artisan serve` (server de desarrollo integrado) no aguanta
+# uploads grandes/lentos de forma confiable — moría con "Invalid request
+# (Unexpected EOF)" a medio subir el .xlsx de la ANT, sin llegar siquiera a
+# que Laravel lo procese (confirmado con el log real de producción). Esta
+# imagen es *-fpm justamente para pararse con un servidor real delante —
+# ver docker/start.sh y docker/nginx.conf.template.
 RUN apk add --no-cache \
         curl-dev \
         postgresql-dev \
@@ -20,6 +26,7 @@ RUN apk add --no-cache \
         libjpeg-turbo-dev \
         freetype-dev \
         libzip-dev \
+        nginx \
     && docker-php-ext-configure gd --with-freetype --with-jpeg \
     && docker-php-ext-install \
         curl \
@@ -48,8 +55,9 @@ COPY . .
 RUN COMPOSER_MEMORY_LIMIT=-1 composer install \
     --no-dev --optimize-autoloader \
     && chmod -R 775 storage bootstrap/cache \
-    && chown -R www-data:www-data storage bootstrap/cache
+    && chown -R www-data:www-data storage bootstrap/cache \
+    && chmod +x docker/start.sh
 
 EXPOSE 10000
 
-CMD ["sh", "-c", "php artisan migrate --force && php artisan db:seed --class=AdminSeeder --force && php artisan db:seed --class=HazardTypeSeeder --force && php artisan serve --host=0.0.0.0 --port=${PORT:-10000}"]
+CMD ["docker/start.sh"]
