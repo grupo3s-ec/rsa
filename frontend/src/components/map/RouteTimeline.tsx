@@ -157,6 +157,10 @@ async function fetchElevation(routeData: RouteCalculatedData) {
 
 interface Props {
   routeData: RouteCalculatedData | null;
+  /** Las alertas del backend llegan después que la ruta (Google, más rápido)
+   * — mientras esto sea true, `routeData.incidents` puede estar vacío solo
+   * porque aún no llegó la respuesta, no porque la ruta esté despejada. */
+  incidentsLoading?: boolean;
   onSelectIncident?: (incident: Incident) => void;
   selectedIncidentId?: number | null;
   /** Provincias con restricciones viales ECU911 cercanas a la ruta calculada (para el tab Cierres/Vías). */
@@ -164,6 +168,10 @@ interface Props {
   /** Provincias con eventos del histórico MIT cercanos a la ruta calculada
    * (fuente de datos distinta a ECU911 — no se debe reusar `conflictProvinces`). */
   mitConflictProvinces?: string[] | null;
+  /** Provincias con siniestros ANT cercanos a la ruta calculada (coordenadas
+   * exactas, fuente distinta a ECU911 — mismo motivo que `mitConflictProvinces`
+   * para no reusar `conflictProvinces`). */
+  antConflictProvinces?: string[] | null;
   /** Rango de km (reales, ya escalados) actualmente enfocado — `null` = ver
    * toda la ruta. Lo controla `RoutePlanner` (mapa o el selector del gráfico). */
   focusedKmRange?: [number, number] | null;
@@ -185,21 +193,26 @@ interface Props {
 }
 
 export function RouteTimeline({
-  routeData, onSelectIncident, selectedIncidentId, conflictProvinces, mitConflictProvinces,
+  routeData, incidentsLoading, onSelectIncident, selectedIncidentId, conflictProvinces, mitConflictProvinces,
+  antConflictProvinces,
   focusedKmRange, onFocusedKmRangeChange, focusedGeoBounds, hiddenMitTipos, onToggleMitTipo,
   onActiveLayerChange,
 }: Props) {
   const [open,         setOpen]         = useState(true);
   const [tab,          setTab]          = useState<TimelineTab>('alertas');
 
-  // El tab "Alertas" se oculta cuando la ruta ya se calculó y no tiene
-  // siniestros reportados — sin esto, quedaría seleccionado un tab cuyo
+  // El tab "Alertas" se oculta cuando la ruta ya se calculó y CONFIRMÓ no
+  // tener siniestros reportados — sin esto, quedaría seleccionado un tab cuyo
   // botón desapareció, mostrando el estado vacío sin ningún tab activo.
+  // Mientras `incidentsLoading` sea true, `routeData.incidents` vacío no es
+  // una confirmación todavía (ver comentario en la prop) — cambiar de tab en
+  // ese momento es lo que hacía que las alertas "no salieran" hasta volver a
+  // entrar manualmente al tab, una vez ya habían llegado.
   useEffect(() => {
-    if (tab === 'alertas' && routeData && routeData.incidents.length === 0) {
+    if (tab === 'alertas' && routeData && !incidentsLoading && routeData.incidents.length === 0) {
       setTab('perfil');
     }
-  }, [tab, routeData]);
+  }, [tab, routeData, incidentsLoading]);
   const [riesgosSubTab,  setRiesgosSubTab]  = useState<RiesgosSubTab>('cierres');
 
   // Notifica al padre cada vez que cambia la pestaña o sub-pestaña activa —
@@ -261,11 +274,10 @@ export function RouteTimeline({
     }).sort((a, b) => a.km - b.km);
   }, [routeData]);
 
-  // Las 6 estaciones INAMHI están todas en el corredor Cuenca–Morona Santiago
-  // — para una ruta fuera de esa zona, mostrar clima histórico sería mostrar
-  // el dato de una estación a cientos de km, no de la ruta real. Fuera de
-  // cobertura, la UI se apoya solo en el clima en vivo de Google (no gated
-  // por esto — ver `getCurrentWeather`).
+  // El histórico INAMHI solo aplica a la ruta Cuenca ↔ Fruta del Norte
+  // específicamente (ver `rutaTieneCoberturaInamhi`) — cualquier otra ruta se
+  // apoya solo en el clima en vivo de Google (no gated por esto — ver
+  // `getCurrentWeather`).
   const tieneCoberturaInamhi = useMemo(
     () => !!routeData && rutaTieneCoberturaInamhi(routeData.coords),
     [routeData],
@@ -385,14 +397,18 @@ export function RouteTimeline({
         <div className="flex items-center justify-between gap-2">
           {/* Tabs — nowrap + scroll horizontal para garantizar una sola línea */}
           <div className="flex flex-nowrap items-center gap-0.5 overflow-x-auto rounded-lg border border-border/50 bg-muted/40 p-0.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-            {/* Sin siniestros reportados en la ruta calculada, este tab no
-                tiene nada que mostrar — mejor no ofrecerlo que dejar al
-                usuario mirando un estado vacío. */}
-            {(!routeData || routeData.incidents.length > 0) && (
+            {/* Sin siniestros reportados en la ruta CONFIRMADOS (ya cargados),
+                este tab no tiene nada que mostrar — mejor no ofrecerlo que
+                dejar al usuario mirando un estado vacío. Mientras las alertas
+                todavía están cargando, se mantiene visible (con su spinner)
+                en vez de desaparecer y reaparecer solo. */}
+            {(!routeData || incidentsLoading || routeData.incidents.length > 0) && (
               <button type="button" onClick={() => setTab('alertas')}
                 className={cn('relative flex shrink-0 items-center gap-1 rounded-md px-2 py-0.5 text-[11px] font-medium transition-all hover:scale-[1.03] active:scale-[0.97]',
                   tab === 'alertas' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground')}>
-                <Bell className="size-3" /> Alertas
+                <Bell className="size-3" />
+                {incidentsLoading && <LoaderCircle className="size-3 animate-spin" />}
+                Alertas
                 {(routeData?.incidents.length ?? 0) > 0 && (
                   <span className={cn('ml-0.5 rounded-full px-1 text-[9px] font-bold',
                     (routeData?.incidents.some(i => i.severity === 'critical')) ? 'bg-red-500 text-white' : 'bg-amber-500 text-white')}>
@@ -542,6 +558,11 @@ export function RouteTimeline({
                 <Route className="size-4 shrink-0" />
                 <p className="text-sm">Calcula una ruta para ver las alertas en camino</p>
               </div>
+            ) : incidentsLoading ? (
+              <div className="flex h-full items-center justify-center gap-2 text-muted-foreground/60">
+                <LoaderCircle className="size-4 shrink-0 animate-spin" />
+                <p className="text-sm">Buscando alertas en la ruta…</p>
+              </div>
             ) : routeData.incidents.length === 0 ? (
               <div className="flex h-full items-center justify-center gap-2 text-muted-foreground/60">
                 <span className="text-lg">✅</span>
@@ -658,7 +679,7 @@ export function RouteTimeline({
             </div>
           ) : showHistorial && showClima && !tieneCoberturaInamhi ? (
             <div className="flex h-full items-center justify-center gap-3 px-4 text-center text-muted-foreground/60">
-              <p className="text-sm">Sin histórico INAMHI para esta ruta — fuera del corredor Cuenca–Morona Santiago. El clima en vivo (arriba) sigue disponible.</p>
+              <p className="text-sm">Sin histórico INAMHI para esta ruta — solo disponible para Cuenca ↔ Fruta del Norte. El clima en vivo (arriba) sigue disponible.</p>
             </div>
           ) : showHistorial && showClima ? (
             /* Vista historial de precipitación: barras mensuales */
@@ -822,12 +843,15 @@ export function RouteTimeline({
                   onToggleTipo={onToggleMitTipo}
                 />
               ) : (
-                <AntSiniestrosPanel conflictProvinces={routeData ? (conflictProvinces ?? null) : null} />
+                <AntSiniestrosPanel
+                  conflictProvinces={routeData ? (antConflictProvinces ?? null) : null}
+                  focusedBounds={routeData ? (focusedGeoBounds ?? null) : null}
+                />
               )}
             </div>
           </div>
         ) : (
-          <RiskEvaluationPanel />
+          <RiskEvaluationPanel focusedBounds={routeData ? (focusedGeoBounds ?? null) : null} />
         )}
       </div>
     </div>

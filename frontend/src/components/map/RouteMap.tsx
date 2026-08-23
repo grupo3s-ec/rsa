@@ -620,7 +620,8 @@ export default function RouteMap({
 
       {/* Evaluación de Riesgo por km — coordenadas exactas del levantamiento
           en campo; el color es el impacto más alto entre las condiciones de
-          ese km (mismo semáforo que las severidades de incidentes). */}
+          ese km (mismo semáforo que las severidades de incidentes — se
+          diferencia de una alerta por el ícono de cámara, no por color). */}
       {riskEvaluationKms.map((km) => {
         const isSelected = selectedRiskKmId === km.id;
         const color = maxImpactoHex(km.conditions);

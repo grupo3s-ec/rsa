@@ -121,8 +121,12 @@ export function IncidentCreateDialog({
       });
 
       if (photoFile) {
+        // No bloquea — el incidente ya se creó — pero antes fallaba en
+        // silencio total: el usuario veía "Reportado ✓" sin la foto y sin
+        // enterarse de que no se subió. Mismo toast que ya usa el flujo de
+        // edición (IncidentDetailDialog.handleUploadFile) para el mismo error.
         try { await uploadIncidentPhoto(incident.id, photoFile); }
-        catch { /* no bloquea — incidente ya creado */ }
+        catch (err) { toast.error(err instanceof Error ? err.message : 'Error al subir'); }
       }
 
       toast.success('Reportado ✓');

@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { Flame, RefreshCw } from 'lucide-react';
+import { ChevronDown, ChevronUp, Flame, RefreshCw } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Skeleton } from '@/components/ui/skeleton';
 import type { Ecu911Response, Ecu911Via } from '@/types/ecu911';
@@ -18,7 +18,17 @@ interface ProvinciaHeat {
   total: number;
   score: number;         // cerrada=3, parcial=2, restricción=1
   level: HeatLevel;
+  vias: Ecu911Via[];
 }
+
+// Meta visual por estado individual de vía — mismos colores que los badges
+// de conteo, para el detalle al desplegar una provincia.
+const VIA_ESTADO_META: Record<number, { label: string; color: string }> = {
+  595: { label: 'Cerrada',      color: 'bg-red-100 text-red-700 dark:bg-red-950/40 dark:text-red-400' },
+  594: { label: 'Parcial',      color: 'bg-amber-100 text-amber-700 dark:bg-amber-950/40 dark:text-amber-400' },
+  592: { label: 'Restricción',  color: 'bg-orange-100 text-orange-700 dark:bg-orange-950/40 dark:text-orange-400' },
+};
+const VIA_ESTADO_META_DEFAULT = { label: 'Afectada', color: 'bg-muted text-muted-foreground' };
 
 // ─── Meta visual por nivel ────────────────────────────────────────────────────
 
@@ -50,13 +60,14 @@ function processVias(vias: Ecu911Via[]): ProvinciaHeat[] {
 
   for (const via of vias) {
     const key = via.Provincia.descripcion;
-    const prev = map.get(key) ?? { nombre: key, cerradas: 0, parciales: 0, restricciones: 0, total: 0, score: 0 };
+    const prev = map.get(key) ?? { nombre: key, cerradas: 0, parciales: 0, restricciones: 0, total: 0, score: 0, vias: [] };
 
     if (via.estado_actual_id === 595) { prev.cerradas++;      prev.score += 3; }
     else if (via.estado_actual_id === 594) { prev.parciales++;     prev.score += 2; }
     else if (via.estado_actual_id === 592) { prev.restricciones++; prev.score += 1; }
 
     prev.total++;
+    prev.vias.push(via);
     map.set(key, prev);
   }
 
@@ -81,6 +92,7 @@ export function CalorPanel({ filterProvinces }: CalorPanelProps) {
   const [loading,    setLoading]    = useState(true);
   const [error,      setError]      = useState<string | null>(null);
   const [updatedAt,  setUpdatedAt]  = useState<Date | null>(null);
+  const [expandedProvincia, setExpandedProvincia] = useState<string | null>(null);
 
   async function fetchData() {
     setLoading(true);
@@ -239,43 +251,69 @@ export function CalorPanel({ filterProvinces }: CalorPanelProps) {
               if (p.parciales)     badges.push({ label: `${p.parciales} parcial${p.parciales !== 1 ? 'es' : ''}`,       color: 'bg-amber-100 text-amber-700 dark:bg-amber-950/40 dark:text-amber-400' });
               if (p.restricciones) badges.push({ label: `${p.restricciones} restricción${p.restricciones !== 1 ? 'es' : ''}`, color: 'bg-orange-100 text-orange-700 dark:bg-orange-950/40 dark:text-orange-400' });
 
+              const isExpanded = expandedProvincia === p.nombre;
+
               return (
                 <div
                   key={p.nombre}
-                  className={cn('rounded-xl border border-border/40 p-4 transition-colors hover:border-border', meta.bg)}
+                  className={cn('rounded-xl border border-border/40 transition-colors hover:border-border', meta.bg)}
                 >
-                  <div className="mb-2 flex items-center justify-between gap-2">
-                    <div className="flex min-w-0 items-center gap-2">
-                      <span className={cn('size-2 shrink-0 rounded-full', meta.dot)} />
-                      <span className="truncate text-sm font-medium text-foreground">{p.nombre}</span>
-                    </div>
-                    <div className="flex shrink-0 items-center gap-2">
-                      <span className={cn('text-xs font-semibold', meta.text)}>{meta.label}</span>
-                      <span className="tabular-nums text-sm font-bold text-foreground">
-                        {p.total} vía{p.total !== 1 ? 's' : ''}
-                      </span>
-                    </div>
-                  </div>
-
-                  {/* Barra de densidad */}
-                  <div className="h-1.5 overflow-hidden rounded-full bg-border/30">
-                    <div
-                      className={cn('h-full rounded-full transition-all', meta.bar)}
-                      style={{ width: `${barPct}%` }}
-                    />
-                  </div>
-
-                  {/* Badges por tipo */}
-                  {badges.length > 0 && (
-                    <div className="mt-2.5 flex flex-wrap gap-1.5">
-                      {badges.map((b) => (
-                        <span
-                          key={b.label}
-                          className={cn('rounded-full px-2 py-0.5 text-[10px] font-semibold', b.color)}
-                        >
-                          {b.label}
+                  <button
+                    type="button"
+                    onClick={() => setExpandedProvincia(isExpanded ? null : p.nombre)}
+                    className="w-full p-4 text-left"
+                  >
+                    <div className="mb-2 flex items-center justify-between gap-2">
+                      <div className="flex min-w-0 items-center gap-2">
+                        {isExpanded ? <ChevronUp className="size-3.5 shrink-0 text-muted-foreground" /> : <ChevronDown className="size-3.5 shrink-0 text-muted-foreground" />}
+                        <span className={cn('size-2 shrink-0 rounded-full', meta.dot)} />
+                        <span className="truncate text-sm font-medium text-foreground">{p.nombre}</span>
+                      </div>
+                      <div className="flex shrink-0 items-center gap-2">
+                        <span className={cn('text-xs font-semibold', meta.text)}>{meta.label}</span>
+                        <span className="tabular-nums text-sm font-bold text-foreground">
+                          {p.total} vía{p.total !== 1 ? 's' : ''}
                         </span>
-                      ))}
+                      </div>
+                    </div>
+
+                    {/* Barra de densidad */}
+                    <div className="h-1.5 overflow-hidden rounded-full bg-border/30">
+                      <div
+                        className={cn('h-full rounded-full transition-all', meta.bar)}
+                        style={{ width: `${barPct}%` }}
+                      />
+                    </div>
+
+                    {/* Badges por tipo */}
+                    {badges.length > 0 && (
+                      <div className="mt-2.5 flex flex-wrap gap-1.5">
+                        {badges.map((b) => (
+                          <span
+                            key={b.label}
+                            className={cn('rounded-full px-2 py-0.5 text-[10px] font-semibold', b.color)}
+                          >
+                            {b.label}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                  </button>
+
+                  {/* Detalle — vías afectadas de la provincia, visible al desplegar */}
+                  {isExpanded && (
+                    <div className="space-y-1.5 border-t border-border/40 px-4 pb-4 pt-3">
+                      {p.vias.map((via) => {
+                        const viaMeta = VIA_ESTADO_META[via.estado_actual_id] ?? VIA_ESTADO_META_DEFAULT;
+                        return (
+                          <div key={via.id} className="flex items-start justify-between gap-2 rounded-lg bg-background/60 px-2.5 py-1.5">
+                            <span className="text-xs text-foreground leading-snug">{via.descripcion}</span>
+                            <span className={cn('shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-semibold whitespace-nowrap', viaMeta.color)}>
+                              {viaMeta.label}
+                            </span>
+                          </div>
+                        );
+                      })}
                     </div>
                   )}
                 </div>

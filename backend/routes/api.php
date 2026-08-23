@@ -13,6 +13,7 @@ use App\Http\Controllers\Api\Admin\UserController as AdminUserController;
 use App\Http\Controllers\Api\Admin\VehicleController as AdminVehicleController;
 use App\Http\Controllers\Api\AntAccidentController;
 use App\Http\Controllers\Api\AuthController;
+use App\Http\Controllers\Api\DriveVideoProxyController;
 use App\Http\Controllers\Api\HazardTypeController;
 use App\Http\Controllers\Api\IncidentController;
 use App\Http\Controllers\Api\IncidentMediaController;
@@ -20,6 +21,7 @@ use App\Http\Controllers\Api\MitAdverseEventController;
 use App\Http\Controllers\Api\PoiController;
 use App\Http\Controllers\Api\RiskEvaluationController;
 use App\Http\Controllers\Api\RouteIncidentController;
+use App\Http\Controllers\Api\SavedRouteController;
 use App\Http\Controllers\Api\ViaHistoryController;
 use Illuminate\Support\Facades\Route;
 
@@ -38,24 +40,24 @@ Route::post('/vias/poll', [ViaHistoryController::class, 'poll']);
 Route::middleware('auth:sanctum')->group(function () {
 
     Route::post('/auth/logout', [AuthController::class, 'logout']);
-    Route::get('/auth/me',     [AuthController::class, 'me']);
+    Route::get('/auth/me', [AuthController::class, 'me']);
 
     // Catálogo de peligros (para el select de tipo de incidente)
     Route::get('/hazard-types', [HazardTypeController::class, 'index']);
 
     // Incidentes
-    Route::get('/incidents',              [IncidentController::class, 'index']);
-    Route::post('/incidents',             [IncidentController::class, 'store']);
-    Route::get('/incidents/{incident}',   [IncidentController::class, 'show']);
+    Route::get('/incidents', [IncidentController::class, 'index']);
+    Route::post('/incidents', [IncidentController::class, 'store']);
+    Route::get('/incidents/{incident}', [IncidentController::class, 'show']);
     Route::patch('/incidents/{incident}', [IncidentController::class, 'update']);
-    Route::delete('/incidents/{incident}',[IncidentController::class, 'destroy']);
+    Route::delete('/incidents/{incident}', [IncidentController::class, 'destroy']);
     Route::get('/incidents/{incident}/history', [IncidentController::class, 'history']);
 
     // Evidencias de incidentes
-    Route::get('/incidents/{incident}/media',               [IncidentMediaController::class, 'index']);
-    Route::post('/incidents/{incident}/media',              [IncidentMediaController::class, 'store']);
-    Route::post('/incidents/{incident}/media/upload',       [IncidentMediaController::class, 'upload']);
-    Route::delete('/incidents/{incident}/media/{media}',    [IncidentMediaController::class, 'destroy']);
+    Route::get('/incidents/{incident}/media', [IncidentMediaController::class, 'index']);
+    Route::post('/incidents/{incident}/media', [IncidentMediaController::class, 'store']);
+    Route::post('/incidents/{incident}/media/upload', [IncidentMediaController::class, 'upload']);
+    Route::delete('/incidents/{incident}/media/{media}', [IncidentMediaController::class, 'destroy']);
 
     // Incidentes por ruta
     Route::get('/routes/incidents', RouteIncidentController::class);
@@ -64,15 +66,25 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/vias/history', [ViaHistoryController::class, 'index']);
 
     // Histórico de eventos adversos MTOP/MIT (boletines mensuales)
-    Route::get('/mit/eventos-adversos',           [MitAdverseEventController::class, 'index']);
-    Route::get('/mit/eventos-adversos/opciones',  [MitAdverseEventController::class, 'opciones']);
+    Route::get('/mit/eventos-adversos', [MitAdverseEventController::class, 'index']);
+    Route::get('/mit/eventos-adversos/opciones', [MitAdverseEventController::class, 'opciones']);
 
     // Siniestros de tránsito ANT (base de datos mensual, coordenadas exactas)
-    Route::get('/ant/siniestros',           [AntAccidentController::class, 'index']);
-    Route::get('/ant/siniestros/opciones',  [AntAccidentController::class, 'opciones']);
+    Route::get('/ant/siniestros', [AntAccidentController::class, 'index']);
+    Route::get('/ant/siniestros/opciones', [AntAccidentController::class, 'opciones']);
 
     // Evaluación de riesgo por km (levantamiento en campo)
     Route::get('/risk-evaluations', [RiskEvaluationController::class, 'index']);
+
+    // Proxy de video de Drive — el <video> del frontend lo consume como blob
+    // autenticado (ver DriveVideoPlayer.tsx / DriveVideoProxyController).
+    Route::get('/media/drive-video/{fileId}', [DriveVideoProxyController::class, 'stream']);
+
+    // Rutas favoritas del usuario (acceso rápido, ej. "Casa") — a diferencia
+    // de /admin/routes (predefinidas, globales), estas son personales.
+    Route::get('/saved-routes', [SavedRouteController::class, 'index']);
+    Route::post('/saved-routes', [SavedRouteController::class, 'store']);
+    Route::delete('/saved-routes/{savedRoute}', [SavedRouteController::class, 'destroy']);
 
     // Puntos de interés de Google Places (gasolineras/UPC/hostales) cerca
     // de la ruta activa — se manda un POST porque `points` puede tener
@@ -83,17 +95,17 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::middleware('operator')->prefix('admin')->group(function () {
         Route::get('/dashboard', [DashboardController::class, 'index']);
 
-        Route::get('/geotab/status',  [GeotabController::class, 'status']);
+        Route::get('/geotab/status', [GeotabController::class, 'status']);
         Route::get('/geotab/devices', [GeotabController::class, 'devices']);
-        Route::post('/geotab/sync',   [GeotabController::class, 'sync']);
+        Route::post('/geotab/sync', [GeotabController::class, 'sync']);
     });
 
     // ── Administración (solo admin) ───────────────────────────────────────────
     Route::middleware('admin')->prefix('admin')->group(function () {
 
         // Reportería
-        Route::get('/reports/incidents',            [ReportController::class, 'incidents']);
-        Route::get('/reports/incidents/export',     [ReportController::class, 'export']);
+        Route::get('/reports/incidents', [ReportController::class, 'incidents']);
+        Route::get('/reports/incidents/export', [ReportController::class, 'export']);
         Route::get('/reports/incidents/export-pdf', [ReportController::class, 'exportPdf']);
         Route::get('/reports/route-risk/export-pdf', [RouteRiskReportController::class, 'exportPdf']);
 
@@ -103,7 +115,7 @@ Route::middleware('auth:sanctum')->group(function () {
         // Carga inicial del histórico MIT/MTOP (Render free tier no da shell,
         // así que mit:import/mit:geocode/mit:route se disparan por HTTP, solo admin).
         Route::post('/mit/import', [MitImportController::class, 'run']);
-        Route::post('/mit/route',  [MitImportController::class, 'route']);
+        Route::post('/mit/route', [MitImportController::class, 'route']);
 
         // Carga del histórico de siniestros ANT — mismo motivo que MIT arriba
         // (uso único, carga del JSON ya extraído). Para archivos nuevos cada
@@ -116,21 +128,21 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('/risk-evaluations/upload', [RiskEvaluationImportController::class, 'upload']);
 
         // Usuarios
-        Route::get('/users',         [AdminUserController::class, 'index']);
-        Route::post('/users',        [AdminUserController::class, 'store']);
-        Route::patch('/users/{user}',[AdminUserController::class, 'update']);
-        Route::delete('/users/{user}',[AdminUserController::class, 'destroy']);
+        Route::get('/users', [AdminUserController::class, 'index']);
+        Route::post('/users', [AdminUserController::class, 'store']);
+        Route::patch('/users/{user}', [AdminUserController::class, 'update']);
+        Route::delete('/users/{user}', [AdminUserController::class, 'destroy']);
 
         // Vehículos
-        Route::get('/vehicles',             [AdminVehicleController::class, 'index']);
-        Route::post('/vehicles',            [AdminVehicleController::class, 'store']);
+        Route::get('/vehicles', [AdminVehicleController::class, 'index']);
+        Route::post('/vehicles', [AdminVehicleController::class, 'store']);
         Route::patch('/vehicles/{vehicle}', [AdminVehicleController::class, 'update']);
-        Route::delete('/vehicles/{vehicle}',[AdminVehicleController::class, 'destroy']);
+        Route::delete('/vehicles/{vehicle}', [AdminVehicleController::class, 'destroy']);
 
         // Rutas predefinidas
-        Route::get('/routes',                          [AdminRouteController::class, 'index']);
-        Route::post('/routes',                         [AdminRouteController::class, 'store']);
-        Route::patch('/routes/{predefinedRoute}',      [AdminRouteController::class, 'update']);
-        Route::delete('/routes/{predefinedRoute}',     [AdminRouteController::class, 'destroy']);
+        Route::get('/routes', [AdminRouteController::class, 'index']);
+        Route::post('/routes', [AdminRouteController::class, 'store']);
+        Route::patch('/routes/{predefinedRoute}', [AdminRouteController::class, 'update']);
+        Route::delete('/routes/{predefinedRoute}', [AdminRouteController::class, 'destroy']);
     });
 });

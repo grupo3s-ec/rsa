@@ -15,7 +15,11 @@ class IncidentMediaController extends Controller
     public function upload(Request $request, Incident $incident): JsonResponse
     {
         $data = $request->validate([
-            'file'       => ['required', 'file', 'mimes:jpeg,jpg,png,gif,webp', 'max:5120'],
+            // 5MB/sin heic era muy restrictivo para una foto de celular actual
+            // (un iPhone guarda en .heic por defecto y pesa 5-12+ MB en alta
+            // resolución) — subía el incidente pero la foto fallaba en
+            // silencio (ver IncidentCreateDialog.tsx).
+            'file'       => ['required', 'file', 'mimes:jpeg,jpg,png,gif,webp,heic,heif', 'max:20480'],
             'media_type' => ['sometimes', 'string', 'in:photo,video'],
         ]);
 

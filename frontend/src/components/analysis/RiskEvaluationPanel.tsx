@@ -1,14 +1,16 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { AlertTriangle, Camera, ChevronDown, ChevronUp, Download, ExternalLink, LoaderCircle, MapPinned } from 'lucide-react';
+import { AlertTriangle, ArrowDownWideNarrow, Camera, ChevronDown, ChevronUp, Download, ExternalLink, LoaderCircle, MapPinned, ZoomIn } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Skeleton } from '@/components/ui/skeleton';
 import { getRiskEvaluation, getRouteRiskReportPdfUrl, type RiskEvaluationKmPoint } from '@/lib/api/risk-evaluation';
-import { impactoHex, maxImpactoHex } from '@/lib/risk-evaluation';
+import { DriveVideoPlayer } from '@/components/media/DriveVideoPlayer';
+import { impactoHex, maxImpactoHex, maxImpactoRank } from '@/lib/risk-evaluation';
 import { driveThumbnailUrl } from '@/lib/drive';
 import { toEmbedUrl } from '@/lib/incidents/format';
 import { getToken } from '@/lib/auth/token';
+import type { RawLatLngBounds } from '@/lib/geo';
 
 /** Descarga con el token de auth en el header — un <a href> plano no lo
  * manda, y el endpoint requiere sesión de admin (mismo patrón que
@@ -73,11 +75,10 @@ function KmCard({ km }: { km: RiskEvaluationKmPoint }) {
           <div className="mt-2 space-y-2.5">
             {embed.kind === 'drive' && embed.url && (
               <>
-                <iframe
-                  src={embed.url}
+                <DriveVideoPlayer
+                  key={embed.fileId}
+                  embed={embed}
                   title={`Video ${km.km_label}`}
-                  allow="autoplay; encrypted-media"
-                  allowFullScreen
                   // Alto fijo, no aspect-video: el reproductor de Drive dibuja
                   // su propia barra de controles ADEMÁS del video — con
                   // exactamente 16:9 esa barra queda cortada fuera del iframe.
@@ -141,13 +142,23 @@ function KmCard({ km }: { km: RiskEvaluationKmPoint }) {
   );
 }
 
+interface RiskEvaluationPanelProps {
+  /** Bounds geográficos del rango enfocado en el mapa/gráfico (zoom-detalle)
+   * — mismo patrón que MitEventosPanel/AntSiniestrosPanel: filtra lo ya
+   * cargado por contención, 100% client-side. */
+  focusedBounds?: RawLatLngBounds | null;
+}
+
 /** Evaluación de Riesgo por km — reemplaza el embed viejo de SharePoint:
  * consume los datos ya estructurados (video, condiciones, imágenes) en vez
  * de mostrar el Excel tal cual. Agrupado por tramos de 50 km, como se pidió. */
-export function RiskEvaluationPanel() {
+export function RiskEvaluationPanel({ focusedBounds }: RiskEvaluationPanelProps = {}) {
   const [kms, setKms] = useState<RiskEvaluationKmPoint[] | null>(null);
   const [error, setError] = useState(false);
   const [tramo, setTramo] = useState<number | null>(null);
+  const [ordenarPorRiesgo, setOrdenarPorRiesgo] = useState(false);
+  const hasFocusedBounds = !!focusedBounds;
+  const [useFocused, setUseFocused] = useState(true);
   const [evaluationId, setEvaluationId] = useState<number | undefined>(undefined);
   const [downloadingPdf, setDownloadingPdf] = useState(false);
 
@@ -180,9 +191,17 @@ export function RiskEvaluationPanel() {
 
   const visibles = useMemo(() => {
     if (!kms) return [];
-    if (tramo === null) return kms;
-    return kms.filter((k) => k.km_number >= tramo && k.km_number < tramo + TRAMO_SIZE_KM);
-  }, [kms, tramo]);
+    let rows = tramo === null ? kms : kms.filter((k) => k.km_number >= tramo && k.km_number < tramo + TRAMO_SIZE_KM);
+    if (useFocused && focusedBounds) {
+      rows = rows.filter((k) =>
+        k.lat <= focusedBounds.north && k.lat >= focusedBounds.south
+        && k.lng >= focusedBounds.west && k.lng <= focusedBounds.east,
+      );
+    }
+    if (!ordenarPorRiesgo) return rows;
+    // Orden estable: a igual riesgo, mantiene el orden original (por km).
+    return [...rows].sort((a, b) => maxImpactoRank(b.conditions) - maxImpactoRank(a.conditions));
+  }, [kms, tramo, ordenarPorRiesgo, useFocused, focusedBounds]);
 
   return (
     <div className="flex h-full flex-col bg-background">
@@ -209,6 +228,33 @@ export function RiskEvaluationPanel() {
           <p className="mt-0.5 text-[11px] text-muted-foreground">
             {kms.length} km evaluados · {tramo === null ? 'todos los tramos' : `tramo Km ${tramo}-${tramo + TRAMO_SIZE_KM - 1}`}
           </p>
+        )}
+
+        {kms && kms.length > 0 && (
+          <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
+            <button
+              type="button"
+              onClick={() => setOrdenarPorRiesgo((v) => !v)}
+              className={cn('flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[10px] font-medium transition-colors border w-fit',
+                ordenarPorRiesgo
+                  ? 'bg-foreground text-background border-foreground'
+                  : 'border-border/50 text-muted-foreground hover:text-foreground hover:border-border')}
+            >
+              <ArrowDownWideNarrow className="size-3" /> Ordenar por riesgo: alto a bajo
+            </button>
+            {hasFocusedBounds && (
+              <button
+                type="button"
+                onClick={() => setUseFocused((v) => !v)}
+                className={cn('flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[10px] font-medium transition-colors border w-fit',
+                  useFocused
+                    ? 'bg-foreground text-background border-foreground'
+                    : 'border-border/50 text-muted-foreground hover:text-foreground hover:border-border')}
+              >
+                <ZoomIn className="size-3" /> Solo lo visible en el mapa
+              </button>
+            )}
+          </div>
         )}
 
         {tramos.length > 1 && (

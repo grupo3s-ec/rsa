@@ -76,6 +76,15 @@ async function request<TResponse>(path: string, options: ApiRequestOptions = {})
       throw new Error(body.message ?? `API error ${response.status}`);
     }
 
+    // 204/sin contenido no tiene body — response.json() rechaza con
+    // "Unexpected end of JSON input" en vez de resolver. Antes esto solo
+    // producía un toast de error espurio en varios endpoints (users,
+    // vehicles, routes, media); con el borrado optimista de rutas favoritas
+    // pasó a romper la funcionalidad: el rollback del catch restauraba el
+    // chip recién borrado, haciéndolo imposible de quitar sin recargar.
+    if (response.status === 204 || response.headers.get('content-length') === '0') {
+      return undefined as TResponse;
+    }
     return response.json() as Promise<TResponse>;
   }
 

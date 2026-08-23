@@ -23,6 +23,7 @@ import {
   toEmbedUrl,
 } from '@/lib/incidents/format';
 import { getHazardTypeIcon } from '@/lib/incidents/hazard-types';
+import { DriveVideoPlayer } from '@/components/media/DriveVideoPlayer';
 import { toast } from 'sonner';
 import {
   addIncidentMedia,
@@ -72,11 +73,10 @@ function VideoSection({ videoUrl, title }: { videoUrl: string | null; title: str
 
   if (embed.kind === 'drive' && embed.url) {
     return (
-      <iframe
-        src={embed.url}
+      <DriveVideoPlayer
+        key={embed.fileId}
+        embed={embed}
         title={`Video: ${title}`}
-        allow="autoplay; encrypted-media"
-        allowFullScreen
         className="aspect-video w-full rounded-xl border border-border/60 bg-muted"
       />
     );
@@ -279,8 +279,11 @@ export function IncidentDetailDialog({
       const created = await uploadIncidentPhoto(inc.id, file);
       setMedia(prev => [...prev, created]);
       toast.success('Foto subida ✓');
-    } catch {
-      toast.error('Error al subir');
+    } catch (err) {
+      // apiClient ya trae el mensaje real de Laravel (ej. "El archivo no debe
+      // pesar más de 20480 kilobytes") — mostrar el genérico no le dice al
+      // usuario por qué falló, que era justamente la queja original.
+      toast.error(err instanceof Error ? err.message : 'Error al subir');
     } finally {
       setUploading(false);
     }

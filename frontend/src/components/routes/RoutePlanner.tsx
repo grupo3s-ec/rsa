@@ -28,6 +28,7 @@ import {
   ChevronRight,
   ChevronUp,
   CircleCheck,
+  ClipboardList,
   Crosshair,
   Flag,
   GripVertical,
@@ -48,6 +49,7 @@ import {
   Plus,
   Route as RouteIcon,
   Search,
+  Star,
   Timer,
   X,
 } from "lucide-react";
@@ -55,8 +57,10 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { IncidentDetailDialog } from "@/components/incidents/IncidentDetailDialog";
 import { IncidentSidebar } from "@/components/incidents/IncidentSidebar";
+import { IncidentesGeneralPanel } from "@/components/incidents/IncidentesGeneralPanel";
 import { MapHelpDialog } from "@/components/map/MapHelpDialog";
 import { RouteTimeline } from "@/components/map/RouteTimeline";
 import type { RiesgosSubTab, TimelineTab } from "@/components/map/RouteTimeline";
@@ -64,6 +68,7 @@ import { AntReportDialog } from "@/components/analysis/AntReportDialog";
 import { cn } from "@/lib/utils";
 import { GOOGLE_MAPS_API_KEY } from "@/lib/config";
 import { formatDistance, formatDuration, toEmbedUrl } from "@/lib/incidents/format";
+import { DriveVideoPlayer } from "@/components/media/DriveVideoPlayer";
 import {
   type LngLat,
   type RouteLineString,
@@ -85,6 +90,7 @@ import { getMitEventos, type MitAdverseEvent } from "@/lib/api/mit-eventos";
 import { getAntSiniestros, type AntSiniestro } from "@/lib/api/ant-siniestros";
 import { getRiskEvaluation, type RiskEvaluationKmPoint } from "@/lib/api/risk-evaluation";
 import { getPoisNearRoute, type PoiPoint } from "@/lib/api/pois";
+import { getSavedRoutes, createSavedRoute, deleteSavedRoute, type SavedRoute } from "@/lib/api/saved-routes";
 import { impactoHex } from "@/lib/risk-evaluation";
 import { driveThumbnailUrl } from "@/lib/drive";
 import { useRoutePlannerSession } from "@/lib/route-planner/session-context";
@@ -127,6 +133,25 @@ const RouteMap = dynamic(() => import("@/components/map/RouteMap"), {
 
 const MAX_WAYPOINTS = 8;
 
+// Umbral de cercanía a la ruta para MIT, ANT y Videos de Evaluación de
+// Riesgo — antes era 25km, tan ancho que cruzaba vías/eventos de provincias
+// completamente distintas con rutas donde no correspondían (ej. una vía de
+// Zamora Chinchipe apareciendo en una ruta de Manabí). Estas 3 fuentes traen
+// coordenadas exactas (base de datos / geocodificación per-tramo), así que
+// un umbral ajustado es preciso. Las novedades reportadas por usuarios usan
+// un criterio aparte, aún más estricto (400m, ver `filterIncidentsByRoute`).
+const ROUTE_PROXIMITY_KM = 2;
+
+// Las vías ECU911 solo traen un nombre/descripción de texto, no coordenadas
+// — se geocodifican aproximando al centroide de esa localidad (ver
+// `fetchAndGeocode` más abajo). Un umbral tan ajustado como
+// ROUTE_PROXIMITY_KM prácticamente nunca matcheaba (el centroide geocodificado
+// cae fácilmente a más de 2km de la ruta real), dejando `viaConflicts` — y
+// por lo tanto `conflictProvinces`, que alimenta los paneles de Cierres y
+// Vías — vacío con cualquier ruta calculada. Más ancho que el de datos con
+// coordenadas exactas, pero igual mucho más ajustado que el 25km original.
+const ROUTE_PROXIMITY_ECU911_KM = 10;
+
 type PickingIndex = number | null;
 type LayoutMode   = "full" | "panel";
 
@@ -159,9 +184,13 @@ interface RoutePlannerProps {
   onExternalPick?: (lngLat: LngLat) => void;
   /** Se dispara al cancelar el modo de selección externo. */
   onExternalPickCancel?: () => void;
+  /** Vista inicial del sidebar — "incidentes" abre el panel general de
+   * incidentes en vez del planificador (usado por /incidents, que ahora
+   * vive en el mismo shell del mapa en vez de ser una pantalla aparte). */
+  initialSidebarView?: "planner" | "incidentes";
 }
 
-export function RoutePlanner({ mapOverlay, onRouteCalculated, incidentRefreshKey, externalPickActive, externalPickLabel, onExternalPick, onExternalPickCancel }: RoutePlannerProps = {}) {
+export function RoutePlanner({ mapOverlay, onRouteCalculated, incidentRefreshKey, externalPickActive, externalPickLabel, onExternalPick, onExternalPickCancel, initialSidebarView }: RoutePlannerProps = {}) {
   // "geometry" habilita `google.maps.geometry.encoding.decodePath` — usada por
   // `MitEventSegment` en RouteMap.tsx para dibujar el trazado real de cada
   // tramo MIT (polyline pre-calculada por el backend) en vez de una línea
@@ -176,6 +205,7 @@ export function RoutePlanner({ mapOverlay, onRouteCalculated, incidentRefreshKey
         externalPickLabel={externalPickLabel}
         onExternalPick={onExternalPick}
         onExternalPickCancel={onExternalPickCancel}
+        initialSidebarView={initialSidebarView}
       />
     </APIProvider>
   );
@@ -191,6 +221,7 @@ function RoutePlannerContent({
   externalPickLabel = "el punto",
   onExternalPick,
   onExternalPickCancel,
+  initialSidebarView,
 }: {
   mapOverlay?: React.ReactNode;
   onRouteCalculated?: (data: RouteCalculatedData | null) => void;
@@ -199,6 +230,7 @@ function RoutePlannerContent({
   externalPickLabel?: string;
   onExternalPick?: (lngLat: LngLat) => void;
   onExternalPickCancel?: () => void;
+  initialSidebarView?: "planner" | "incidentes";
 }) {
   const geocodingLib = useMapsLibrary("geocoding");
   const placesLib    = useMapsLibrary("places");
@@ -235,6 +267,19 @@ function RoutePlannerContent({
   const [addresses, setAddresses] = useState<(string | null)[]>(() => session.addresses);
   const [wpIds,     setWpIds]     = useState<string[]>(() => session.wpIds);
 
+  // Rutas favoritas del usuario (acceso rápido, ej. "Casa" = origen+destino
+  // con un clic) — independientes de `session` (esa persiste solo la ruta EN
+  // CURSO; esto persiste en el backend, por usuario, entre sesiones).
+  const [savedRoutes,     setSavedRoutes]     = useState<SavedRoute[]>([]);
+  const [saveRouteOpen,   setSaveRouteOpen]   = useState(false);
+  const [saveRouteName,   setSaveRouteName]   = useState('');
+  const [savingRoute,     setSavingRoute]     = useState(false);
+  const [saveRouteError,  setSaveRouteError]  = useState<string | null>(null);
+
+  useEffect(() => {
+    getSavedRoutes().then(setSavedRoutes).catch(() => {});
+  }, []);
+
   const dndSensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }));
 
   /** Todas las rutas calculadas (índice 0 = primera / seleccionada). */
@@ -252,6 +297,17 @@ function RoutePlannerContent({
     ? { type: "LineString", coordinates: routes[selectedRouteIdx]! }
     : null;
   const [incidents,     setIncidents]     = useState<Incident[]>(() => session.incidents);
+  // Fuerza un refetch en IncidentesGeneralPanel (lista general, no ligada a
+  // una ruta) cuando cambia el estado de un incidente desde su Sheet de
+  // detalle — sin esto, la lista quedaba con el badge de estado viejo hasta
+  // recargar la página. Se combina con `incidentRefreshKey` (nueva novedad
+  // creada) en el prop que recibe el panel.
+  const [incidentesPanelBump, setIncidentesPanelBump] = useState(0);
+  // Distingue "todavía cargando" de "confirmado, cero alertas" — sin esto, el
+  // tab Alertas se auto-ocultaba/cambiaba a Perfil apenas la ruta (rápida)
+  // resolvía, ANTES de que las alertas (backend, más lenta) llegaran, dando
+  // la sensación de "no salen alertas" hasta volver a entrar al tab a mano.
+  const [incidentsLoading, setIncidentsLoading] = useState(false);
   const [selectedIncident, setSelectedIncident] = useState<Incident | null>(null);
   const [detailOpen,    setDetailOpen]    = useState(false);
   const [loading,       setLoading]       = useState(false);
@@ -317,64 +373,112 @@ function RoutePlannerContent({
   const [viaConflicts,     setViaConflicts]     = useState<ViaGeoMarker[]>([]);
   const [selectedVia,      setSelectedVia]      = useState<ViaGeoMarker | null>(null);
   const [conflictsOpen,    setConflictsOpen]    = useState(false);
-  const geocodedRef = useRef(false);
+  // Coordenadas ya geocodificadas por via.id — el nombre/ubicación de una vía
+  // no cambia entre refrescos, solo su estado (cerrada/parcial/etc.), así que
+  // cachear evita re-geocodificar (costo de API) en cada poll.
+  // `null` = ya se intentó geocodificar esta vía y no dio resultado (o el
+  // geocoder rechazó, ej. ZERO_RESULTS/OVER_QUERY_LIMIT) — se cachea igual
+  // que un éxito para no reintentar en cada poll de 60s indefinidamente. Sin
+  // esto, cada vía que nunca geocodifica (nombres ambiguos tipo "Vía E45
+  // tramo 3") se re-consultaba a la Geocoding API cada minuto para siempre
+  // mientras el toggle siguiera activo — con varias decenas de vías así,
+  // cientos de llamadas/hora de costo sin que nadie lo note.
+  const viaGeoCacheRef = useRef<Map<string, { lat: number; lng: number } | null>>(new Map());
 
   const conflictProvinces = useMemo(
     () => viaConflicts.map((m) => m.via.Provincia.descripcion),
     [viaConflicts],
   );
 
-  // Geocodifica las vías ECU911 una sola vez, la primera vez que se activa el toggle
+  // Trae y geocodifica las vías ECU911 — se repite cada 60s mientras el toggle
+  // esté activo (mismo intervalo que ViaEstadoPanel) para que el mapa no se
+  // quede con datos viejos mientras el panel ya muestra el estado actualizado.
   useEffect(() => {
-    if (!showEcu911Vias || !geocoder || geocodedRef.current) return;
-    geocodedRef.current = true;
+    if (!showEcu911Vias || !geocoder) return;
 
-    void (async () => {
+    let cancelled = false;
+
+    const fetchAndGeocode = async () => {
       try {
         const res = await fetch('/api/ecu911');
-        if (!res.ok) return;
+        if (!res.ok || cancelled) return;
         const json = (await res.json()) as Ecu911Response;
         const vias = json.data ?? [];
 
         const results: ViaGeoMarker[] = [];
-        // Geocodificar en lotes de 8 para no saturar la API
+        // Geocodificar en lotes de 8 para no saturar la API — solo las vías
+        // que aún no tienen coordenadas en caché.
         const BATCH = 8;
-        for (let i = 0; i < vias.length; i += BATCH) {
-          const batch = vias.slice(i, i + BATCH);
+        const porGeocodificar = vias.filter((via) => !viaGeoCacheRef.current.has(via.id));
+        for (let i = 0; i < porGeocodificar.length; i += BATCH) {
+          const batch = porGeocodificar.slice(i, i + BATCH);
           const settled = await Promise.allSettled(
             batch.map(async (via) => {
               // Tomar el primer segmento del nombre como referencia geográfica
+              // — SIEMPRE con la provincia real de la vía (ya la trae ECU911)
+              // para desambiguar: varias localidades se repiten de provincia
+              // en provincia (ej. "San Mateo" existe en Esmeraldas Y en
+              // Manabí) y sin este dato el geocoder podía resolver a la
+              // homónima equivocada, haciendo que una vía apareciera cruzada
+              // con una ruta a cientos de km de donde realmente está.
               const namePart = via.descripcion.split(' - ')[0]?.trim() ?? via.descripcion;
-              const geo = await geocoder.geocode({ address: `${namePart}, Ecuador`, region: 'ec' });
-              const loc = geo.results[0]?.geometry?.location;
-              if (!loc) return null;
-              return { via, location: { lat: loc.lat(), lng: loc.lng() } } satisfies ViaGeoMarker;
+              try {
+                const geo = await geocoder.geocode({ address: `${namePart}, ${via.Provincia.descripcion}, Ecuador`, region: 'ec' });
+                const loc = geo.results[0]?.geometry?.location;
+                // Se cachea `null` también en el fallo (sin resultado o el
+                // geocoder rechaza, ej. ZERO_RESULTS/OVER_QUERY_LIMIT) — sin
+                // esto `porGeocodificar` la vuelve a incluir en cada poll de
+                // 60s indefinidamente.
+                viaGeoCacheRef.current.set(via.id, loc ? { lat: loc.lat(), lng: loc.lng() } : null);
+              } catch {
+                viaGeoCacheRef.current.set(via.id, null);
+              }
             }),
           );
-          for (const r of settled) {
-            if (r.status === 'fulfilled' && r.value) results.push(r.value);
-          }
+          void settled;
+        }
+        if (cancelled) return;
+
+        for (const via of vias) {
+          const location = viaGeoCacheRef.current.get(via.id);
+          if (location) results.push({ via, location });
         }
         setViaMarkers(results);
       } catch {
         // Si falla silenciosamente no bloquea el resto del planificador
       }
-    })();
+    };
+
+    void fetchAndGeocode();
+    const intervalId = setInterval(() => { void fetchAndGeocode(); }, 60_000);
+    return () => { cancelled = true; clearInterval(intervalId); };
   }, [showEcu911Vias, geocoder]);
 
   // Muestras de alta resolución de la ruta activa (km en escala Haversine,
   // sin corregir) — única fuente para las conversiones bounds↔km más abajo, y
   // (declarada aquí arriba) para los filtros de conflictos Vías/MIT que siguen.
+  //
+  // La cantidad de muestras escala con el largo real de la ruta (~1.5km de
+  // espaciado, con 200 como piso) — `pointNearPolyline` compara contra
+  // VÉRTICES, no segmentos, así que con 200 muestras fijas una ruta larga
+  // (Ecuador tiene rutas de 600-800+ km) espacia las muestras más que el
+  // umbral de proximidad (ROUTE_PROXIMITY_KM = 2km): un punto justo a mitad
+  // de camino entre dos muestras podía no matchear con NINGUNA aunque esté
+  // literalmente sobre la vía. 1000 de techo por rendimiento (sigue siendo
+  // trivial para el escaneo O(marcadores × muestras) de abajo).
   const routeSamples = useMemo(() => {
     const coords = routes[selectedRouteIdx];
-    return coords && coords.length > 0 ? subsampleRoute(coords, 200) : [];
-  }, [routes, selectedRouteIdx]);
+    if (!coords || coords.length === 0) return [];
+    const totalKm = (routeInfo?.distanceMeters ?? 0) / 1000;
+    const n = totalKm > 0 ? Math.min(1000, Math.max(200, Math.ceil(totalKm / 1.5))) : 200;
+    return subsampleRoute(coords, n);
+  }, [routes, selectedRouteIdx, routeInfo]);
 
-  // Detectar conflictos con la ruta activa (umbral 25 km) — usa `routeSamples`
-  // (200 puntos, ya submuestreados) en vez de los coords crudos de Directions
-  // (pueden ser miles de puntos): con cientos de marcadores/eventos esto era
-  // un escaneo O(marcadores × miles de puntos) que saturaba el hilo principal
-  // justo después de pintar la ruta, dando la sensación de que tardaba en aparecer.
+  // Detectar conflictos con la ruta activa — usa `routeSamples` (submuestreo,
+  // ya submuestreados) en vez de los coords crudos de Directions (pueden ser
+  // miles de puntos): con cientos de marcadores/eventos esto era un escaneo
+  // O(marcadores × miles de puntos) que saturaba el hilo principal justo
+  // después de pintar la ruta, dando la sensación de que tardaba en aparecer.
   useEffect(() => {
     if (routeSamples.length === 0 || viaMarkers.length === 0) {
       setViaConflicts([]);
@@ -382,7 +486,7 @@ function RoutePlannerContent({
     }
     const polyline = routeSamples.map((s) => ({ lat: s.point[1], lng: s.point[0] }));
     const conflicts = viaMarkers.filter((m) =>
-      pointNearPolyline(m.location, polyline, 25),
+      pointNearPolyline(m.location, polyline, ROUTE_PROXIMITY_ECU911_KM),
     );
     setViaConflicts(conflicts);
     if (conflicts.length > 0) setConflictsOpen(true);
@@ -418,11 +522,25 @@ function RoutePlannerContent({
   const [selectedRiskKm,          setSelectedRiskKm]          = useState<RiskEvaluationKmPoint | null>(null);
   const riskEvaluationFetchedRef = useRef(false);
 
+  // ─── Vista general de Incidentes — mismo mecanismo de "reemplaza el
+  // planificador en el sidebar" que Evaluación de Riesgo, para que /incidents
+  // viva en este mismo shell (mapa siempre visible) en vez de ser una
+  // pantalla aparte. Mutuamente excluyente con `selectedRiskKm`: solo un
+  // panel ocupa ese espacio a la vez. Declarado ANTES del efecto de
+  // `selectedRiskKm` de abajo (que usa su setter) — react-hooks/immutability
+  // exige que un setter esté declarado antes de referenciarse, aunque el
+  // closure en sí ya funcionaría bien en cualquier orden.
+  const [incidentesViewOpen, setIncidentesViewOpen] = useState(initialSidebarView === "incidentes");
+
   // Un km seleccionado reemplaza el planificador en el sidebar (ver <aside>
   // más abajo) — si estaba colapsado, no tendría dónde mostrarse.
   useEffect(() => {
-    if (selectedRiskKm) setPlannerCollapsed(false);
+    if (selectedRiskKm) { setPlannerCollapsed(false); setIncidentesViewOpen(false); }
   }, [selectedRiskKm]);
+
+  useEffect(() => {
+    if (incidentesViewOpen) { setPlannerCollapsed(false); setSelectedRiskKm(null); }
+  }, [incidentesViewOpen]);
 
   useEffect(() => {
     if (!showRiskEvaluation || riskEvaluationFetchedRef.current) return;
@@ -437,7 +555,7 @@ function RoutePlannerContent({
       return;
     }
     const polyline = routeSamples.map((s) => ({ lat: s.point[1], lng: s.point[0] }));
-    setRiskEvaluationConflicts(riskEvaluationKms.filter((k) => pointNearPolyline({ lat: k.lat, lng: k.lng }, polyline, 25)));
+    setRiskEvaluationConflicts(riskEvaluationKms.filter((k) => pointNearPolyline({ lat: k.lat, lng: k.lng }, polyline, ROUTE_PROXIMITY_KM)));
   }, [routeSamples, riskEvaluationKms]);
 
   // ─── Puntos de interés (Google Places) — gasolineras/UPC/hostales ─────────
@@ -529,8 +647,9 @@ function RoutePlannerContent({
   const [antReportOpen, setAntReportOpen] = useState(false);
   // Viewport crudo del mapa (se actualiza vía el mismo callback ya debounced
   // de zoom-detalle, ver más abajo) — se usa solo para no dibujar tramos MIT
-  // fuera de la pantalla actual. `mitConflicts` ya está acotado a ~25km de la
-  // ruta completa, pero en una ruta larga eso puede ser decenas de tramos con
+  // fuera de la pantalla actual. `mitConflicts` ya está acotado a la
+  // proximidad de la ruta completa (ver ROUTE_PROXIMITY_KM), pero en una ruta
+  // larga eso puede ser decenas de tramos con
   // trazado real (polylines multi-punto con ícono punteado) simultáneos, que
   // Google Maps recalcula en cada zoom — costoso aunque nuestro propio estado
   // de React no cambie. null = aún no hay viewport conocido, no se filtra.
@@ -608,7 +727,7 @@ function RoutePlannerContent({
     const conflicts = mitEvents.filter((e) => {
       const inicio = { lat: e.inicio_lat!, lng: e.inicio_lng! };
       const fin = { lat: e.fin_lat!, lng: e.fin_lng! };
-      return pointNearPolyline(inicio, polyline, 25) || pointNearPolyline(fin, polyline, 25);
+      return pointNearPolyline(inicio, polyline, ROUTE_PROXIMITY_KM) || pointNearPolyline(fin, polyline, ROUTE_PROXIMITY_KM);
     });
     setMitConflicts(conflicts);
     if (conflicts.length > 0) setMitConflictsOpen(true);
@@ -682,15 +801,50 @@ function RoutePlannerContent({
     })();
   }, [showAntSiniestros, antProvincias]);
 
-  // Mismo filtro de proximidad de 25 km que ECU911/MIT.
+  // Mismo filtro de proximidad que ECU911/MIT (ver ROUTE_PROXIMITY_KM).
   useEffect(() => {
     if (routeSamples.length === 0 || antSiniestros.length === 0) {
       setAntConflicts([]);
       return;
     }
     const polyline = routeSamples.map((s) => ({ lat: s.point[1], lng: s.point[0] }));
-    setAntConflicts(antSiniestros.filter((s) => pointNearPolyline({ lat: s.lat, lng: s.lng }, polyline, 25)));
+    setAntConflicts(antSiniestros.filter((s) => pointNearPolyline({ lat: s.lat, lng: s.lng }, polyline, ROUTE_PROXIMITY_KM)));
   }, [routeSamples, antSiniestros]);
+
+  // Provincia del dato ANT (coordenadas exactas de la base de datos, no
+  // geocodificadas) — igual que `mitConflictProvinces`, NO se reusa
+  // `conflictProvinces` (ECU911, geocodificado desde texto y por eso con un
+  // umbral más ancho, ver ROUTE_PROXIMITY_ECU911_KM): reusarlo hacía que
+  // "Solo la ruta calculada" en el panel ANT casi nunca tuviera provincias
+  // para filtrar (quedaba vacío) y terminara mostrando siniestros de todo
+  // Ecuador en vez de acotar a la ruta.
+  const antConflictProvinces = useMemo(
+    () => [...new Set(antConflicts.map((s) => s.provincia).filter((p): p is string => !!p))],
+    [antConflicts],
+  );
+
+  // Mismo filtro de viewport que mitSegmentsVisible, pero para siniestros ANT
+  // (puntos, no tramos) — antes se dibujaban todos los ~25km de conflictos
+  // sin importar el zoom/sección visible del mapa.
+  const antSiniestrosVisible = useMemo(() => {
+    if (!showAntSiniestros) return [];
+    if (!viewportBounds) return antConflicts;
+    return antConflicts.filter((s) =>
+      s.lat <= viewportBounds.north && s.lat >= viewportBounds.south
+      && s.lng >= viewportBounds.west && s.lng <= viewportBounds.east,
+    );
+  }, [showAntSiniestros, antConflicts, viewportBounds]);
+
+  // Mismo filtro de viewport que antSiniestrosVisible/mitSegmentsVisible,
+  // para los pines de Evaluación de Riesgo (videos por km).
+  const riskEvaluationVisible = useMemo(() => {
+    if (!showRiskEvaluation) return [];
+    if (!viewportBounds) return riskEvaluationConflicts;
+    return riskEvaluationConflicts.filter((k) =>
+      k.lat <= viewportBounds.north && k.lat >= viewportBounds.south
+      && k.lng >= viewportBounds.west && k.lng <= viewportBounds.east,
+    );
+  }, [showRiskEvaluation, riskEvaluationConflicts, viewportBounds]);
 
   // ─── Zoom-detalle: el viewport del mapa (o el selector del gráfico) enfoca
   // el detalle mostrado en el resto de la UI — como el zoom de una línea de
@@ -997,6 +1151,7 @@ function RoutePlannerContent({
     // 1-2s; esperar también al backend (que puede tardar mucho más con un
     // cold-start de Render) hacía sentir "Calculando ruta…" tan lento como
     // lo más lento de los dos, cuando trazar la ruta en sí es rápido.
+    setIncidentsLoading(true);
     const incidentsPromise = getRouteIncidents({
       origin_lat:      first[1],
       origin_lng:      first[0],
@@ -1095,11 +1250,66 @@ function RoutePlannerContent({
         if (requestId !== searchRequestIdRef.current) return;
         setError(err instanceof Error ? err.message : "No se pudieron cargar las alertas de la ruta.");
         setIncidents([]);
+      })
+      .finally(() => {
+        if (requestId !== searchRequestIdRef.current) return;
+        setIncidentsLoading(false);
       });
   }
 
   async function handleSearch(): Promise<void> {
     return handleSearchWith(waypoints);
+  }
+
+  // ─── Rutas favoritas ──────────────────────────────────────────────────────
+
+  function loadSavedRoute(route: SavedRoute) {
+    const newWaypoints: (LngLat | null)[] = route.waypoints.map((w) => [w.lng, w.lat] as LngLat);
+    const newAddresses: (string | null)[] = route.waypoints.map((w) => w.address ?? null);
+    setWaypoints(newWaypoints);
+    setAddresses(newAddresses);
+    setWpIds(newWaypoints.map((_, i) => `wp-fav-${route.id}-${i}`));
+    setAddressMode("buscar");
+    void handleSearchWith(newWaypoints);
+  }
+
+  function openSaveRouteDialog() {
+    setSaveRouteName('');
+    setSaveRouteError(null);
+    setSaveRouteOpen(true);
+  }
+
+  async function handleSaveRoute(e: React.FormEvent): Promise<void> {
+    e.preventDefault();
+    const nombre = saveRouteName.trim();
+    if (!nombre || !canSearch) return;
+
+    setSavingRoute(true);
+    setSaveRouteError(null);
+    try {
+      const payload = waypoints.map((wp, i) => ({
+        lat: wp![1],
+        lng: wp![0],
+        address: addresses[i] ?? null,
+      }));
+      const created = await createSavedRoute(nombre, payload);
+      setSavedRoutes((prev) => [...prev, created].sort((a, b) => a.nombre.localeCompare(b.nombre)));
+      setSaveRouteOpen(false);
+    } catch (err) {
+      setSaveRouteError(err instanceof Error ? err.message : 'No se pudo guardar la ruta.');
+    } finally {
+      setSavingRoute(false);
+    }
+  }
+
+  async function handleDeleteSavedRoute(id: number): Promise<void> {
+    const prev = savedRoutes;
+    setSavedRoutes((rs) => rs.filter((r) => r.id !== id));
+    try {
+      await deleteSavedRoute(id);
+    } catch {
+      setSavedRoutes(prev); // Falló en el servidor — revierte el borrado optimista.
+    }
   }
 
   function handleSelectRoute(idx: number) {
@@ -1218,7 +1428,7 @@ function RoutePlannerContent({
 
     switch (event.key) {
       case "Enter":
-        if (canSearch && !detailOpen && !helpOpen) {
+        if (canSearch && !detailOpen && !helpOpen && !saveRouteOpen) {
           event.preventDefault();
           void handleSearch();
         }
@@ -1227,7 +1437,7 @@ function RoutePlannerContent({
         if (activePickMode) { event.preventDefault(); cancelPickMode(); }
         break;
       case "a": case "A":
-        if (!detailOpen && !helpOpen) {
+        if (!detailOpen && !helpOpen && !saveRouteOpen) {
           event.preventDefault(); setPanelOpen((o) => !o);
         }
         break;
@@ -1447,6 +1657,44 @@ function RoutePlannerContent({
       })}
     </div>
   );
+
+  // ─── Rutas favoritas (acceso rápido) ──────────────────────────────────────
+  const savedRoutesRow = savedRoutes.length > 0 || canSearch ? (
+    <div className="flex flex-wrap items-center gap-1.5 border-b border-border/50 px-3 py-2">
+      {savedRoutes.map((r) => (
+        <div key={r.id} className="group relative">
+          <button
+            type="button"
+            onClick={() => loadSavedRoute(r)}
+            title={`Cargar ruta guardada "${r.nombre}"`}
+            className="flex items-center gap-1.5 rounded-full border border-border/50 bg-muted/40 py-1 pl-2.5 pr-2 text-[11px] font-medium text-foreground transition-colors hover:border-border hover:bg-muted"
+          >
+            <Star className="size-3 shrink-0 fill-amber-500 text-amber-500" />
+            <span className="max-w-[100px] truncate">{r.nombre}</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => void handleDeleteSavedRoute(r.id)}
+            aria-label={`Eliminar ruta guardada "${r.nombre}"`}
+            className="absolute -right-1 -top-1 hidden size-4 items-center justify-center rounded-full bg-destructive text-destructive-foreground group-hover:flex"
+          >
+            <X className="size-2.5" />
+          </button>
+        </div>
+      ))}
+      {canSearch && (
+        <button
+          type="button"
+          onClick={openSaveRouteDialog}
+          title="Guardar esta ruta para acceso rápido"
+          className="flex items-center gap-1 rounded-full border border-dashed border-border/60 px-2.5 py-1 text-[11px] font-medium text-muted-foreground transition-colors hover:border-border hover:text-foreground"
+        >
+          <Star className="size-3" />
+          Guardar ruta
+        </button>
+      )}
+    </div>
+  ) : null;
 
   // ─── Formulario de planificación ──────────────────────────────────────────
 
@@ -1774,9 +2022,39 @@ function RoutePlannerContent({
         onStatusChanged={(updated) => {
           setIncidents((prev) => prev.map((i) => i.id === updated.id ? updated : i));
           setSelectedIncident((prev) => prev?.id === updated.id ? updated : prev);
+          setIncidentesPanelBump((k) => k + 1);
         }}
       />
       <MapHelpDialog open={helpOpen} onOpenChange={setHelpOpen} />
+
+      <Dialog open={saveRouteOpen} onOpenChange={setSaveRouteOpen}>
+        <DialogContent>
+          <form onSubmit={(e) => void handleSaveRoute(e)}>
+            <DialogHeader>
+              <DialogTitle>Guardar ruta</DialogTitle>
+            </DialogHeader>
+            <div className="mt-4 space-y-1.5">
+              <Label htmlFor="save-route-nombre">Nombre</Label>
+              <Input
+                id="save-route-nombre"
+                value={saveRouteName}
+                onChange={(e) => setSaveRouteName(e.target.value)}
+                placeholder="Casa, Oficina, Bodega…"
+                autoFocus
+                required
+              />
+              {saveRouteError ? (
+                <p className="rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive">{saveRouteError}</p>
+              ) : null}
+            </div>
+            <DialogFooter className="mt-4" showCloseButton>
+              <Button type="submit" disabled={savingRoute}>
+                {savingRoute ? 'Guardando…' : 'Guardar'}
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
     </>
   );
 
@@ -1795,6 +2073,22 @@ function RoutePlannerContent({
             <ChevronRight className="size-4" />
             <span className="[writing-mode:vertical-rl] text-[11px] font-medium tracking-wide">Planificador</span>
           </button>
+        ) : incidentesViewOpen ? (
+          <aside className="flex w-1/3 min-w-[320px] max-w-[480px] shrink-0 flex-col border-r bg-background">
+            <div className="flex items-center justify-between border-b border-border/40 px-4 py-3">
+              <p className="text-sm font-semibold text-foreground">Incidentes</p>
+              <Button variant="ghost" size="icon" aria-label="Volver al planificador" onClick={() => setIncidentesViewOpen(false)}>
+                <X className="size-4" />
+              </Button>
+            </div>
+            <div className="min-h-0 flex-1">
+              <IncidentesGeneralPanel
+                refreshKey={(incidentRefreshKey ?? 0) + incidentesPanelBump}
+                selectedIncidentId={selectedIncident?.id ?? null}
+                onSelectIncident={(incident) => { setSelectedIncident(incident); setDetailOpen(true); }}
+              />
+            </div>
+          </aside>
         ) : selectedRiskKm ? (
           <aside className="flex w-1/3 min-w-[320px] max-w-[480px] shrink-0 flex-col border-r bg-background">
             <div className="flex items-center justify-between border-b border-border/40 px-4 py-3">
@@ -1818,6 +2112,9 @@ function RoutePlannerContent({
             <div className="flex items-center justify-between px-4 py-3">
               <p className="text-sm font-semibold text-foreground">Planificador</p>
               <div className="flex items-center gap-1">
+                <Button variant="ghost" size="icon" aria-label="Ver incidentes" onClick={() => setIncidentesViewOpen(true)}>
+                  <ClipboardList className="size-4" />
+                </Button>
                 <Button variant="ghost" size="icon" aria-label="Abrir guía" onClick={() => setHelpOpen(true)}>
                   <HelpCircle className="size-4" />
                 </Button>
@@ -1831,6 +2128,7 @@ function RoutePlannerContent({
             </div>
 
             {addressTabs}
+            {savedRoutesRow}
 
             <div className="overflow-y-auto p-4">
               {renderPlannerForm(true)}
@@ -1855,10 +2153,10 @@ function RoutePlannerContent({
                 mitSegments={mitSegmentsVisible}
                 onSelectMitEvent={(e) => { setSelectedMit(e); setSelectedVia(null); setSelectedAnt(null); setSelectedRiskKm(null); setSelectedPoi(null); }}
                 selectedMitEventId={selectedMit?.id ?? null}
-                antSiniestros={showAntSiniestros ? antConflicts : []}
+                antSiniestros={antSiniestrosVisible}
                 onSelectAntSiniestro={(s) => { setSelectedAnt(s); setSelectedVia(null); setSelectedMit(null); setSelectedRiskKm(null); setSelectedPoi(null); }}
                 selectedAntId={selectedAnt?.id ?? null}
-                riskEvaluationKms={showRiskEvaluation ? riskEvaluationConflicts : []}
+                riskEvaluationKms={riskEvaluationVisible}
                 onSelectRiskKm={(k) => { setSelectedRiskKm(k); setSelectedVia(null); setSelectedMit(null); setSelectedAnt(null); setSelectedPoi(null); }}
                 selectedRiskKmId={selectedRiskKm?.id ?? null}
                 pois={showPois ? pois : []}
@@ -1962,10 +2260,12 @@ function RoutePlannerContent({
 
         <RouteTimeline
           routeData={timelineRouteData}
+          incidentsLoading={incidentsLoading}
           onSelectIncident={handleSelectFromMap}
           selectedIncidentId={selectedIncident?.id ?? null}
           conflictProvinces={conflictProvinces}
           mitConflictProvinces={mitConflictProvinces}
+          antConflictProvinces={antConflictProvinces}
           focusedKmRange={focusedKmRange}
           onFocusedKmRangeChange={handleChartRangeChanged}
           focusedGeoBounds={focusedGeoBounds}
@@ -1999,10 +2299,10 @@ function RoutePlannerContent({
           mitSegments={mitSegmentsVisible}
           onSelectMitEvent={(e) => { setSelectedMit(e); setSelectedVia(null); setSelectedAnt(null); setSelectedRiskKm(null); setSelectedPoi(null); }}
           selectedMitEventId={selectedMit?.id ?? null}
-          antSiniestros={showAntSiniestros ? antConflicts : []}
+          antSiniestros={antSiniestrosVisible}
           onSelectAntSiniestro={(s) => { setSelectedAnt(s); setSelectedVia(null); setSelectedMit(null); setSelectedRiskKm(null); setSelectedPoi(null); }}
           selectedAntId={selectedAnt?.id ?? null}
-          riskEvaluationKms={showRiskEvaluation ? riskEvaluationConflicts : []}
+          riskEvaluationKms={riskEvaluationVisible}
           onSelectRiskKm={(k) => { setSelectedRiskKm(k); setSelectedVia(null); setSelectedMit(null); setSelectedAnt(null); setSelectedPoi(null); }}
           selectedRiskKmId={selectedRiskKm?.id ?? null}
           pois={showPois ? pois : []}
@@ -2031,7 +2331,23 @@ function RoutePlannerContent({
         </div>
       ) : null}
 
-      {selectedRiskKm ? (
+      {incidentesViewOpen ? (
+        <aside className="absolute left-4 top-4 z-10 flex max-h-[calc(100vh-2rem)] w-[min(24rem,calc(100vw-2rem))] flex-col overflow-hidden rounded-2xl border border-border/60 bg-background/95 shadow-lg backdrop-blur">
+          <div className="flex items-center justify-between border-b border-border/40 px-4 py-2.5">
+            <p className="text-sm font-semibold text-foreground">Incidentes</p>
+            <Button variant="ghost" size="icon" aria-label="Volver al planificador" onClick={() => setIncidentesViewOpen(false)}>
+              <X className="size-4" />
+            </Button>
+          </div>
+          <div className="min-h-0 flex-1">
+            <IncidentesGeneralPanel
+              refreshKey={(incidentRefreshKey ?? 0) + incidentesPanelBump}
+              selectedIncidentId={selectedIncident?.id ?? null}
+              onSelectIncident={(incident) => { setSelectedIncident(incident); setDetailOpen(true); }}
+            />
+          </div>
+        </aside>
+      ) : selectedRiskKm ? (
         <aside className="absolute left-4 top-4 z-10 flex max-h-[calc(100vh-2rem)] w-[min(24rem,calc(100vw-2rem))] flex-col overflow-hidden rounded-2xl border border-border/60 bg-background/95 shadow-lg backdrop-blur">
           <div className="flex items-center justify-between border-b border-border/40 px-4 py-2.5">
             <div className="min-w-0 flex-1">
@@ -2053,17 +2369,29 @@ function RoutePlannerContent({
         <aside className="absolute left-4 top-4 z-10 w-[min(calc(20rem-5px),calc(100vw-2rem))] rounded-2xl border border-border/60 bg-background/80 shadow-lg backdrop-blur">
           <div className="flex items-center justify-between px-4 py-2.5">
             <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Planificador</p>
-            <Button
-              variant="ghost"
-              size="icon"
-              aria-label="Cambiar a modo panel"
-              onClick={() => setLayoutMode("panel")}
-              className="size-7 rounded-lg text-muted-foreground hover:text-foreground"
-            >
-              <PanelLeft className="size-4" />
-            </Button>
+            <div className="flex items-center gap-0.5">
+              <Button
+                variant="ghost"
+                size="icon"
+                aria-label="Ver incidentes"
+                onClick={() => setIncidentesViewOpen(true)}
+                className="size-7 rounded-lg text-muted-foreground hover:text-foreground"
+              >
+                <ClipboardList className="size-4" />
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon"
+                aria-label="Cambiar a modo panel"
+                onClick={() => setLayoutMode("panel")}
+                className="size-7 rounded-lg text-muted-foreground hover:text-foreground"
+              >
+                <PanelLeft className="size-4" />
+              </Button>
+            </div>
           </div>
           {addressTabs}
+          {savedRoutesRow}
           <div className="p-4">{renderPlannerForm()}</div>
         </aside>
       )}
@@ -2305,11 +2633,10 @@ function RiskKmDetail({ km }: { km: RiskEvaluationKmPoint }) {
     <div className="space-y-2.5 p-3">
         {embed.kind === 'drive' && embed.url ? (
           <>
-            <iframe
-              src={embed.url}
+            <DriveVideoPlayer
+              key={embed.fileId}
+              embed={embed}
               title={`Video ${km.km_label}`}
-              allow="autoplay; encrypted-media"
-              allowFullScreen
               // Alto fijo, no aspect-video: el reproductor de Drive dibuja su
               // propia barra de controles ADEMÁS del video — con exactamente
               // 16:9 esa barra queda cortada fuera del iframe.

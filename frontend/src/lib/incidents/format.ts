@@ -82,6 +82,13 @@ export const statusMeta: Record<IncidentStatus, { label: string }> = {
 export interface EmbedUrl {
   kind: "drive" | "external" | "none";
   url: string | null;
+  /** Solo para kind === "drive": el ID del archivo en Drive — usado para
+   * pedir el video a nuestro propio proxy de streaming (ver
+   * DriveVideoPlayer), en vez del iframe de Drive (que no tiene ningún
+   * parámetro de mute) o del link directo de descarga (bloqueado por el
+   * navegador por el header Content-Security-Policy: sandbox que Drive le
+   * agrega a esa respuesta). */
+  fileId?: string | null;
 }
 
 /**
@@ -106,6 +113,7 @@ export function toEmbedUrl(videoUrl: string | null): EmbedUrl {
     return {
       kind: "drive",
       url: `https://drive.google.com/file/d/${driveMatch[1]}/preview`,
+      fileId: driveMatch[1],
     };
   }
 

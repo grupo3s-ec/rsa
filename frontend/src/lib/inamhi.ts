@@ -32,24 +32,32 @@ function getEstacionMasCercana(lat: number, lng: number): EstacionMeta {
   return best;
 }
 
-/** Las 6 estaciones de `ESTACIONES_META` están todas en el corredor
- * Cuenca–Morona Santiago/Zamora Chinchipe — `getEstacionMasCercana` no tiene
- * umbral de distancia, así que para una ruta lejana (Quito, Guayaquil, etc.)
- * igual "inventa" una estación a cientos de km, mostrando un dato de clima
- * histórico que no corresponde a esa zona. Este umbral es lo que decide si
- * el perfil INAMHI aplica a la ruta actual — fuera de rango, la UI debe
- * mostrar solo el clima en vivo de Google, no un histórico irrelevante. */
-const MAX_DISTANCIA_ESTACION_KM = 100;
+/** El histórico INAMHI solo aplica a la ruta Cuenca ↔ Fruta del Norte (según
+ * https://maps.app.goo.gl/YN5shky2YWxn2Soj8: Aeropuerto Mariscal La Mar,
+ * Cuenca ↔ Fruta del Norte, Los Encuentros) — no un corredor geográfico
+ * amplio. Cualquier otra ruta, aunque pase cerca de estas mismas
+ * coordenadas, debe mostrar solo el clima en vivo de Google. */
+const CUENCA_REF: LngLat = [-78.987212, -2.88976];
+const FRUTA_DEL_NORTE_REF: LngLat = [-78.6040115, -3.8343572];
 
-/** true si algún punto de la ruta cae dentro del alcance de alguna de las 6
- * estaciones INAMHI — no exige que la ruta entera esté cerca, alcanza con
- * que pase por la zona cubierta. */
+/** Tolerancia para que distintos puntos de partida/llegada dentro de cada
+ * zona (otro barrio de Cuenca, otro punto de referencia cerca de la mina)
+ * sigan calificando como "la misma ruta". */
+const MAX_DISTANCIA_ENDPOINT_KM = 20;
+
+function endpointCerca(point: LngLat, ref: LngLat): boolean {
+  return haversineKm({ lat: ref[1], lng: ref[0] }, { lat: point[1], lng: point[0] }) <= MAX_DISTANCIA_ENDPOINT_KM;
+}
+
+/** true solo si el origen y el destino de la ruta (en cualquier orden)
+ * coinciden con Cuenca y Fruta del Norte — no basta con pasar cerca. */
 export function rutaTieneCoberturaInamhi(coords: LngLat[]): boolean {
-  const muestra = coords.filter((_, i) => i % Math.max(1, Math.floor(coords.length / 20)) === 0);
-  return muestra.some(([lng, lat]) =>
-    (ESTACIONES_META as readonly EstacionMeta[]).some(
-      (e) => haversineKm({ lat: e.lat, lng: e.lng }, { lat, lng }) <= MAX_DISTANCIA_ESTACION_KM,
-    ),
+  if (coords.length === 0) return false;
+  const origen = coords[0] as LngLat;
+  const destino = coords[coords.length - 1] as LngLat;
+  return (
+    (endpointCerca(origen, CUENCA_REF) && endpointCerca(destino, FRUTA_DEL_NORTE_REF)) ||
+    (endpointCerca(origen, FRUTA_DEL_NORTE_REF) && endpointCerca(destino, CUENCA_REF))
   );
 }
 
