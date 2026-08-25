@@ -58,6 +58,10 @@ export function AntSiniestrosPanel({ conflictProvinces, focusedBounds }: AntSini
 
   const [opciones, setOpciones] = useState<AntSiniestrosOpciones | null>(null);
   const [tipoSiniestro, setTipoSiniestro] = useState('');
+  // Mes/año — valor de un <input type="month"> ("YYYY-MM") o '' = todos los
+  // periodos. Se traduce a un rango from/to (primer y último día del mes)
+  // para el backend, que ya soportaba ese filtro pero no se exponía en la UI.
+  const [mesAnio, setMesAnio] = useState('');
 
   const [siniestros, setSiniestros] = useState<AntSiniestro[]>([]);
   const [page,        setPage]      = useState(1);
@@ -67,6 +71,21 @@ export function AntSiniestrosPanel({ conflictProvinces, focusedBounds }: AntSini
   const [error,       setError]     = useState(false);
 
   const routeProvincias = useRoute && hasRouteProvinces ? conflictProvinces ?? undefined : undefined;
+
+  // "YYYY-MM" del <input type="month"> → rango from/to (primer y último día
+  // de ese mes) para el backend, que ya soportaba `from`/`to` pero no se
+  // exponía en la UI.
+  const { from, to } = useMemo(() => {
+    if (!mesAnio) return { from: undefined, to: undefined };
+    const [yearStr, monthStr] = mesAnio.split('-');
+    const year = Number(yearStr);
+    const month = Number(monthStr);
+    const lastDay = new Date(year, month, 0).getDate();
+    return {
+      from: `${mesAnio}-01`,
+      to: `${mesAnio}-${String(lastDay).padStart(2, '0')}`,
+    };
+  }, [mesAnio]);
 
   useEffect(() => {
     getAntSiniestrosOpciones().then(setOpciones).catch(() => setOpciones(null));
@@ -79,6 +98,8 @@ export function AntSiniestrosPanel({ conflictProvinces, focusedBounds }: AntSini
       const pageData = await getAntSiniestros({
         provincias: routeProvincias,
         tipoSiniestro: tipoSiniestro || undefined,
+        from,
+        to,
         page: pageToLoad,
       });
       setSiniestros((prev) => (append ? [...prev, ...pageData.data] : pageData.data));
@@ -95,7 +116,7 @@ export function AntSiniestrosPanel({ conflictProvinces, focusedBounds }: AntSini
   useEffect(() => {
     void load(1, false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [routeProvincias, tipoSiniestro]);
+  }, [routeProvincias, tipoSiniestro, from, to]);
 
   // Filtra lo YA cargado por contención geográfica (zoom-detalle) — 100%
   // client-side, no dispara peticiones nuevas. Mismo patrón que
@@ -148,6 +169,25 @@ export function AntSiniestrosPanel({ conflictProvinces, focusedBounds }: AntSini
           <option value="">Todos los tipos</option>
           {opciones?.tipos_siniestro.map((t) => <option key={t} value={t}>{t}</option>)}
         </select>
+
+        <div className="mt-1.5 flex items-center gap-1.5">
+          <input
+            type="month"
+            value={mesAnio}
+            onChange={(e) => setMesAnio(e.target.value)}
+            max={new Date().toISOString().slice(0, 7)}
+            className="h-7 flex-1 rounded-md border border-border/50 bg-background px-2 text-[11px] text-foreground"
+          />
+          {mesAnio && (
+            <button
+              type="button"
+              onClick={() => setMesAnio('')}
+              className="shrink-0 text-[10px] text-muted-foreground underline hover:text-foreground"
+            >
+              Todos los periodos
+            </button>
+          )}
+        </div>
 
         {total > 0 && (
           <p className="mt-1.5 text-[10px] text-muted-foreground">

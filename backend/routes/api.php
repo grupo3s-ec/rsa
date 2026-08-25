@@ -42,8 +42,10 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/auth/logout', [AuthController::class, 'logout']);
     Route::get('/auth/me', [AuthController::class, 'me']);
 
-    // Catálogo de peligros (para el select de tipo de incidente)
+    // Catálogo de peligros (para el select de tipo de incidente) — store()
+    // permite agregar un tipo nuevo al vuelo desde el combobox de texto libre.
     Route::get('/hazard-types', [HazardTypeController::class, 'index']);
+    Route::post('/hazard-types', [HazardTypeController::class, 'store']);
 
     // Incidentes
     Route::get('/incidents', [IncidentController::class, 'index']);

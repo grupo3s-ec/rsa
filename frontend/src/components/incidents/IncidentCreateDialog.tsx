@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Popover } from '@base-ui/react/popover';
-import { Camera, HelpCircle, MapPin, X } from 'lucide-react';
+import { Camera, Film, HelpCircle, Link2, MapPin, Plus, X } from 'lucide-react';
 import { toast } from 'sonner';
 import {
   Sheet,
@@ -18,8 +18,10 @@ import { RiskMatrixLegend } from '@/components/incidents/RiskMatrixLegend';
 import { conditionMeta, severityMeta } from '@/lib/incidents/format';
 import { HAZARD_TYPES, getHazardTypeIcon } from '@/lib/incidents/hazard-types';
 import { createIncident, uploadIncidentPhoto } from '@/services/incidents.service';
+import { createHazardType, getHazardTypes } from '@/services/hazard-types.service';
 import { cn } from '@/lib/utils';
-import type { HazardType, IncidentCondition } from '@/types/incident';
+import { INCIDENT_SEVERITIES } from '@/types/incident';
+import type { HazardType, IncidentCondition, IncidentSeverity } from '@/types/incident';
 import type { LngLat } from '@/lib/mapbox/directions';
 
 export interface IncidentCreateDialogProps {
@@ -39,6 +41,8 @@ export interface IncidentCreateDialogProps {
 /** Orden de las secciones de tipo de condición, agrupadas por condición. */
 const CONDITION_ORDER: IncidentCondition[] = ['fisica', 'natural', 'entorno_riesgo_publico'];
 
+type EvidenceMode = 'photo' | 'video' | 'link';
+
 export function IncidentCreateDialog({
   open,
   onOpenChange,
@@ -53,15 +57,30 @@ export function IncidentCreateDialog({
   const [title,        setTitle]        = useState('');
   const [description,  setDescription]  = useState('');
   const [coords,        setCoords]      = useState<{ lat: number; lng: number } | null>(null);
-  const [saving,        setSaving]      = useState(false);
-  const [photoFile,     setPhotoFile]   = useState<File | null>(null);
   // Se activa solo tras un intento de submit fallido — antes de eso no se
   // resalta nada en rojo (el usuario aún no "hizo algo mal", solo no ha
   // terminado). Reemplaza los toasts de validación: la señal vive en el
   // campo que falta, no en una esquina de la pantalla.
   const [attemptedSubmit, setAttemptedSubmit] = useState(false);
-  const photoRef = useRef<HTMLInputElement>(null);
   const wasPickActive = useRef(false);
+
+  // Tipos de incidente creados al vuelo (o traídos en segundo plano desde el
+  // backend) que no están en el espejo estático `HAZARD_TYPES` — ver el
+  // comentario de ese archivo sobre por qué el catálogo base es estático
+  // (evita depender de un GET lento en cold-start para abrir el diálogo).
+  const [extraHazardTypes, setExtraHazardTypes] = useState<HazardType[]>([]);
+  const [showNewTypeForm,  setShowNewTypeForm]  = useState(false);
+  const [newTypeName,      setNewTypeName]      = useState('');
+  const [newTypeSeverity,  setNewTypeSeverity]  = useState<IncidentSeverity>('medium');
+  const [creatingType,     setCreatingType]     = useState(false);
+
+  // Evidencia: foto/video (archivo) o enlace externo (URL) — antes solo
+  // había "Foto". "Enlace" llena `video_url` directo (el mismo campo que ya
+  // usa el visor de video del detalle), no una fila de galería aparte.
+  const [evidenceMode, setEvidenceMode] = useState<EvidenceMode>('photo');
+  const [evidenceFile, setEvidenceFile] = useState<File | null>(null);
+  const [evidenceUrl,  setEvidenceUrl]  = useState('');
+  const evidenceRef = useRef<HTMLInputElement>(null);
 
   // Coordenadas marcadas en el mapa — el dialog está cerrado mientras se espera el click.
   useEffect(() => {
@@ -76,17 +95,43 @@ export function IncidentCreateDialog({
     wasPickActive.current = pickActive;
   }, [pickActive, onOpenChange]);
 
+  // Trae el catálogo real en segundo plano (no bloquea el diálogo, que ya
+  // abrió instantáneo con `HAZARD_TYPES`) y agrega cualquier tipo que no
+  // esté en el espejo estático — así un tipo creado por otro usuario/sesión
+  // "aparece en el futuro en el selector" sin depender de actualizar el
+  // archivo estático a mano.
+  useEffect(() => {
+    getHazardTypes()
+      .then(({ data }) => {
+        const knownIds = new Set(HAZARD_TYPES.map(h => h.id));
+        const fresh = data.filter(h => !knownIds.has(h.id));
+        if (fresh.length === 0) return;
+        setExtraHazardTypes(prev => {
+          const seen = new Set(prev.map(h => h.id));
+          const toAdd = fresh.filter(h => !seen.has(h.id));
+          return toAdd.length > 0 ? [...prev, ...toAdd] : prev;
+        });
+      })
+      .catch(() => { /* silencioso — el catálogo estático ya cubre el caso normal */ });
+  }, []);
+
+  const allHazardTypes = useMemo(() => {
+    const map = new Map<number, HazardType>(HAZARD_TYPES.map(h => [h.id, h]));
+    for (const h of extraHazardTypes) map.set(h.id, h);
+    return [...map.values()];
+  }, [extraHazardTypes]);
+
   const groupedHazardTypes = useMemo(() => {
     const groups = new Map<IncidentCondition, HazardType[]>();
     for (const condition of CONDITION_ORDER) groups.set(condition, []);
-    for (const hazardType of HAZARD_TYPES) {
+    for (const hazardType of allHazardTypes) {
       groups.get(hazardType.condition)?.push(hazardType);
     }
     for (const list of groups.values()) list.sort((a, b) => a.name.localeCompare(b.name, 'es'));
     return groups;
-  }, []);
+  }, [allHazardTypes]);
 
-  const selectedHazardType = HAZARD_TYPES.find(h => h.id === hazardTypeId) ?? null;
+  const selectedHazardType = allHazardTypes.find(h => h.id === hazardTypeId) ?? null;
 
   function reset() {
     setHazardTypeId(null);
@@ -94,8 +139,13 @@ export function IncidentCreateDialog({
     setTitle('');
     setDescription('');
     setCoords(null);
-    setPhotoFile(null);
     setAttemptedSubmit(false);
+    setShowNewTypeForm(false);
+    setNewTypeName('');
+    setNewTypeSeverity('medium');
+    setEvidenceMode('photo');
+    setEvidenceFile(null);
+    setEvidenceUrl('');
   }
 
   function handlePickLocation() {
@@ -103,41 +153,68 @@ export function IncidentCreateDialog({
     onRequestPickLocation?.();
   }
 
-  async function handleSubmit(e: React.FormEvent): Promise<void> {
+  function handleSelectCondition(condition: IncidentCondition) {
+    setActiveCondition(condition);
+    setShowNewTypeForm(false);
+  }
+
+  async function handleCreateType(): Promise<void> {
+    const name = newTypeName.trim();
+    if (!name) return;
+    setCreatingType(true);
+    try {
+      const created = await createHazardType({ name, condition: activeCondition, severity: newTypeSeverity });
+      setExtraHazardTypes(prev => (prev.some(h => h.id === created.id) ? prev : [...prev, created]));
+      setHazardTypeId(created.id);
+      setNewTypeName('');
+      setShowNewTypeForm(false);
+      toast.success('Tipo agregado ✓');
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'No se pudo agregar el tipo');
+    } finally {
+      setCreatingType(false);
+    }
+  }
+
+  function handleSubmit(e: React.FormEvent): void {
     e.preventDefault();
     if (!coords || !hazardTypeId || !title.trim()) { setAttemptedSubmit(true); return; }
 
-    setSaving(true);
-    try {
-      const { data: incident } = await createIncident({
-        title:       title.trim(),
-        hazard_type_id: hazardTypeId,
-        description: description.trim() || null,
-        latitude:    coords.lat,
-        longitude:   coords.lng,
-        source:      'manual',
-        video_url:   null,
-        occurred_at: null,
-      });
+    const payload = {
+      title:       title.trim(),
+      hazard_type_id: hazardTypeId,
+      description: description.trim() || null,
+      latitude:    coords.lat,
+      longitude:   coords.lng,
+      source:      'manual' as const,
+      video_url:   evidenceMode === 'link' && evidenceUrl.trim() ? evidenceUrl.trim() : null,
+      occurred_at: null,
+    };
+    const file      = evidenceMode !== 'link' ? evidenceFile : null;
+    const mediaType = evidenceMode === 'video' ? 'video' : 'photo';
 
-      if (photoFile) {
-        // No bloquea — el incidente ya se creó — pero antes fallaba en
-        // silencio total: el usuario veía "Reportado ✓" sin la foto y sin
-        // enterarse de que no se subió. Mismo toast que ya usa el flujo de
-        // edición (IncidentDetailDialog.handleUploadFile) para el mismo error.
-        try { await uploadIncidentPhoto(incident.id, photoFile); }
-        catch (err) { toast.error(err instanceof Error ? err.message : 'Error al subir'); }
+    // Optimista: no se espera la respuesta de red para dar el feedback — en
+    // el Render free tier el primer request tras un cold-start puede tardar
+    // decenas de segundos, y antes el diálogo se quedaba "congelado" ese
+    // rato. Se confirma de inmediato y se reconcilia en segundo plano; si
+    // en verdad falla, un toast de error avisa para reintentar (hasta que
+    // haya un servidor de pago sin este problema de latencia).
+    toast.success('Reportado ✓');
+    reset();
+    onOpenChange(false);
+
+    void (async () => {
+      try {
+        const { data: incident } = await createIncident(payload);
+        if (file) {
+          try { await uploadIncidentPhoto(incident.id, file, mediaType); }
+          catch (err) { toast.error(err instanceof Error ? err.message : 'Error al subir la evidencia'); }
+        }
+        onCreated?.();
+      } catch {
+        toast.error('No se pudo guardar la novedad — intenta de nuevo');
       }
-
-      toast.success('Reportado ✓');
-      reset();
-      onOpenChange(false);
-      onCreated?.();
-    } catch {
-      toast.error('Error al guardar');
-    } finally {
-      setSaving(false);
-    }
+    })();
   }
 
   return (
@@ -148,7 +225,7 @@ export function IncidentCreateDialog({
         </SheetHeader>
 
         <SheetBody>
-        <form onSubmit={(e) => { void handleSubmit(e); }} className="space-y-5 pb-2">
+        <form onSubmit={handleSubmit} className="space-y-5 pb-2">
 
           {/* Tipo de incidente */}
           <div
@@ -187,7 +264,7 @@ export function IncidentCreateDialog({
                   <button
                     key={condition}
                     type="button"
-                    onClick={() => setActiveCondition(condition)}
+                    onClick={() => handleSelectCondition(condition)}
                     className={cn(
                       'flex flex-1 items-center justify-center gap-1.5 rounded-md px-2 py-1.5 text-[11px] font-medium transition-colors',
                       active ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground',
@@ -200,7 +277,7 @@ export function IncidentCreateDialog({
               })}
             </div>
 
-            <div className="flex flex-wrap gap-1.5">
+            <div className="flex flex-wrap items-center gap-1.5">
               {(groupedHazardTypes.get(activeCondition) ?? []).map(hazardType => {
                 const active = hazardTypeId === hazardType.id;
                 const TypeIcon = getHazardTypeIcon(hazardType.name);
@@ -225,6 +302,52 @@ export function IncidentCreateDialog({
                   </button>
                 );
               })}
+
+              {/* "+ Otro" — el tipo que se necesita no está en el catálogo:
+                  se crea al vuelo (se guarda en la BD y queda disponible
+                  para todos desde entonces, ver el fetch de arriba). */}
+              {showNewTypeForm ? (
+                <div className="flex w-full items-center gap-1.5 rounded-xl border border-dashed border-border/60 px-2.5 py-1.5">
+                  <input
+                    autoFocus
+                    value={newTypeName}
+                    onChange={e => setNewTypeName(e.target.value)}
+                    onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); void handleCreateType(); } }}
+                    placeholder="Nombre del tipo nuevo…"
+                    className="min-w-0 flex-1 bg-transparent text-xs outline-none placeholder:text-muted-foreground"
+                  />
+                  <select
+                    value={newTypeSeverity}
+                    onChange={e => setNewTypeSeverity(e.target.value as IncidentSeverity)}
+                    className="shrink-0 rounded-md border border-border/40 bg-background px-1 py-0.5 text-[10px] text-foreground"
+                  >
+                    {INCIDENT_SEVERITIES.map(s => <option key={s} value={s}>{severityMeta[s].label}</option>)}
+                  </select>
+                  <button
+                    type="button"
+                    onClick={() => void handleCreateType()}
+                    disabled={creatingType || !newTypeName.trim()}
+                    className="shrink-0 text-[11px] font-medium text-primary disabled:opacity-50"
+                  >
+                    {creatingType ? '…' : 'Agregar'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setShowNewTypeForm(false)}
+                    className="shrink-0 text-muted-foreground hover:text-foreground"
+                  >
+                    <X className="size-3.5" />
+                  </button>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => setShowNewTypeForm(true)}
+                  className="flex items-center gap-1 rounded-full border border-dashed border-border/60 px-2.5 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:border-border hover:text-foreground"
+                >
+                  <Plus className="size-3.5" /> Otro
+                </button>
+              )}
             </div>
           </div>
 
@@ -278,57 +401,88 @@ export function IncidentCreateDialog({
             </Button>
           </div>
 
-          {/* Foto */}
+          {/* Evidencia */}
           <div className="space-y-1.5">
-            <p className="text-xs font-medium text-muted-foreground">Foto (opcional)</p>
-            <button
-              type="button"
-              onClick={() => photoRef.current?.click()}
-              className="flex w-full items-center gap-3 rounded-xl border border-dashed border-border/60 px-4 py-3 text-sm transition-colors hover:bg-muted/40"
-            >
-              <Camera className="size-5 shrink-0 text-muted-foreground" />
-              {photoFile ? (
-                <span className="flex-1 truncate text-left text-sm text-foreground">{photoFile.name}</span>
-              ) : (
-                <span className="text-muted-foreground">Tomar foto o seleccionar archivo</span>
-              )}
-              {photoFile && (
-                <span
-                  role="button"
-                  tabIndex={0}
-                  onClick={e => { e.stopPropagation(); setPhotoFile(null); }}
-                  onKeyDown={e => { if (e.key === 'Enter') { e.stopPropagation(); setPhotoFile(null); } }}
-                  className="ml-auto shrink-0 text-muted-foreground hover:text-destructive"
+            <p className="text-xs font-medium text-muted-foreground">Evidencia (opcional)</p>
+            <div className="flex items-center gap-0.5 rounded-lg border border-border/50 bg-muted/40 p-0.5">
+              {([
+                { mode: 'photo' as const, label: 'Foto',   Icon: Camera },
+                { mode: 'video' as const, label: 'Video',  Icon: Film },
+                { mode: 'link'  as const, label: 'Enlace', Icon: Link2 },
+              ]).map(({ mode, label, Icon }) => (
+                <button
+                  key={mode}
+                  type="button"
+                  onClick={() => { setEvidenceMode(mode); setEvidenceFile(null); }}
+                  className={cn(
+                    'flex flex-1 items-center justify-center gap-1.5 rounded-md px-2 py-1.5 text-[11px] font-medium transition-colors',
+                    evidenceMode === mode ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground',
+                  )}
                 >
-                  <X className="size-4" />
-                </span>
-              )}
-            </button>
-            <input
-              ref={photoRef}
-              type="file"
-              accept="image/*"
-              capture="environment"
-              className="hidden"
-              onChange={e => {
-                setPhotoFile(e.target.files?.[0] ?? null);
-                e.target.value = '';
-              }}
-            />
+                  <Icon className="size-3.5" /> {label}
+                </button>
+              ))}
+            </div>
+
+            {evidenceMode === 'link' ? (
+              <Input
+                type="url"
+                value={evidenceUrl}
+                onChange={e => setEvidenceUrl(e.target.value)}
+                placeholder="https://…"
+                className="h-11 text-sm"
+              />
+            ) : (
+              <>
+                <button
+                  type="button"
+                  onClick={() => evidenceRef.current?.click()}
+                  className="flex w-full items-center gap-3 rounded-xl border border-dashed border-border/60 px-4 py-3 text-sm transition-colors hover:bg-muted/40"
+                >
+                  {evidenceMode === 'photo'
+                    ? <Camera className="size-5 shrink-0 text-muted-foreground" />
+                    : <Film className="size-5 shrink-0 text-muted-foreground" />
+                  }
+                  {evidenceFile ? (
+                    <span className="flex-1 truncate text-left text-sm text-foreground">{evidenceFile.name}</span>
+                  ) : (
+                    <span className="text-muted-foreground">
+                      {evidenceMode === 'photo' ? 'Tomar foto o seleccionar archivo' : 'Seleccionar video'}
+                    </span>
+                  )}
+                  {evidenceFile && (
+                    <span
+                      role="button"
+                      tabIndex={0}
+                      onClick={e => { e.stopPropagation(); setEvidenceFile(null); }}
+                      onKeyDown={e => { if (e.key === 'Enter') { e.stopPropagation(); setEvidenceFile(null); } }}
+                      className="ml-auto shrink-0 text-muted-foreground hover:text-destructive"
+                    >
+                      <X className="size-4" />
+                    </span>
+                  )}
+                </button>
+                <input
+                  ref={evidenceRef}
+                  type="file"
+                  accept={evidenceMode === 'photo' ? 'image/*' : 'video/*'}
+                  capture={evidenceMode === 'photo' ? 'environment' : undefined}
+                  className="hidden"
+                  onChange={e => {
+                    setEvidenceFile(e.target.files?.[0] ?? null);
+                    e.target.value = '';
+                  }}
+                />
+              </>
+            )}
           </div>
 
           <Button
             type="submit"
             className="h-12 w-full text-sm font-medium"
-            disabled={saving || !title.trim() || !coords || !hazardTypeId}
+            disabled={!title.trim() || !coords || !hazardTypeId}
           >
-            {saving
-              ? <span className="flex items-center gap-2">
-                  <span className="size-4 animate-spin rounded-full border-2 border-current border-t-transparent" />
-                  Guardando…
-                </span>
-              : 'Reportar novedad'
-            }
+            Reportar novedad
           </Button>
 
         </form>

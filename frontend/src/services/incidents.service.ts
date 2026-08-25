@@ -49,6 +49,19 @@ export function extendIncidentExpiry(
   );
 }
 
+/** Fija la vigencia a una fecha exacta (en vez de sumar N días desde ahora) —
+ * `isoDate` es una fecha simple `YYYY-MM-DD`, tal como la da un
+ * `<input type="date">`. */
+export function setIncidentExpiryDate(
+  id: number,
+  isoDate: string,
+): Promise<ApiResourceResponse<Incident>> {
+  return apiClient.patch<ApiResourceResponse<Incident>, { expires_at: string; note: string }>(
+    `/incidents/${id}`,
+    { expires_at: isoDate, note: `Seguimiento: vigencia fijada al ${isoDate}` },
+  );
+}
+
 export function getIncidentHistory(id: number): Promise<IncidentHistoryEntry[]> {
   return apiClient.get<IncidentHistoryEntry[]>(`/incidents/${id}/history`);
 }

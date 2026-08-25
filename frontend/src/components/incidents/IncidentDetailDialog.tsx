@@ -31,6 +31,7 @@ import {
   extendIncidentExpiry,
   getIncidentHistory,
   getIncidentMedia,
+  setIncidentExpiryDate,
   updateIncidentStatus,
   uploadIncidentPhoto,
 } from '@/services/incidents.service';
@@ -177,6 +178,8 @@ export function IncidentDetailDialog({
   // Acción de estado en curso
   const [changingTo, setChangingTo] = useState<IncidentStatus | null>(null);
   const [extending, setExtending] = useState(false);
+  const [showExpiryPicker, setShowExpiryPicker] = useState(false);
+  const [customExpiryDate, setCustomExpiryDate] = useState('');
 
   // Añadir media por URL
   const [showAddMedia, setShowAddMedia] = useState(false);
@@ -184,9 +187,12 @@ export function IncidentDetailDialog({
   const [newType,      setNewType]      = useState<'photo' | 'video'>('photo');
   const [savingMedia,  setSavingMedia]  = useState(false);
 
-  // Upload de archivo
-  const fileInputRef               = useRef<HTMLInputElement>(null);
-  const [uploading, setUploading]  = useState(false);
+  // Upload de archivo — foto y video van a inputs separados porque cada uno
+  // necesita su propio `accept` (no se puede cambiar dinámicamente entre
+  // clicks sin arriesgar una carrera si el usuario hace doble-click rápido).
+  const fileInputRef                = useRef<HTMLInputElement>(null);
+  const videoInputRef               = useRef<HTMLInputElement>(null);
+  const [uploading, setUploading]   = useState(false);
 
   // Cargar historial + media cada vez que se abre el dialog (o cambia el incidente)
   useEffect(() => {
@@ -230,16 +236,36 @@ export function IncidentDetailDialog({
     }
   }
 
-  async function handleExtend(): Promise<void> {
+  async function handleExtend(days: number): Promise<void> {
     setExtending(true);
     try {
-      const { data: updated } = await extendIncidentExpiry(inc.id);
+      const { data: updated } = await extendIncidentExpiry(inc.id, days);
       setLocal(updated);
       onStatusChanged?.(updated);
       getIncidentHistory(inc.id).then(setHistory).catch(() => {});
-      toast.success('Vigencia extendida 30 días');
+      toast.success(`Vigencia extendida ${days} días`);
+      setShowExpiryPicker(false);
     } catch {
       toast.error('Error al extender');
+    } finally {
+      setExtending(false);
+    }
+  }
+
+  async function handleSetExpiryDate(e: React.FormEvent): Promise<void> {
+    e.preventDefault();
+    if (!customExpiryDate) return;
+    setExtending(true);
+    try {
+      const { data: updated } = await setIncidentExpiryDate(inc.id, customExpiryDate);
+      setLocal(updated);
+      onStatusChanged?.(updated);
+      getIncidentHistory(inc.id).then(setHistory).catch(() => {});
+      toast.success('Vigencia actualizada');
+      setShowExpiryPicker(false);
+      setCustomExpiryDate('');
+    } catch {
+      toast.error('Error al actualizar vigencia');
     } finally {
       setExtending(false);
     }
@@ -273,12 +299,12 @@ export function IncidentDetailDialog({
     }
   }
 
-  async function handleUploadFile(file: File): Promise<void> {
+  async function handleUploadFile(file: File, mediaType: 'photo' | 'video' = 'photo'): Promise<void> {
     setUploading(true);
     try {
-      const created = await uploadIncidentPhoto(inc.id, file);
+      const created = await uploadIncidentPhoto(inc.id, file, mediaType);
       setMedia(prev => [...prev, created]);
-      toast.success('Foto subida ✓');
+      toast.success(mediaType === 'video' ? 'Video subido ✓' : 'Foto subida ✓');
     } catch (err) {
       // apiClient ya trae el mensaje real de Laravel (ej. "El archivo no debe
       // pesar más de 20480 kilobytes") — mostrar el genérico no le dice al
@@ -365,41 +391,75 @@ export function IncidentDetailDialog({
 
         {/* Acciones de estado */}
         {(actions.length > 0 || (inc.status !== 'resolved' && inc.status !== 'archived')) && (
-          <div className="flex flex-wrap gap-2">
-            {actions.map(action => (
-              <Button
-                key={action.to}
-                size="sm"
-                variant={action.primary ? 'default' : 'outline'}
-                disabled={changingTo !== null || extending}
-                onClick={() => { void handleStatusChange(action.to); }}
-                className="text-xs"
-              >
-                {changingTo === action.to
-                  ? <span className="flex items-center gap-1.5">
-                      <span className="size-3 animate-spin rounded-full border-2 border-current border-t-transparent" />
-                      {action.label}…
-                    </span>
-                  : action.label
-                }
-              </Button>
-            ))}
-            {inc.status !== 'resolved' && inc.status !== 'archived' && (
-              <Button
-                size="sm"
-                variant="outline"
-                disabled={changingTo !== null || extending}
-                onClick={() => { void handleExtend(); }}
-                className="text-xs"
-              >
-                {extending
-                  ? <span className="flex items-center gap-1.5">
-                      <span className="size-3 animate-spin rounded-full border-2 border-current border-t-transparent" />
-                      Extendiendo…
-                    </span>
-                  : 'Sigue allí · Extender 30 días'
-                }
-              </Button>
+          <div className="space-y-2">
+            <div className="flex flex-wrap gap-2">
+              {actions.map(action => (
+                <Button
+                  key={action.to}
+                  size="sm"
+                  variant={action.primary ? 'default' : 'outline'}
+                  disabled={changingTo !== null || extending}
+                  onClick={() => { void handleStatusChange(action.to); }}
+                  className="text-xs"
+                >
+                  {changingTo === action.to
+                    ? <span className="flex items-center gap-1.5">
+                        <span className="size-3 animate-spin rounded-full border-2 border-current border-t-transparent" />
+                        {action.label}…
+                      </span>
+                    : action.label
+                  }
+                </Button>
+              ))}
+              {inc.status !== 'resolved' && inc.status !== 'archived' && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={changingTo !== null || extending}
+                  onClick={() => setShowExpiryPicker(v => !v)}
+                  className="text-xs"
+                >
+                  {extending
+                    ? <span className="flex items-center gap-1.5">
+                        <span className="size-3 animate-spin rounded-full border-2 border-current border-t-transparent" />
+                        Actualizando…
+                      </span>
+                    : 'Sigue allí · Vigencia'
+                  }
+                </Button>
+              )}
+            </div>
+
+            {showExpiryPicker && inc.status !== 'resolved' && inc.status !== 'archived' && (
+              <div className="space-y-2 rounded-xl border border-border/50 bg-muted/20 p-3">
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <span className="text-[11px] text-muted-foreground">Extender:</span>
+                  {[7, 15, 30, 60].map(days => (
+                    <button
+                      key={days}
+                      type="button"
+                      disabled={extending}
+                      onClick={() => { void handleExtend(days); }}
+                      className="rounded-full border border-border/50 px-2.5 py-1 text-[11px] font-medium text-foreground transition-colors hover:border-border hover:bg-muted disabled:opacity-50"
+                    >
+                      {days} días
+                    </button>
+                  ))}
+                </div>
+                <form onSubmit={(e) => { void handleSetExpiryDate(e); }} className="flex items-center gap-2">
+                  <span className="text-[11px] text-muted-foreground shrink-0">O hasta:</span>
+                  <Input
+                    type="date"
+                    value={customExpiryDate}
+                    onChange={(e) => setCustomExpiryDate(e.target.value)}
+                    min={new Date().toISOString().slice(0, 10)}
+                    className="h-7 flex-1 text-xs"
+                  />
+                  <Button type="submit" size="sm" className="h-7 shrink-0 text-xs" disabled={extending || !customExpiryDate}>
+                    Fijar
+                  </Button>
+                </form>
+              </div>
             )}
           </div>
         )}
@@ -428,10 +488,23 @@ export function IncidentDetailDialog({
                 variant="ghost"
                 size="sm"
                 className="h-6 gap-1 px-2 text-xs"
+                disabled={uploading}
+                onClick={() => videoInputRef.current?.click()}
+              >
+                {uploading
+                  ? <span className="size-3 animate-spin rounded-full border-2 border-current border-t-transparent" />
+                  : <Film className="size-3" />
+                }
+                Video
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-6 gap-1 px-2 text-xs"
                 onClick={() => setShowAddMedia(v => !v)}
               >
                 <Plus className="size-3" />
-                URL
+                Enlace
               </Button>
             </div>
           </div>
@@ -443,7 +516,18 @@ export function IncidentDetailDialog({
             className="hidden"
             onChange={(e) => {
               const file = e.target.files?.[0];
-              if (file && !uploading) void handleUploadFile(file);
+              if (file && !uploading) void handleUploadFile(file, 'photo');
+              e.target.value = '';
+            }}
+          />
+          <input
+            ref={videoInputRef}
+            type="file"
+            accept="video/*"
+            className="hidden"
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              if (file && !uploading) void handleUploadFile(file, 'video');
               e.target.value = '';
             }}
           />
