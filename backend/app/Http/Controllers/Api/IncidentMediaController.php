@@ -59,12 +59,13 @@ class IncidentMediaController extends Controller
             ]);
 
             return response()->json($media, 201);
-        } catch (\Throwable) {
+        } catch (\Throwable $e) {
             if ($uploaded) {
                 Storage::disk('r2')->delete($key);
             }
 
-            return response()->json(['message' => 'No se pudo subir el archivo.'], 500);
+            // DIAGNÓSTICO TEMPORAL — se revierte apenas se identifique la causa real.
+            return response()->json(['message' => 'No se pudo subir el archivo.', 'debug' => $e->getMessage()], 500);
         }
     }
 
