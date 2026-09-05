@@ -45,10 +45,10 @@ class IncidentMediaController extends Controller
                 throw new \RuntimeException('No se pudo acceder al archivo temporal.');
             }
             $stream = fopen($path, 'r');
-            Storage::disk('r2')->put($key, $stream);
+            Storage::disk('supabase')->put($key, $stream);
             $uploaded = true;
 
-            $baseUrl = rtrim((string) config('filesystems.disks.r2.url', ''), '/');
+            $baseUrl = rtrim((string) config('filesystems.disks.supabase.url', ''), '/');
             $publicUrl = $baseUrl ? "{$baseUrl}/{$key}" : $key;
 
             $media = $incident->media()->create([
@@ -61,7 +61,7 @@ class IncidentMediaController extends Controller
             return response()->json($media, 201);
         } catch (\Throwable) {
             if ($uploaded) {
-                Storage::disk('r2')->delete($key);
+                Storage::disk('supabase')->delete($key);
             }
 
             return response()->json(['message' => 'No se pudo subir el archivo.'], 500);

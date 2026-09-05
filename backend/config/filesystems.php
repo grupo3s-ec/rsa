@@ -62,14 +62,17 @@ return [
 
         // Cloudflare R2 — compatible con S3 API.
         // El bucket debe tener acceso público habilitado (subdominio r2.dev o dominio propio).
-        'r2' => [
+        // Supabase Storage vía su endpoint S3-compatible (sin costo, sin tarjeta
+        // requerida a diferencia de R2/Firebase — ver memoria del proyecto).
+        // Credenciales: Supabase Dashboard > Storage > S3 Connection.
+        'supabase' => [
             'driver'                  => 's3',
-            'key'                     => env('R2_ACCESS_KEY_ID'),
-            'secret'                  => env('R2_SECRET_ACCESS_KEY'),
-            'region'                  => 'auto',
-            'bucket'                  => env('R2_BUCKET', 'rsa-evidencias'),
-            'endpoint'                => env('R2_ENDPOINT'), // https://<account_id>.r2.cloudflarestorage.com
-            'url'                     => env('R2_PUBLIC_URL'),
+            'key'                     => env('SUPABASE_S3_ACCESS_KEY_ID'),
+            'secret'                  => env('SUPABASE_S3_SECRET_ACCESS_KEY'),
+            'region'                  => env('SUPABASE_S3_REGION'),
+            'bucket'                  => env('SUPABASE_S3_BUCKET', 'rsa-evidencias'),
+            'endpoint'                => env('SUPABASE_S3_ENDPOINT'), // https://<project_ref>.storage.supabase.co/storage/v1/s3
+            'url'                     => env('SUPABASE_STORAGE_PUBLIC_URL'), // https://<project_ref>.supabase.co/storage/v1/object/public/<bucket>
             'use_path_style_endpoint' => true,
             'throw'                   => true,
             'report'                  => false,
