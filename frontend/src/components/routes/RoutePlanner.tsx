@@ -365,10 +365,12 @@ function RoutePlannerContent({
   // ─── ECU911 — vías con restricciones ────────────────────────────────────
   // ECU911 no da coordenadas exactas por vía — solo un nombre/descripción que
   // hay que geocodificar a ciegas (primer segmento del texto + "Ecuador"), lo
-  // que frecuentemente ubica el pin en el lugar equivocado. Por eso esta capa
-  // arranca apagada y es opt-in vía `showEcu911Vias`, no algo que se dibuja
-  // solo y puede aparecer roto sin que el usuario lo haya pedido.
-  const [showEcu911Vias,   setShowEcu911Vias]   = useState(false);
+  // que frecuentemente ubica el pin en el lugar equivocado. Sigue siendo
+  // apagable a mano vía `showEcu911Vias`, pero arranca activa: el listado de
+  // "vías con restricción en la ruta" es texto (no depende del pin en el
+  // mapa) y el usuario espera ver los cierres de ECU911 apenas traza una
+  // ruta, sin tener que descubrir el botón de la capa primero.
+  const [showEcu911Vias,   setShowEcu911Vias]   = useState(true);
   const [viaMarkers,       setViaMarkers]       = useState<ViaGeoMarker[]>([]);
   const [viaConflicts,     setViaConflicts]     = useState<ViaGeoMarker[]>([]);
   const [selectedVia,      setSelectedVia]      = useState<ViaGeoMarker | null>(null);
