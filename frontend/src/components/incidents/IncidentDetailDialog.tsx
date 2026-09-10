@@ -12,7 +12,7 @@ import { Separator } from '@/components/ui/separator';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
-import { ExternalLink, Film, ImageOff, MapPin, Plus, Upload, VideoOff, X } from 'lucide-react';
+import { ExternalLink, Film, ImageOff, MapPin, Plus, Upload, X } from 'lucide-react';
 import { SeverityBadge } from '@/components/incidents/SeverityBadge';
 import { ExpiryBadge } from '@/components/incidents/ExpiryBadge';
 import {
@@ -97,12 +97,7 @@ function VideoSection({ videoUrl, title }: { videoUrl: string | null; title: str
     );
   }
 
-  return (
-    <span className="flex items-center gap-1 text-xs text-destructive">
-      <VideoOff className="size-3" />
-      Sin video
-    </span>
-  );
+  return null;
 }
 
 interface MediaItemProps { item: IncidentMedia; onDelete: () => void; onOpen: () => void }
@@ -466,7 +461,7 @@ export function IncidentDetailDialog({
                         <span className="size-3 animate-spin rounded-full border-2 border-current border-t-transparent" />
                         Actualizando…
                       </span>
-                    : 'Sigue allí · Vigencia'
+                    : 'Vigencia'
                   }
                 </Button>
               )}
