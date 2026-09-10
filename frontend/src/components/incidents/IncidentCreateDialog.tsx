@@ -381,7 +381,6 @@ export function IncidentCreateDialog({
               value={title}
               onChange={e => setTitle(e.target.value)}
               placeholder="Ej. Derrumbe bloquea carril derecho"
-              required
               aria-invalid={attemptedSubmit && !title.trim()}
               className="h-11 text-sm"
             />
