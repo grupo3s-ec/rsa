@@ -86,7 +86,12 @@ export function IncidentCreateDialog({
   const [evidenceMode, setEvidenceMode] = useState<EvidenceMode>('photo');
   const [evidenceFile, setEvidenceFile] = useState<File | null>(null);
   const [evidenceUrl,  setEvidenceUrl]  = useState('');
-  const evidenceRef = useRef<HTMLInputElement>(null);
+  // Un input por tipo (no uno compartido con `accept` dinámico): el tab de
+  // Foto/Video abre el selector de archivos en el mismo click que cambia de
+  // modo, y el estado de React aún no se re-renderiza para ese momento — con
+  // un solo input, `accept` seguiría teniendo el valor del modo anterior.
+  const photoRef = useRef<HTMLInputElement>(null);
+  const videoRef = useRef<HTMLInputElement>(null);
 
   // Coordenadas marcadas en el mapa.
   useEffect(() => {
@@ -419,7 +424,14 @@ export function IncidentCreateDialog({
                 <button
                   key={mode}
                   type="button"
-                  onClick={() => { setEvidenceMode(mode); setEvidenceFile(null); }}
+                  onClick={() => {
+                    setEvidenceMode(mode);
+                    setEvidenceFile(null);
+                    // El tab ES el selector de archivo — un solo click, sin
+                    // pasar antes por el botón de abajo.
+                    if (mode === 'photo') photoRef.current?.click();
+                    if (mode === 'video') videoRef.current?.click();
+                  }}
                   className={cn(
                     'flex flex-1 items-center justify-center gap-1.5 rounded-md px-2 py-1.5 text-[11px] font-medium transition-colors',
                     evidenceMode === mode ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground',
@@ -442,7 +454,7 @@ export function IncidentCreateDialog({
               <>
                 <button
                   type="button"
-                  onClick={() => evidenceRef.current?.click()}
+                  onClick={() => (evidenceMode === 'photo' ? photoRef : videoRef).current?.click()}
                   className="flex w-full items-center gap-3 rounded-xl border border-dashed border-border/60 px-4 py-3 text-sm transition-colors hover:bg-muted/40"
                 >
                   {evidenceMode === 'photo'
@@ -469,10 +481,20 @@ export function IncidentCreateDialog({
                   )}
                 </button>
                 <input
-                  ref={evidenceRef}
+                  ref={photoRef}
                   type="file"
-                  accept={evidenceMode === 'photo' ? 'image/*' : 'video/*'}
-                  capture={evidenceMode === 'photo' ? 'environment' : undefined}
+                  accept="image/*"
+                  capture="environment"
+                  className="hidden"
+                  onChange={e => {
+                    setEvidenceFile(e.target.files?.[0] ?? null);
+                    e.target.value = '';
+                  }}
+                />
+                <input
+                  ref={videoRef}
+                  type="file"
+                  accept="video/*"
                   className="hidden"
                   onChange={e => {
                     setEvidenceFile(e.target.files?.[0] ?? null);
