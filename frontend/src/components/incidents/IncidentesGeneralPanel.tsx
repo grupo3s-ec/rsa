@@ -25,7 +25,11 @@ import type { Incident, IncidentSeverity, IncidentStatus } from '@/types/inciden
 type SeverityFilter = IncidentSeverity | 'all';
 type StatusFilter = IncidentStatus | 'all';
 
-const SEVERITY_FILTERS: SeverityFilter[] = ['all', 'critical', 'high', 'medium', 'low'];
+// "critical" no está en el filtro: ninguno de los tipos de incidente
+// predefinidos lo usa (solo alto/medio/bajo) — un tipo personalizado
+// ("+Otro") sí podría crearse con esa severidad, pero no vale la pena un
+// filtro dedicado para un caso que hoy nunca ocurre en la práctica.
+const SEVERITY_FILTERS: SeverityFilter[] = ['all', 'high', 'medium', 'low'];
 const STATUS_FILTERS: StatusFilter[] = ['all', 'open', 'in_progress'];
 
 const STATUS_BADGE_CLASS: Record<IncidentStatus, string> = {
