@@ -51,9 +51,15 @@ export function getRouteRiskReportPdfUrl(evaluationId?: number): string {
   return `${base}/admin/reports/route-risk/export-pdf${qs}`;
 }
 
-export function uploadRiskEvaluation(file: File, nombre: string): Promise<RiskEvaluationUploadResult> {
+export function uploadRiskEvaluation(
+  file: File,
+  nombre: string,
+  onProgress?: (percent: number) => void,
+): Promise<RiskEvaluationUploadResult> {
   const form = new FormData();
   form.append('file', file);
   form.append('nombre', nombre);
-  return apiClient.form<RiskEvaluationUploadResult>('/admin/risk-evaluations/upload', form, 5 * 60_000);
+  return apiClient.formWithProgress<RiskEvaluationUploadResult>(
+    '/admin/risk-evaluations/upload', form, onProgress ?? (() => {}), 5 * 60_000,
+  );
 }

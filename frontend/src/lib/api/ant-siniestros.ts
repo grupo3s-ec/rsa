@@ -79,9 +79,11 @@ export interface AntUploadResult {
 
 /** Sube el .xlsx mensual de la ANT — parsea y hace upsert por código
  * directo en el backend, sin pasos manuales. Puede pesar 100+ MB y tardar
- * varios minutos en Render free tier, de ahí el timeout largo. */
-export function uploadAntSiniestros(file: File): Promise<AntUploadResult> {
+ * varios minutos en Render free tier, de ahí el timeout largo y el progreso
+ * de subida (`onProgress`, 0-100) — sin eso, varios minutos con solo un
+ * spinner genérico no distingue "avanzando" de "colgado". */
+export function uploadAntSiniestros(file: File, onProgress?: (percent: number) => void): Promise<AntUploadResult> {
   const form = new FormData();
   form.append('file', file);
-  return apiClient.form<AntUploadResult>('/admin/ant/upload', form, 10 * 60_000);
+  return apiClient.formWithProgress<AntUploadResult>('/admin/ant/upload', form, onProgress ?? (() => {}), 10 * 60_000);
 }

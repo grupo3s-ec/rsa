@@ -111,6 +111,47 @@ async function requestForm<TResponse>(path: string, formData: FormData, timeoutM
   return response.json() as Promise<TResponse>;
 }
 
+/** Igual que `requestForm`, pero vía XHR en vez de `fetch` — la única forma
+ * de reportar progreso real de subida (`upload.onprogress`), que `fetch` no
+ * expone. Para archivos grandes (ej. el .xlsx mensual de la ANT, 100+ MB)
+ * sin esto no hay ninguna señal de avance durante los varios minutos que
+ * puede tardar. */
+function requestFormWithProgress<TResponse>(
+  path: string,
+  formData: FormData,
+  onProgress: (percent: number) => void,
+  timeoutMs = 60_000,
+): Promise<TResponse> {
+  const token = getToken();
+
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', buildUrl(path));
+    xhr.timeout = timeoutMs;
+    xhr.setRequestHeader('Accept', 'application/json');
+    if (token) xhr.setRequestHeader('Authorization', `Bearer ${token}`);
+
+    xhr.upload.onprogress = (e) => {
+      if (e.lengthComputable) onProgress(Math.round((e.loaded / e.total) * 100));
+    };
+
+    xhr.onload = () => {
+      let body: unknown = {};
+      try { body = JSON.parse(xhr.responseText); } catch { /* respuesta vacía o no-JSON */ }
+      if (xhr.status >= 200 && xhr.status < 300) {
+        resolve(body as TResponse);
+      } else {
+        const message = (body as { message?: string })?.message ?? `API error ${xhr.status}`;
+        reject(new Error(message));
+      }
+    };
+    xhr.onerror = () => reject(new Error('No se pudo conectar con el servidor.'));
+    xhr.ontimeout = () => reject(new Error('La subida tardó demasiado y se canceló.'));
+
+    xhr.send(formData);
+  });
+}
+
 export const apiClient = {
   get: <TResponse>(path: string, options?: Omit<ApiRequestOptions, 'method' | 'body'>): Promise<TResponse> =>
     request<TResponse>(path, { ...options, method: 'GET' }),
@@ -134,6 +175,14 @@ export const apiClient = {
 
   form: <TResponse>(path: string, formData: FormData, timeoutMs?: number): Promise<TResponse> =>
     requestForm<TResponse>(path, formData, timeoutMs),
+
+  formWithProgress: <TResponse>(
+    path: string,
+    formData: FormData,
+    onProgress: (percent: number) => void,
+    timeoutMs?: number,
+  ): Promise<TResponse> =>
+    requestFormWithProgress<TResponse>(path, formData, onProgress, timeoutMs),
 };
 
 export type { QueryParams };

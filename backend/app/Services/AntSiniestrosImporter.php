@@ -36,14 +36,19 @@ class AntSiniestrosImporter
      * ahí en adelante es detalle por víctima que no necesitamos. */
     private const LAST_COLUMN = 'BT';
 
-    /** Medido contra el archivo real: un chunk aislado de 3000 filas pesa
-     * ~170MB de pico; la corrida completa (setup + primer chunk, antes de
-     * que la memoria se libere entre chunks) llegó a ~247MB con chunks de
-     * 3800 — con margen delgado bajo el memory_limit=256M del Dockerfile.
-     * 3000 dejaba más aire mientras siga siendo pocos chunks grandes (no
-     * muchos chicos: el costo fijo de abrir el archivo, ~50s, se paga una
-     * vez por chunk). */
-    private const CHUNK_SIZE = 3000;
+    /** Medido contra un archivo real de ~10.7K filas: un chunk aislado de
+     * 3000 filas pesaba ~170MB de pico; la corrida completa (setup + primer
+     * chunk, antes de que la memoria se libere entre chunks) llegó a ~247MB
+     * con chunks de 3800 — margen delgado bajo el memory_limit=256M del
+     * Dockerfile (y el límite duro de 512MB del contenedor completo en el
+     * free tier de Render). Bajado a 2000 tras un "Failed to fetch" al subir
+     * un archivo mensual más grande — la sospecha es que ese margen delgado
+     * se agotó y el worker de PHP murió por OOM a mitad de request (eso se ve
+     * en el navegador como conexión cortada, no como un error HTTP limpio).
+     * Menos filas por chunk = más chunks = se paga más veces el costo fijo de
+     * abrir el archivo (~50s), pero con max_execution_time=600 sigue habiendo
+     * margen de sobra para un archivo de este tamaño. */
+    private const CHUNK_SIZE = 2000;
 
     /** Máximo de filas por sentencia SQL de upsert — Postgres tiene un tope
      * de ~65535 parámetros por statement; con ~25 columnas por fila esto

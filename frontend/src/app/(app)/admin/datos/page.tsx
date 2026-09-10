@@ -2,6 +2,7 @@
 
 import { useCallback, useRef, useState } from 'react';
 import { CheckCircle2, CircleAlert, FileSpreadsheet, LoaderCircle, Upload } from 'lucide-react';
+import { toast } from 'sonner';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { cn } from '@/lib/utils';
@@ -10,7 +11,7 @@ import { uploadRiskEvaluation, type RiskEvaluationUploadResult } from '@/lib/api
 
 type UploadState =
   | { status: 'idle' }
-  | { status: 'loading'; fileName: string }
+  | { status: 'loading'; fileName: string; progress: number }
   | { status: 'success'; fileName: string; kind: 'ant'; result: AntUploadResult }
   | { status: 'success'; fileName: string; kind: 'risk'; result: RiskEvaluationUploadResult }
   | { status: 'error'; fileName: string; message: string };
@@ -29,42 +30,57 @@ export default function DatosPage() {
     const ext = file.name.toLowerCase().split('.').pop();
 
     if (ext === 'xlsx') {
-      setState({ status: 'loading', fileName: file.name });
+      setState({ status: 'loading', fileName: file.name, progress: 0 });
       try {
-        const result = await uploadAntSiniestros(file);
+        const result = await uploadAntSiniestros(file, (percent) => {
+          setState((prev) => (prev.status === 'loading' ? { ...prev, progress: percent } : prev));
+        });
         setState({ status: 'success', fileName: file.name, kind: 'ant', result });
+        toast.success(`${file.name} cargado ✓`);
       } catch (err) {
-        setState({ status: 'error', fileName: file.name, message: err instanceof Error ? err.message : 'Error al subir el archivo.' });
+        const message = err instanceof Error ? err.message : 'Error al subir el archivo.';
+        setState({ status: 'error', fileName: file.name, message });
+        toast.error(`No se pudo cargar ${file.name}: ${message}`);
       }
       return;
     }
 
     if (ext === 'ods') {
       if (!evaluationName.trim()) {
-        setState({ status: 'error', fileName: file.name, message: 'Escribe el nombre de la evaluación antes de subir el archivo.' });
+        const message = 'Escribe el nombre de la evaluación antes de subir el archivo.';
+        setState({ status: 'error', fileName: file.name, message });
+        toast.error(message);
         return;
       }
-      setState({ status: 'loading', fileName: file.name });
+      setState({ status: 'loading', fileName: file.name, progress: 0 });
       try {
-        const result = await uploadRiskEvaluation(file, evaluationName.trim());
+        const result = await uploadRiskEvaluation(file, evaluationName.trim(), (percent) => {
+          setState((prev) => (prev.status === 'loading' ? { ...prev, progress: percent } : prev));
+        });
         setState({ status: 'success', fileName: file.name, kind: 'risk', result });
+        toast.success(`${file.name} cargado ✓`);
       } catch (err) {
-        setState({ status: 'error', fileName: file.name, message: err instanceof Error ? err.message : 'Error al subir el archivo.' });
+        const message = err instanceof Error ? err.message : 'Error al subir el archivo.';
+        setState({ status: 'error', fileName: file.name, message });
+        toast.error(`No se pudo cargar ${file.name}: ${message}`);
       }
       return;
     }
 
-    setState({ status: 'error', fileName: file.name, message: 'Formato no reconocido — solo .xlsx (BDD ANT) o .ods (Evaluación de Riesgo).' });
+    const message = 'Formato no reconocido — solo .xlsx (BDD ANT) o .ods (Evaluación de Riesgo).';
+    setState({ status: 'error', fileName: file.name, message });
+    toast.error(message);
   }, [evaluationName]);
+
+  const loading = state.status === 'loading';
 
   const onDrop = useCallback((e: React.DragEvent<HTMLDivElement>) => {
     e.preventDefault();
     setDragging(false);
+    if (loading) return;
     const file = e.dataTransfer.files[0];
     if (file) void handleFile(file);
-  }, [handleFile]);
-
-  const loading = state.status === 'loading';
+  }, [handleFile, loading]);
 
   return (
     <div className="mx-auto max-w-2xl space-y-6">
@@ -89,9 +105,10 @@ export default function DatosPage() {
         onDragOver={(e) => { e.preventDefault(); setDragging(true); }}
         onDragLeave={() => setDragging(false)}
         onDrop={onDrop}
-        onClick={() => inputRef.current?.click()}
+        onClick={() => { if (!loading) inputRef.current?.click(); }}
         className={cn(
-          'flex cursor-pointer flex-col items-center justify-center gap-3 rounded-2xl border-2 border-dashed p-12 text-center transition-colors',
+          'flex flex-col items-center justify-center gap-3 rounded-2xl border-2 border-dashed p-12 text-center transition-colors',
+          loading ? 'cursor-not-allowed' : 'cursor-pointer',
           dragging ? 'border-primary bg-primary/5' : 'border-border/60 hover:border-border',
         )}
       >
@@ -111,10 +128,29 @@ export default function DatosPage() {
         ) : (
           <Upload className="size-8 text-muted-foreground" />
         )}
-        <div>
+        <div className="w-full">
           <p className="text-sm font-medium text-foreground">
-            {loading ? `Procesando ${state.fileName}…` : 'Arrastra el archivo aquí, o haz clic para buscarlo'}
+            {loading
+              ? state.progress < 100
+                ? `Subiendo ${state.fileName}… ${state.progress}%`
+                : `Procesando ${state.fileName} en el servidor…`
+              : 'Arrastra el archivo aquí, o haz clic para buscarlo'}
           </p>
+          {/* Barra real mientras sube; al llegar a 100% el archivo ya está en
+              el servidor pero el parseo/import puede tardar varios minutos
+              más — sin distinguir esto, un 100% quieto por minutos parece
+              colgado. */}
+          {loading && (
+            <div className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-muted">
+              <div
+                className={cn(
+                  'h-full rounded-full bg-primary transition-all',
+                  state.progress >= 100 && 'animate-pulse',
+                )}
+                style={{ width: `${Math.max(state.progress, 8)}%` }}
+              />
+            </div>
+          )}
           <p className="mt-1 text-xs text-muted-foreground">
             .xlsx → BDD de siniestros ANT (mensual) · .ods → Evaluación de Riesgo por km
           </p>
