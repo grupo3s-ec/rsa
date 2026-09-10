@@ -21,13 +21,16 @@ import { createIncident, uploadIncidentPhoto } from '@/services/incidents.servic
 import { createHazardType, getHazardTypes } from '@/services/hazard-types.service';
 import { cn } from '@/lib/utils';
 import { INCIDENT_SEVERITIES } from '@/types/incident';
-import type { HazardType, IncidentCondition, IncidentSeverity } from '@/types/incident';
+import type { HazardType, Incident, IncidentCondition, IncidentSeverity } from '@/types/incident';
 import type { LngLat } from '@/lib/mapbox/directions';
 
 export interface IncidentCreateDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onCreated?: () => void;
+  /** Recibe el incidente ya creado (sin esperar a la subida de evidencia,
+   * que sigue en segundo plano) — el padre lo usa para abrir el panel de
+   * Incidentes y mostrar de una vez el que se acaba de reportar. */
+  onCreated?: (incident: Incident) => void;
   /** Pide al padre activar el modo "click en el mapa" para marcar la ubicación. */
   onRequestPickLocation?: () => void;
   /** true mientras el padre está esperando un click en el mapa (dialog cerrado). */
@@ -36,6 +39,9 @@ export interface IncidentCreateDialogProps {
   pickedCoords?: LngLat | null;
   /** Confirma al padre que ya se consumieron `pickedCoords`. */
   onPickedCoordsConsumed?: () => void;
+  /** La ubicación elegida hasta ahora (o null) — el padre la usa para
+   * dibujar un pin en el mapa mientras el formulario sigue abierto. */
+  onCoordsChange?: (coords: LngLat | null) => void;
 }
 
 /** Orden de las secciones de tipo de condición, agrupadas por condición. */
@@ -51,6 +57,7 @@ export function IncidentCreateDialog({
   pickActive = false,
   pickedCoords,
   onPickedCoordsConsumed,
+  onCoordsChange,
 }: IncidentCreateDialogProps) {
   const [hazardTypeId, setHazardTypeId] = useState<number | null>(null);
   const [activeCondition, setActiveCondition] = useState<IncidentCondition>('fisica');
@@ -62,7 +69,6 @@ export function IncidentCreateDialog({
   // terminado). Reemplaza los toasts de validación: la señal vive en el
   // campo que falta, no en una esquina de la pantalla.
   const [attemptedSubmit, setAttemptedSubmit] = useState(false);
-  const wasPickActive = useRef(false);
 
   // Tipos de incidente creados al vuelo (o traídos en segundo plano desde el
   // backend) que no están en el espejo estático `HAZARD_TYPES` — ver el
@@ -82,18 +88,18 @@ export function IncidentCreateDialog({
   const [evidenceUrl,  setEvidenceUrl]  = useState('');
   const evidenceRef = useRef<HTMLInputElement>(null);
 
-  // Coordenadas marcadas en el mapa — el dialog está cerrado mientras se espera el click.
+  // Coordenadas marcadas en el mapa.
   useEffect(() => {
     if (!pickedCoords) return;
     setCoords({ lat: pickedCoords[1], lng: pickedCoords[0] });
     onPickedCoordsConsumed?.();
   }, [pickedCoords, onPickedCoordsConsumed]);
 
-  // Al terminar el modo "marcar en el mapa" (con o sin selección), reabrir el dialog.
+  // Avisa al padre la ubicación elegida (o su ausencia) para que dibuje un
+  // pin en el mapa mientras el formulario sigue abierto.
   useEffect(() => {
-    if (wasPickActive.current && !pickActive) onOpenChange(true);
-    wasPickActive.current = pickActive;
-  }, [pickActive, onOpenChange]);
+    onCoordsChange?.(coords ? [coords.lng, coords.lat] : null);
+  }, [coords, onCoordsChange]);
 
   // Trae el catálogo real en segundo plano (no bloquea el diálogo, que ya
   // abrió instantáneo con `HAZARD_TYPES`) y agrega cualquier tipo que no
@@ -149,7 +155,8 @@ export function IncidentCreateDialog({
   }
 
   function handlePickLocation() {
-    onOpenChange(false);
+    // El Sheet ya no tapa el mapa (ver sheet.tsx, modal={false}) — no hace
+    // falta cerrarlo para poder tocar el mapa y marcar la ubicación.
     onRequestPickLocation?.();
   }
 
@@ -206,11 +213,11 @@ export function IncidentCreateDialog({
     void (async () => {
       try {
         const { data: incident } = await createIncident(payload);
+        onCreated?.(incident);
         if (file) {
           try { await uploadIncidentPhoto(incident.id, file, mediaType); }
           catch (err) { toast.error(err instanceof Error ? err.message : 'Error al subir la evidencia'); }
         }
-        onCreated?.();
       } catch {
         toast.error('No se pudo guardar la novedad — intenta de nuevo');
       }
@@ -477,10 +484,12 @@ export function IncidentCreateDialog({
             )}
           </div>
 
+          {/* Sin `disabled`: un botón inactivo no dice QUÉ falta. Al tocarlo
+              incompleto, `attemptedSubmit` resalta en rojo el campo exacto
+              (tipo/título/ubicación) en vez de dejar el botón "muerto". */}
           <Button
             type="submit"
             className="h-12 w-full text-sm font-medium"
-            disabled={!title.trim() || !coords || !hazardTypeId}
           >
             Reportar novedad
           </Button>

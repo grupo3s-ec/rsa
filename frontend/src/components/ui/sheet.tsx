@@ -14,12 +14,14 @@ import { XIcon } from "lucide-react"
  * aparecer centrado, dejando el mapa completamente visible detrás — sin
  * oscurecer ni desenfocar — porque el usuario siempre quiere poder seguir
  * viendo el mapa (y el incidente seleccionado en él) mientras revisa el
- * detalle. El overlay sigue ahí (invisible) solo para capturar el click-fuera
- * que cierra el Sheet.
+ * detalle. `modal={false}` por defecto: el mapa (y cualquier otro elemento
+ * detrás) sigue recibiendo clicks normalmente mientras el Sheet está abierto
+ * — necesario para, ej., marcar la ubicación de un incidente en el mapa sin
+ * tener que cerrar primero el formulario de reporte.
  */
 
-function Sheet({ ...props }: DialogPrimitive.Root.Props) {
-  return <DialogPrimitive.Root data-slot="sheet" {...props} />
+function Sheet({ modal = false, ...props }: DialogPrimitive.Root.Props) {
+  return <DialogPrimitive.Root data-slot="sheet" modal={modal} {...props} />
 }
 
 function SheetTrigger({ ...props }: DialogPrimitive.Trigger.Props) {

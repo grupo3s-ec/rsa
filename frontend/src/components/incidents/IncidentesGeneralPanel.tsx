@@ -30,7 +30,7 @@ type StatusFilter = IncidentStatus | 'all';
 // ("+Otro") sí podría crearse con esa severidad, pero no vale la pena un
 // filtro dedicado para un caso que hoy nunca ocurre en la práctica.
 const SEVERITY_FILTERS: SeverityFilter[] = ['all', 'high', 'medium', 'low'];
-const STATUS_FILTERS: StatusFilter[] = ['all', 'open', 'in_progress'];
+const STATUS_FILTERS: StatusFilter[] = ['all', 'open', 'in_progress', 'resolved', 'archived'];
 
 const STATUS_BADGE_CLASS: Record<IncidentStatus, string> = {
   open: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400',

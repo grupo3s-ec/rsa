@@ -4,9 +4,10 @@ import { useState } from 'react';
 import { TriangleAlert } from 'lucide-react';
 import { IncidentCreateDialog } from './IncidentCreateDialog';
 import type { LngLat } from '@/lib/mapbox/directions';
+import type { Incident } from '@/types/incident';
 
 interface IncidentFabProps {
-  onCreated?: () => void;
+  onCreated?: (incident: Incident) => void;
   /** Pide al padre activar el modo "click en el mapa" para marcar la ubicación. */
   onRequestPickLocation?: () => void;
   /** true mientras el padre está esperando un click en el mapa. */
@@ -15,9 +16,11 @@ interface IncidentFabProps {
   pickedCoords?: LngLat | null;
   /** Confirma al padre que ya se consumieron `pickedCoords`. */
   onPickedCoordsConsumed?: () => void;
+  /** La ubicación elegida hasta ahora (o null) — para dibujar un pin en el mapa. */
+  onCoordsChange?: (coords: LngLat | null) => void;
 }
 
-export function IncidentFab({ onCreated, onRequestPickLocation, pickActive, pickedCoords, onPickedCoordsConsumed }: IncidentFabProps = {}) {
+export function IncidentFab({ onCreated, onRequestPickLocation, pickActive, pickedCoords, onPickedCoordsConsumed, onCoordsChange }: IncidentFabProps = {}) {
   const [open, setOpen] = useState(false);
 
   return (
@@ -39,6 +42,7 @@ export function IncidentFab({ onCreated, onRequestPickLocation, pickActive, pick
         pickActive={pickActive}
         pickedCoords={pickedCoords ?? null}
         onPickedCoordsConsumed={onPickedCoordsConsumed}
+        onCoordsChange={onCoordsChange}
       />
     </>
   );

@@ -75,7 +75,7 @@ import {
 } from "@/lib/mapbox/directions";
 import { filterIncidentsByRoute } from "@/lib/mapbox/route-filter";
 import { getRouteIncidents } from "@/services/routes.service";
-import { getIncidents } from "@/services/incidents.service";
+import { getIncident, getIncidents } from "@/services/incidents.service";
 import {
   pointNearPolyline,
   boundsIntersect,
@@ -176,6 +176,15 @@ interface RoutePlannerProps {
   onRouteCalculated?: (data: RouteCalculatedData | null) => void;
   /** Incrementar para forzar recarga de incidentes (ej. después de crear uno nuevo). */
   incidentRefreshKey?: number;
+  /** Incidente recién reportado — al recibir uno nuevo (referencia distinta a
+   * la anterior), abre el panel de Incidentes y muestra su detalle de una
+   * vez, sin que el usuario tenga que ir a buscarlo. */
+  focusIncident?: Incident | null;
+  /** Confirma al padre que ya se consumió `focusIncident`. */
+  onFocusIncidentConsumed?: () => void;
+  /** Ubicación elegida hasta ahora en el formulario de "Reportar incidente"
+   * (o null) — se marca con un pin en el mapa mientras el Sheet sigue abierto. */
+  pendingIncidentCoords?: LngLat | null;
   /** Activa un modo de selección en el mapa ajeno al planificador (ej. ubicación de un incidente). */
   externalPickActive?: boolean;
   /** Texto mostrado en el indicador flotante mientras `externalPickActive` está activo. */
@@ -190,7 +199,7 @@ interface RoutePlannerProps {
   initialSidebarView?: "planner" | "incidentes";
 }
 
-export function RoutePlanner({ mapOverlay, onRouteCalculated, incidentRefreshKey, externalPickActive, externalPickLabel, onExternalPick, onExternalPickCancel, initialSidebarView }: RoutePlannerProps = {}) {
+export function RoutePlanner({ mapOverlay, onRouteCalculated, incidentRefreshKey, focusIncident, onFocusIncidentConsumed, pendingIncidentCoords, externalPickActive, externalPickLabel, onExternalPick, onExternalPickCancel, initialSidebarView }: RoutePlannerProps = {}) {
   // "geometry" habilita `google.maps.geometry.encoding.decodePath` — usada por
   // `MitEventSegment` en RouteMap.tsx para dibujar el trazado real de cada
   // tramo MIT (polyline pre-calculada por el backend) en vez de una línea
@@ -201,6 +210,9 @@ export function RoutePlanner({ mapOverlay, onRouteCalculated, incidentRefreshKey
         mapOverlay={mapOverlay}
         onRouteCalculated={onRouteCalculated}
         incidentRefreshKey={incidentRefreshKey}
+        focusIncident={focusIncident}
+        onFocusIncidentConsumed={onFocusIncidentConsumed}
+        pendingIncidentCoords={pendingIncidentCoords}
         externalPickActive={externalPickActive}
         externalPickLabel={externalPickLabel}
         onExternalPick={onExternalPick}
@@ -217,6 +229,9 @@ function RoutePlannerContent({
   mapOverlay,
   onRouteCalculated,
   incidentRefreshKey,
+  focusIncident,
+  onFocusIncidentConsumed,
+  pendingIncidentCoords,
   externalPickActive = false,
   externalPickLabel = "el punto",
   onExternalPick,
@@ -226,6 +241,9 @@ function RoutePlannerContent({
   mapOverlay?: React.ReactNode;
   onRouteCalculated?: (data: RouteCalculatedData | null) => void;
   incidentRefreshKey?: number;
+  focusIncident?: Incident | null;
+  onFocusIncidentConsumed?: () => void;
+  pendingIncidentCoords?: LngLat | null;
   externalPickActive?: boolean;
   externalPickLabel?: string;
   onExternalPick?: (lngLat: LngLat) => void;
@@ -355,8 +373,11 @@ function RoutePlannerContent({
   const [panelOpen,     setPanelOpen]     = useState(true);
   /** Muestra/oculta los pines de alertas de la ruta EN EL MAPA (no afecta el
    * conteo ni la lista) — para poder despejar el mapa cuando no se quieren
-   * ver como ruido visual. */
-  const [showRouteAlerts, setShowRouteAlerts] = useState(true);
+   * ver como ruido visual. Arranca apagado: en modo panel, abrir la pestaña
+   * "Alertas" del timeline lo enciende solo (ver `handleActiveLayerChange`);
+   * en modo pantalla completa (donde ese timeline no existe) debe quedar
+   * explícitamente apagado hasta que el usuario lo pida con el botón. */
+  const [showRouteAlerts, setShowRouteAlerts] = useState(false);
   const [searched,      setSearched]      = useState(() => session.searched);
   const [helpOpen,      setHelpOpen]      = useState(false);
   const [layoutMode,    setLayoutMode]    = useState<LayoutMode>("panel");
@@ -543,6 +564,19 @@ function RoutePlannerContent({
   useEffect(() => {
     if (incidentesViewOpen) { setPlannerCollapsed(false); setSelectedRiskKm(null); }
   }, [incidentesViewOpen]);
+
+  // Al reportar una novedad, se abre el panel de Incidentes y se muestra de
+  // una vez el detalle del que se acaba de crear — sin esto, el usuario tenía
+  // que ir a buscarlo él mismo en la lista para confirmar que quedó guardado.
+  useEffect(() => {
+    if (!focusIncident) return;
+    setIncidentesViewOpen(true);
+    getIncident(focusIncident.id)
+      .then(({ data }) => setSelectedIncident(data))
+      .catch(() => setSelectedIncident(focusIncident));
+    setDetailOpen(true);
+    onFocusIncidentConsumed?.();
+  }, [focusIncident, onFocusIncidentConsumed]);
 
   useEffect(() => {
     if (!showRiskEvaluation || riskEvaluationFetchedRef.current) return;
@@ -2166,6 +2200,7 @@ function RoutePlannerContent({
                 selectedPoiKey={selectedPoi ? `${selectedPoi.lat},${selectedPoi.lng}` : null}
                 onViewportBoundsChanged={handleViewportBoundsChanged}
                 focusBounds={focusBoundsForMap}
+                pendingIncidentCoords={pendingIncidentCoords}
               />
               {pickModeIndicator}
               {legendPill}
@@ -2312,6 +2347,7 @@ function RoutePlannerContent({
           selectedPoiKey={selectedPoi ? `${selectedPoi.lat},${selectedPoi.lng}` : null}
           onViewportBoundsChanged={handleViewportBoundsChanged}
           focusBounds={focusBoundsForMap}
+          pendingIncidentCoords={pendingIncidentCoords}
         />
       </div>
 

@@ -123,6 +123,10 @@ interface RouteMapProps {
    * (ej. el usuario arrastró el selector del gráfico) — `null`/`undefined` no
    * mueve el mapa. */
   focusBounds?: RawLatLngBounds | null;
+  /** Ubicación elegida para un incidente que se está reportando (dialog aún
+   * abierto) — se marca en el mapa para que el usuario confirme visualmente
+   * dónde quedó, no solo por las coordenadas en texto del formulario. */
+  pendingIncidentCoords?: LngLat | null;
 }
 
 // ─── Auxiliares internos ──────────────────────────────────────────────────────
@@ -502,6 +506,7 @@ export default function RouteMap({
   selectedPoiKey,
   onViewportBoundsChanged,
   focusBounds,
+  pendingIncidentCoords,
 }: RouteMapProps) {
   const selected = routes[selectedRouteIdx] ?? EMPTY_COORDS;
   // Posición anclada de cada vía sobre la ruta activa — memoizado para no
@@ -587,6 +592,17 @@ export default function RouteMap({
           </AdvancedMarker>
         );
       })}
+
+      {/* Ubicación elegida para un incidente en curso de reportarse — mismo
+          ícono/color que el botón "Reportar incidente", para que se lea de
+          un vistazo como "esto todavía no es un incidente real". */}
+      {pendingIncidentCoords && (
+        <AdvancedMarker position={{ lat: pendingIncidentCoords[1], lng: pendingIncidentCoords[0] }}>
+          <span className="flex size-8 animate-bounce items-center justify-center rounded-full border-2 border-white bg-primary text-primary-foreground shadow-lg">
+            <TriangleAlert className="size-4" />
+          </span>
+        </AdvancedMarker>
+      )}
 
       {/* Tramos del histórico MIT/MTOP que intersectan la ruta calculada */}
       {mitSegments.map((event) => (

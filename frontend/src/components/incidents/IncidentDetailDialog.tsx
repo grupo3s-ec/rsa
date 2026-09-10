@@ -356,7 +356,9 @@ export function IncidentDetailDialog({
   return (
     <>
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent className="sm:max-w-[36vw]">
+      {/* Mismo ancho que el panel de Altimetría/Riesgos (RouteTimeline) — antes
+          tapaba bastante más mapa del necesario para mostrar el detalle. */}
+      <SheetContent className="sm:w-1/3 sm:min-w-[300px] sm:max-w-[480px]">
 
         {/* Cabecera */}
         <SheetHeader>

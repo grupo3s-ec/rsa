@@ -394,9 +394,15 @@ export function RouteTimeline({
     <div className="flex h-full w-1/3 min-w-[300px] max-w-[480px] shrink-0 flex-col border-l border-border/60 bg-background/95 backdrop-blur">
       {/* ── Encabezado ── */}
       <div className="flex shrink-0 flex-col gap-2 border-b border-border/40 px-3 py-2.5">
-        <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center gap-2">
+          <button type="button" onClick={() => setOpen(false)}
+            aria-label="Ocultar panel"
+            className="shrink-0 rounded-md p-1 text-muted-foreground transition-colors hover:text-foreground">
+            <ChevronRight className="size-3.5" />
+          </button>
+
           {/* Tabs — nowrap + scroll horizontal para garantizar una sola línea */}
-          <div className="flex flex-nowrap items-center gap-0.5 overflow-x-auto rounded-lg border border-border/50 bg-muted/40 p-0.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+          <div className="flex min-w-0 flex-nowrap items-center gap-0.5 overflow-x-auto rounded-lg border border-border/50 bg-muted/40 p-0.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
             {/* Sin siniestros reportados en la ruta CONFIRMADOS (ya cargados),
                 este tab no tiene nada que mostrar — mejor no ofrecerlo que
                 dejar al usuario mirando un estado vacío. Mientras las alertas
@@ -433,12 +439,6 @@ export function RouteTimeline({
               <ShieldCheck className="size-3" /> Evaluación
             </button>
           </div>
-
-          <button type="button" onClick={() => setOpen(false)}
-            aria-label="Ocultar panel"
-            className="shrink-0 rounded-md p-1 text-muted-foreground transition-colors hover:text-foreground">
-            <ChevronRight className="size-3.5" />
-          </button>
         </div>
 
         {/* Indicador de zoom-detalle — visible en cualquier tab, refleja el
