@@ -3100,17 +3100,30 @@ function extractRouteFromGoogleMapsUrl(
     if (segments.length < 2) return null;
 
     // Google incrusta la coordenada YA resuelta de cada punto (incluidos los
-    // nombres de lugar de texto libre) en el bloque "data=" como pares
-    // "!1d<lng>!2d<lat>", en el mismo orden que los segmentos de la ruta. Si el
-    // conteo coincide 1:1, usarlas evita volver a geocodificar un nombre ambiguo
-    // (ej. "Iglesia Católica de X") y terminar en un punto distinto al que
-    // Google Maps mostraba — que es justo lo que pasaba con el punto medio.
+    // nombres de lugar de texto libre) en el bloque "data=", un bloque
+    // "!1mN!1m1!...!2m2!1d<lng>!2d<lat>" por parada, en el mismo orden que los
+    // segmentos de la ruta. Usarlas evita volver a geocodificar un nombre
+    // ambiguo (ej. "Iglesia Católica de X", o "El Tambo" — hay varios en
+    // Ecuador) y terminar en un punto distinto al que Google Maps mostraba.
+    //
+    // Cada parada puede traer además puntos intermedios de forma, anidados como
+    // "!3m4!1m2!1d<lng>!2d<lat>!3s<id>" DENTRO del bloque de esa misma parada —
+    // Google los agrega cuando el tramo hasta la siguiente parada necesita más
+    // de un punto para dibujarse bien; no son paradas nuevas. Antes se
+    // capturaban TODOS los "!1d!2d" del string con un regex global sin separar
+    // por parada, así que cualquier ruta con al menos un tramo así desalineaba
+    // el conteo 1:1 contra `segments` y descartaba las coordenadas de TODAS
+    // las paradas (no solo la de ese tramo) — cayendo a re-geocodificar cada
+    // nombre de texto sin ningún sesgo geográfico (bias vacío, ver más abajo).
     let coords: (LngLat | null)[] = segments.map(() => null);
     if (dataSegment) {
-      const pairs = [...dataSegment.matchAll(/!1d(-?\d+(?:\.\d+)?)!2d(-?\d+(?:\.\d+)?)/g)].map(
-        (mm) => [parseFloat(mm[1]!), parseFloat(mm[2]!)] as LngLat,
-      );
-      if (pairs.length === segments.length) coords = pairs;
+      const waypointBlocks = dataSegment.split(/!1m\d+!1m1!/).slice(1);
+      if (waypointBlocks.length === segments.length) {
+        coords = waypointBlocks.map((block) => {
+          const mm = block.match(/!1d(-?\d+(?:\.\d+)?)!2d(-?\d+(?:\.\d+)?)/);
+          return mm ? ([parseFloat(mm[1]!), parseFloat(mm[2]!)] as LngLat) : null;
+        });
+      }
     }
 
     return { waypoints: segments, coords };
