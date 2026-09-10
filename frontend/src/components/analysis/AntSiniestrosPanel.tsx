@@ -7,6 +7,13 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { getAntSiniestros, getAntSiniestrosOpciones, type AntSiniestro, type AntSiniestrosOpciones } from '@/lib/api/ant-siniestros';
 import type { RawLatLngBounds } from '@/lib/geo';
 
+/** "2026-06" -> "Junio 2026". */
+function formatPeriodoEs(periodo: string): string {
+  const [year, month] = periodo.split('-').map(Number);
+  const label = new Intl.DateTimeFormat('es-EC', { month: 'long', year: 'numeric' }).format(new Date(year!, month! - 1, 1));
+  return label.charAt(0).toUpperCase() + label.slice(1);
+}
+
 function SiniestroCard({ s }: { s: AntSiniestro }) {
   return (
     <div className="rounded-xl border border-border/40 p-3.5 transition-colors hover:border-border">
@@ -62,10 +69,12 @@ export function AntSiniestrosPanel({ conflictProvinces, focusedBounds }: AntSini
 
   const [opciones, setOpciones] = useState<AntSiniestrosOpciones | null>(null);
   const [tipoSiniestro, setTipoSiniestro] = useState('');
-  // Mes/año — valor de un <input type="month"> ("YYYY-MM") o '' = todos los
+  // Mes/año — "YYYY-MM" (uno de `opciones.periodos`) o '' = todos los
   // periodos. Se traduce a un rango from/to (primer y último día del mes)
-  // para el backend, que ya soportaba ese filtro pero no se exponía en la UI.
-  const [mesAnio, setMesAnio] = useState('');
+  // para el backend. `null` = todavía no se decide el default (esperando
+  // `opciones`) — evita disparar una carga de "todos los periodos" que se
+  // descartaría de inmediato al llegar el último periodo real.
+  const [mesAnio, setMesAnio] = useState<string | null>(null);
 
   const [siniestros, setSiniestros] = useState<AntSiniestro[]>([]);
   const [page,        setPage]      = useState(1);
@@ -76,9 +85,8 @@ export function AntSiniestrosPanel({ conflictProvinces, focusedBounds }: AntSini
 
   const routeProvincias = useRoute && hasRouteProvinces ? conflictProvinces ?? undefined : undefined;
 
-  // "YYYY-MM" del <input type="month"> → rango from/to (primer y último día
-  // de ese mes) para el backend, que ya soportaba `from`/`to` pero no se
-  // exponía en la UI.
+  // "YYYY-MM" del selector de periodo → rango from/to (primer y último día
+  // de ese mes) para el backend.
   const { from, to } = useMemo(() => {
     if (!mesAnio) return { from: undefined, to: undefined };
     const [yearStr, monthStr] = mesAnio.split('-');
@@ -92,7 +100,14 @@ export function AntSiniestrosPanel({ conflictProvinces, focusedBounds }: AntSini
   }, [mesAnio]);
 
   useEffect(() => {
-    getAntSiniestrosOpciones().then(setOpciones).catch(() => setOpciones(null));
+    getAntSiniestrosOpciones()
+      .then((data) => {
+        setOpciones(data);
+        // Por defecto, el periodo más reciente con datos (ej. junio si es lo
+        // último cargado) — no "todos los periodos".
+        setMesAnio(data.periodos.length > 0 ? data.periodos[data.periodos.length - 1]! : '');
+      })
+      .catch(() => { setOpciones(null); setMesAnio(''); });
   }, []);
 
   async function load(pageToLoad: number, append: boolean): Promise<void> {
@@ -118,9 +133,13 @@ export function AntSiniestrosPanel({ conflictProvinces, focusedBounds }: AntSini
   }
 
   useEffect(() => {
+    // Espera a que se resuelva el default de `mesAnio` (ver el efecto de
+    // `opciones` arriba) — sin esto, carga una vez con "todos los periodos"
+    // y de inmediato otra con el periodo real, dos requests por nada.
+    if (mesAnio === null) return;
     void load(1, false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [routeProvincias, tipoSiniestro, from, to]);
+  }, [routeProvincias, tipoSiniestro, from, to, mesAnio]);
 
   // Filtra lo YA cargado por contención geográfica (zoom-detalle) — 100%
   // client-side, no dispara peticiones nuevas. Mismo patrón que
@@ -174,24 +193,19 @@ export function AntSiniestrosPanel({ conflictProvinces, focusedBounds }: AntSini
           {opciones?.tipos_siniestro.map((t) => <option key={t} value={t}>{t}</option>)}
         </select>
 
-        <div className="mt-1.5 flex items-center gap-1.5">
-          <input
-            type="month"
-            value={mesAnio}
-            onChange={(e) => setMesAnio(e.target.value)}
-            max={new Date().toISOString().slice(0, 7)}
-            className="h-7 flex-1 rounded-md border border-border/50 bg-background px-2 text-[11px] text-foreground"
-          />
-          {mesAnio && (
-            <button
-              type="button"
-              onClick={() => setMesAnio('')}
-              className="shrink-0 text-[10px] text-muted-foreground underline hover:text-foreground"
-            >
-              Todos los periodos
-            </button>
-          )}
-        </div>
+        {/* Solo los meses con siniestros ya cargados — un <input type="month">
+            deja elegir cualquier mes hasta hoy, incluidos los que todavía no
+            tienen datos (ej. julio, antes de que se suba ese archivo). */}
+        <select
+          value={mesAnio ?? ''}
+          onChange={(e) => setMesAnio(e.target.value)}
+          className="mt-1.5 h-7 w-full rounded-md border border-border/50 bg-background px-2 text-[11px] text-foreground"
+        >
+          <option value="">Todos los periodos</option>
+          {opciones?.periodos.slice().reverse().map((p) => (
+            <option key={p} value={p}>{formatPeriodoEs(p)}</option>
+          ))}
+        </select>
 
         {total > 0 && (
           <p className="mt-1.5 text-[10px] text-muted-foreground">

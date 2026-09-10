@@ -50,6 +50,8 @@ export interface AntSiniestrosFilters {
 export interface AntSiniestrosOpciones {
   tipos_siniestro: string[];
   provincias: string[];
+  /** "YYYY-MM" de cada mes con siniestros cargados, ascendente. */
+  periodos: string[];
 }
 
 export function getAntSiniestros(filters: AntSiniestrosFilters = {}): Promise<AntSiniestrosPage> {

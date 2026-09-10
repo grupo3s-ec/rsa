@@ -58,6 +58,16 @@ class AntAccidentController extends Controller
                 ->distinct()
                 ->orderBy('provincia')
                 ->pluck('provincia'),
+            // "YYYY-MM" de cada mes con siniestros cargados, ascendente — el
+            // selector de periodo del frontend solo debe ofrecer estos (no
+            // cualquier mes hasta hoy, que podría no tener datos todavía), y
+            // arrancar seleccionado en el último (más reciente).
+            'periodos' => AntAccident::query()
+                ->whereNotNull('fecha')
+                ->selectRaw("to_char(fecha, 'YYYY-MM') as periodo")
+                ->distinct()
+                ->orderBy('periodo')
+                ->pluck('periodo'),
         ]);
     }
 }
