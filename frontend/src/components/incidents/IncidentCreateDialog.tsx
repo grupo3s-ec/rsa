@@ -219,7 +219,7 @@ export function IncidentCreateDialog({
 
   return (
     <Sheet open={open} onOpenChange={(v) => { if (!v && !pickActive) reset(); onOpenChange(v); }}>
-      <SheetContent side="bottom" className="sm:mx-auto sm:max-w-xl">
+      <SheetContent side="right" className="sm:max-w-[36vw]">
         <SheetHeader>
           <SheetTitle>Reportar novedad</SheetTitle>
         </SheetHeader>
