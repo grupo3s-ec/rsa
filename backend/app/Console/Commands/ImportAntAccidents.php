@@ -67,6 +67,22 @@ class ImportAntAccidents extends Command
                     continue;
                 }
 
+                // La BDD cruda de la ANT trae de vez en cuando una fila con lat/lng
+                // corrupta (signo invertido, lat/lng intercambiadas, o el punto
+                // decimal perdido en la extracción — ej. "-78198026" en vez de
+                // "-78.198026"). Sin este filtro, una sola fila así hace overflow
+                // en la columna decimal(10,7) y aborta la transacción completa,
+                // perdiendo las ~10 mil filas buenas junto con ella. El rango
+                // cubre Ecuador continental + Galápagos con margen.
+                if (
+                    !is_numeric($lat) || !is_numeric($lng)
+                    || (float) $lat < -6 || (float) $lat > 2
+                    || (float) $lng < -93 || (float) $lng > -74
+                ) {
+                    $omitidos++;
+                    continue;
+                }
+
                 $fecha = isset($row['fecha_serial']) && $row['fecha_serial'] !== ''
                     ? $epoch->copy()->addDays((int) $row['fecha_serial'])->toDateString()
                     : null;
@@ -78,6 +94,12 @@ class ImportAntAccidents extends Command
                 // "ND" ("No Disponible") es el literal que usa la ANT para
                 // campos sin dato — se guarda como null en vez de ese texto.
                 $nd = static fn (?string $v) => ($v === null || $v === 'ND' || $v === '') ? null : $v;
+                // `nombre_via` es varchar(120) pero algunas descripciones crudas
+                // de la ANT superan eso (ej. límites entre provincias con nombre
+                // largo) — sin truncar, esa fila hace overflow y tumba toda la
+                // transacción. Es solo texto descriptivo, truncar no pierde nada
+                // que importe (código/coordenadas/tipo van en sus propias columnas).
+                $ndTrunc = static fn (?string $v, int $max) => $v === null ? null : mb_substr($v, 0, $max);
 
                 AntAccident::query()->create([
                     'codigo'             => $row['codigo'],
@@ -96,7 +118,7 @@ class ImportAntAccidents extends Command
                     'zona_planificacion' => $nd($row['zona_planificacion'] ?? null),
                     'zona'               => $nd($row['zona'] ?? null),
                     'id_via'             => $nd($row['id_via'] ?? null),
-                    'nombre_via'         => $nd($row['nombre_via'] ?? null),
+                    'nombre_via'         => $ndTrunc($nd($row['nombre_via'] ?? null), 120),
                     'ente_control'       => $nd($row['ente_control'] ?? null),
                     'feriado'            => ($row['feriado'] ?? null) === 'SI',
                     'codigo_causa'       => $nd($row['codigo_causa'] ?? null),

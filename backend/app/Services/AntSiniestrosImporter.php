@@ -224,6 +224,21 @@ class AntSiniestrosImporter
                 continue;
             }
 
+            // La BDD cruda de la ANT trae de vez en cuando una fila con lat/lng
+            // corrupta (signo invertido, lat/lng intercambiadas, o el punto
+            // decimal perdido) — sin este filtro, esa fila hace overflow en la
+            // columna decimal(10,7) y tumba el upsert() de todo su batch (hasta
+            // UPSERT_BATCH_SIZE filas buenas) junto con ella. El rango cubre
+            // Ecuador continental + Galápagos con margen.
+            if (
+                !is_numeric($lat) || !is_numeric($lng)
+                || (float) $lat < -6 || (float) $lat > 2
+                || (float) $lng < -93 || (float) $lng > -74
+            ) {
+                $omitidos++;
+                continue;
+            }
+
             $fecha = $row['fecha_serial'] !== null && $row['fecha_serial'] !== ''
                 ? $epoch->copy()->addDays((int) $row['fecha_serial'])->toDateString()
                 : null;
@@ -233,6 +248,9 @@ class AntSiniestrosImporter
                 : null;
 
             $nd = static fn (mixed $v) => ($v === null || $v === 'ND' || $v === '') ? null : (string) $v;
+            // Ver ImportAntAccidents::handle() — nombre_via es varchar(120) pero
+            // algunas descripciones crudas de la ANT lo superan.
+            $ndTrunc = static fn (mixed $v, int $max) => ($s = $nd($v)) === null ? null : mb_substr($s, 0, $max);
 
             $codigo = (string) $row['codigo'];
             $rows[] = [
@@ -252,7 +270,7 @@ class AntSiniestrosImporter
                 'zona_planificacion' => $nd($row['zona_planificacion']),
                 'zona'               => $nd($row['zona']),
                 'id_via'             => $nd($row['id_via']),
-                'nombre_via'         => $nd($row['nombre_via']),
+                'nombre_via'         => $ndTrunc($row['nombre_via'], 120),
                 'ente_control'       => $nd($row['ente_control']),
                 'feriado'            => $row['feriado'] === 'SI',
                 'codigo_causa'       => $nd($row['codigo_causa']),
