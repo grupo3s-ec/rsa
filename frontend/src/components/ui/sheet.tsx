@@ -17,11 +17,14 @@ import { XIcon } from "lucide-react"
  * detalle. `modal={false}` por defecto: el mapa (y cualquier otro elemento
  * detrás) sigue recibiendo clicks normalmente mientras el Sheet está abierto
  * — necesario para, ej., marcar la ubicación de un incidente en el mapa sin
- * tener que cerrar primero el formulario de reporte.
+ * tener que cerrar primero el formulario de reporte. `disablePointerDismissal`
+ * también por defecto en `true`: sin esto, aunque `modal={false}` deja pasar
+ * el click al mapa, Base UI lo interpreta IGUAL como "click afuera" y cierra
+ * el Sheet solo — justo lo que se quiere evitar al tocar el mapa detrás.
  */
 
-function Sheet({ modal = false, ...props }: DialogPrimitive.Root.Props) {
-  return <DialogPrimitive.Root data-slot="sheet" modal={modal} {...props} />
+function Sheet({ modal = false, disablePointerDismissal = true, ...props }: DialogPrimitive.Root.Props) {
+  return <DialogPrimitive.Root data-slot="sheet" modal={modal} disablePointerDismissal={disablePointerDismissal} {...props} />
 }
 
 function SheetTrigger({ ...props }: DialogPrimitive.Trigger.Props) {
