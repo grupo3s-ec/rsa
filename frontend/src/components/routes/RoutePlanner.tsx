@@ -2640,7 +2640,10 @@ function AntSiniestroPopup({ siniestro, onClose }: { siniestro: AntSiniestro; on
           </span>
         ) : null}
         <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
-          {siniestro.fecha && <span>{siniestro.fecha}{siniestro.hora ? ` · ${siniestro.hora.slice(0, 5)}` : ''}</span>}
+          {/* `fecha` llega como datetime ISO completo (ej. "2026-03-05T00:00:00.000000Z")
+              con la hora siempre en 00:00:00 — la hora real ya viene aparte en
+              `hora`, así que solo se muestra la parte de fecha antes de la "T". */}
+          {siniestro.fecha && <span>{siniestro.fecha.split('T')[0]}{siniestro.hora ? ` · ${siniestro.hora.slice(0, 5)}` : ''}</span>}
           {siniestro.lesionados > 0 && <span className="text-amber-600 dark:text-amber-400">{siniestro.lesionados} lesionado{siniestro.lesionados !== 1 ? 's' : ''}</span>}
           {siniestro.fallecidos > 0 && <span className="text-red-600 dark:text-red-400">{siniestro.fallecidos} fallecido{siniestro.fallecidos !== 1 ? 's' : ''}</span>}
         </div>

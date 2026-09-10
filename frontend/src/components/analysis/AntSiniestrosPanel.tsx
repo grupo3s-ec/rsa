@@ -25,7 +25,11 @@ function SiniestroCard({ s }: { s: AntSiniestro }) {
       <div className="flex items-center gap-2 text-[11px] text-muted-foreground mb-2">
         <span className="size-1.5 rounded-full shrink-0 bg-teal-500" />
         <span>{[s.parroquia, s.canton, s.provincia].filter(Boolean).join(', ')}</span>
-        <span className="ml-auto shrink-0 text-right">{s.fecha ?? ''}</span>
+        {/* `fecha` llega como datetime ISO completo con la hora siempre en
+            00:00:00 — la hora real viene aparte en `hora`. */}
+        <span className="ml-auto shrink-0 text-right">
+          {s.fecha?.split('T')[0] ?? ''}{s.hora ? ` · ${s.hora.slice(0, 5)}` : ''}
+        </span>
       </div>
       {s.direccion && (
         <p className="text-xs text-muted-foreground leading-relaxed line-clamp-2">{s.direccion}</p>
