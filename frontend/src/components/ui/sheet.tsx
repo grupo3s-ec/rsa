@@ -21,6 +21,10 @@ import { XIcon } from "lucide-react"
  * también por defecto en `true`: sin esto, aunque `modal={false}` deja pasar
  * el click al mapa, Base UI lo interpreta IGUAL como "click afuera" y cierra
  * el Sheet solo — justo lo que se quiere evitar al tocar el mapa detrás.
+ * El overlay en sí lleva `pointer-events-none`: aunque sea invisible, seguía
+ * siendo un div `fixed inset-0` encima del mapa que se quedaba con el click
+ * antes de que le llegara a nada de abajo — sin esto, el mapa nunca recibía
+ * el evento aunque el Sheet ya no se cerrara solo.
  */
 
 function Sheet({ modal = false, disablePointerDismissal = true, ...props }: DialogPrimitive.Root.Props) {
@@ -47,7 +51,7 @@ function SheetOverlay({
     <DialogPrimitive.Backdrop
       data-slot="sheet-overlay"
       className={cn(
-        "fixed inset-0 isolate z-50 bg-transparent duration-100 data-open:animate-in data-open:fade-in-0 data-closed:animate-out data-closed:fade-out-0",
+        "pointer-events-none fixed inset-0 isolate z-50 bg-transparent duration-100 data-open:animate-in data-open:fade-in-0 data-closed:animate-out data-closed:fade-out-0",
         className
       )}
       {...props}
