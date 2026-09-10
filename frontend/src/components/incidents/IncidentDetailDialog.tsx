@@ -98,41 +98,41 @@ function VideoSection({ videoUrl, title }: { videoUrl: string | null; title: str
   }
 
   return (
-    <div className="flex aspect-video w-full items-center justify-center rounded-xl border border-dashed border-border/60 bg-muted/40 text-muted-foreground">
-      <span className="flex items-center gap-2 text-xs">
-        <VideoOff className="size-4" />
-        Sin video
-      </span>
-    </div>
+    <span className="flex items-center gap-1 text-xs text-destructive">
+      <VideoOff className="size-3" />
+      Sin video
+    </span>
   );
 }
 
-interface MediaItemProps { item: IncidentMedia; onDelete: () => void }
+interface MediaItemProps { item: IncidentMedia; onDelete: () => void; onOpen: () => void }
 
-function MediaItem({ item, onDelete }: MediaItemProps) {
+function MediaItem({ item, onDelete, onOpen }: MediaItemProps) {
   const [imgError, setImgError] = useState(false);
   const isPhoto = item.media_type === 'photo';
+  const canOpen = !!item.url && !(isPhoto && imgError);
 
   return (
     <div className="group relative overflow-hidden rounded-lg border border-border/60 bg-muted/40">
       {isPhoto && item.url && !imgError ? (
-        <a href={item.url} target="_blank" rel="noreferrer">
+        <button type="button" onClick={onOpen} className="block w-full" aria-label="Ampliar foto">
           <img
             src={item.url}
             alt={item.file_name ?? 'Foto'}
             className="h-24 w-full object-cover transition-opacity group-hover:opacity-80"
             onError={() => setImgError(true)}
           />
-        </a>
+        </button>
       ) : (
-        <a
-          href={item.url ?? undefined}
-          target={item.url ? '_blank' : undefined}
-          rel="noreferrer"
-          className="flex h-24 w-full items-center justify-center text-muted-foreground"
+        <button
+          type="button"
+          onClick={canOpen ? onOpen : undefined}
+          disabled={!canOpen}
+          aria-label={isPhoto ? 'Foto no disponible' : 'Ampliar video'}
+          className="flex h-24 w-full items-center justify-center text-muted-foreground disabled:cursor-default"
         >
           {isPhoto ? <ImageOff className="size-6" /> : <Film className="size-6" />}
-        </a>
+        </button>
       )}
       <button
         type="button"
@@ -145,6 +145,44 @@ function MediaItem({ item, onDelete }: MediaItemProps) {
       {item.file_name && (
         <p className="truncate px-2 py-1 text-[11px] text-muted-foreground">{item.file_name}</p>
       )}
+    </div>
+  );
+}
+
+/** Vista ampliada de una foto/video de evidencia — a pantalla completa sobre
+ * un fondo oscuro (no un Sheet: esto sí es un visor de contenido dedicado,
+ * distinto del caso "no tapar el mapa" que aplica al detalle del incidente). */
+function MediaLightbox({ item, onClose }: { item: IncidentMedia; onClose: () => void }) {
+  return (
+    <div
+      className="fixed inset-0 z-[100] flex items-center justify-center bg-black/85 p-6"
+      onClick={onClose}
+    >
+      <button
+        type="button"
+        onClick={onClose}
+        aria-label="Cerrar"
+        className="absolute right-4 top-4 flex size-9 items-center justify-center rounded-full bg-white/10 text-white transition-colors hover:bg-white/20"
+      >
+        <X className="size-5" />
+      </button>
+      {item.media_type === 'photo' && item.url ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={item.url}
+          alt={item.file_name ?? 'Foto'}
+          className="max-h-full max-w-full rounded-lg object-contain"
+          onClick={(e) => e.stopPropagation()}
+        />
+      ) : item.media_type === 'video' && item.url ? (
+        <video
+          src={item.url}
+          controls
+          autoPlay
+          className="max-h-full max-w-full rounded-lg"
+          onClick={(e) => e.stopPropagation()}
+        />
+      ) : null}
     </div>
   );
 }
@@ -193,6 +231,9 @@ export function IncidentDetailDialog({
   const fileInputRef                = useRef<HTMLInputElement>(null);
   const videoInputRef               = useRef<HTMLInputElement>(null);
   const [uploading, setUploading]   = useState(false);
+
+  // Foto/video de evidencia ampliado en pantalla completa (ver `MediaLightbox`).
+  const [lightboxItem, setLightboxItem] = useState<IncidentMedia | null>(null);
 
   // Cargar historial + media cada vez que se abre el dialog (o cambia el incidente)
   useEffect(() => {
@@ -318,6 +359,7 @@ export function IncidentDetailDialog({
   // ─────────────────────────────────────────────────────────────────────────────
 
   return (
+    <>
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent className="sm:max-w-[36vw]">
 
@@ -574,7 +616,12 @@ export function IncidentDetailDialog({
           ) : (
             <div className="grid grid-cols-3 gap-2">
               {media.map(item => (
-                <MediaItem key={item.id} item={item} onDelete={() => { void handleDeleteMedia(item.id); }} />
+                <MediaItem
+                  key={item.id}
+                  item={item}
+                  onDelete={() => { void handleDeleteMedia(item.id); }}
+                  onOpen={() => setLightboxItem(item)}
+                />
               ))}
             </div>
           )}
@@ -627,5 +674,9 @@ export function IncidentDetailDialog({
 
       </SheetContent>
     </Sheet>
+    {lightboxItem && (
+      <MediaLightbox item={lightboxItem} onClose={() => setLightboxItem(null)} />
+    )}
+    </>
   );
 }

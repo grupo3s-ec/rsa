@@ -11,9 +11,11 @@ import { XIcon } from "lucide-react"
  * Variante lateral de `Dialog` — mismo primitivo de `@base-ui/react/dialog`
  * (focus-trap/overlay/portal ya resueltos ahí), solo cambia la posición y
  * animación del `Popup`: se desliza desde el borde derecho en vez de
- * aparecer centrado, dejando el mapa visible/atenuado detrás del overlay
- * semi-transparente — mantiene el contexto espacial del usuario en vez de
- * taparlo por completo con un modal centrado.
+ * aparecer centrado, dejando el mapa completamente visible detrás — sin
+ * oscurecer ni desenfocar — porque el usuario siempre quiere poder seguir
+ * viendo el mapa (y el incidente seleccionado en él) mientras revisa el
+ * detalle. El overlay sigue ahí (invisible) solo para capturar el click-fuera
+ * que cierra el Sheet.
  */
 
 function Sheet({ ...props }: DialogPrimitive.Root.Props) {
@@ -40,7 +42,7 @@ function SheetOverlay({
     <DialogPrimitive.Backdrop
       data-slot="sheet-overlay"
       className={cn(
-        "fixed inset-0 isolate z-50 bg-black/30 duration-100 supports-backdrop-filter:backdrop-blur-sm data-open:animate-in data-open:fade-in-0 data-closed:animate-out data-closed:fade-out-0",
+        "fixed inset-0 isolate z-50 bg-transparent duration-100 data-open:animate-in data-open:fade-in-0 data-closed:animate-out data-closed:fade-out-0",
         className
       )}
       {...props}
